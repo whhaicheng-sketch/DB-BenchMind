@@ -180,11 +180,26 @@ make clean        # 清理构建产物
 
 ## 文档
 
+### 用户文档
+
+- [用户手册 (USER_GUIDE.md)](./docs/USER_GUIDE.md) - 详细的使用指南
+- [CLI 快速开始 (QUICK_START.md)](./QUICK_START.md) - CLI 工具快速上手
+- [CLI 使用指南 (CLI_USAGE.md)](./CLI_USAGE.md) - CLI 命令参考
+
+### 开发文档
+
+- [API 参考文档 (API_REFERENCE.md)](./docs/API_REFERENCE.md) - 完整的 API 文档
+- [开发者指南 (DEVELOPER_GUIDE.md)](./docs/DEVELOPER_GUIDE.md) - 开发环境和规范
+- [测试文档 (TESTING.md)](./docs/TESTING.md) - 测试策略和指南
+
+### 项目文档
+
 - [产品需求文档 (spec.md)](./specs/spec.md)
 - [技术实现计划 (plan.md)](./specs/plan.md)
 - [任务分解 (tasks.md)](./specs/tasks.md)
 - [开发规范 (CLAUDE.md)](./CLAUDE.md)
 - [项目宪法 (constitution.md)](./constitution.md)
+- [架构决策 (architecture.md)](./.specify/steering/architecture.md)
 
 ---
 
@@ -193,13 +208,23 @@ make clean        # 清理构建产物
 ### MVP (v1.0) - 12 周
 
 - [x] Phase 1: 项目初始化与基础设施
-- [ ] Phase 2: 连接管理（4 种数据库）
-- [ ] Phase 3: 模板系统与任务配置
-- [ ] Phase 4: 工具适配器与执行编排（3 个工具）
-- [ ] Phase 5: 结果存储与历史记录
-- [ ] Phase 6: 报告生成与导出（4 种格式）
-- [ ] Phase 7: 结果对比功能
-- [ ] Phase 8: 设置页面与文档完善
+- [x] Phase 2: 连接管理（4 种数据库）
+- [x] Phase 3: 模板系统与任务配置
+- [x] Phase 4: 工具适配器与执行编排（3 个工具）
+- [x] Phase 5: 结果存储与历史记录
+- [x] Phase 6: 报告生成与导出（4 种格式）
+- [x] Phase 7: 结果对比功能
+- [x] Phase 8: 设置页面与文档完善
+
+### 测试覆盖率
+
+- **总体覆盖率**: ~65%
+- **Domain 层**: ~82%
+- **Execution 层**: 97%
+- **Report 层**: 89%
+- **Tool 检测**: 91%
+
+**说明**: 后端核心功能已完成，GUI 部分需要系统库支持（OpenGL/GLFW）。CLI 版本完全可用。
 
 ### 未来版本 (v2.0+)
 
