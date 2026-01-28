@@ -1,0 +1,85 @@
+# golangci-lint configuration for DB-BenchMind
+# Based on CLAUDE.md requirements and constitution.md principles
+
+linters:
+  disable-all: true
+  enable:
+    # Essential linters (constitution.md compliance)
+    - errcheck        # Check for unchecked errors
+    - gofmt           # Code formatting
+    - goimports       # Import ordering/formatting
+    - govet           # Go vet static analysis
+    - staticcheck     # Go static analysis
+    - unused          # Check for unused code/constants
+    - ineffassign     # Detect ineffectual assignments
+    - deadcode        # Find unused code
+    - varcheck        # Find unused global variables/constants
+    - structcheck     # Find unused struct fields
+
+    # Style and best practices
+    - gocyclo         # Cyclomatic complexity
+    - goconst         # Repeated strings/numbers could be constants
+    - misspell        # Spell checking
+    - unconvert       # Remove unnecessary type conversions
+    - prealloc        # Preallocate slices
+    - exportloopref   # Check loop variable references
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - shadow       # Disabled: can conflict with common patterns
+
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  gocyclo:
+    min-complexity: 15  # Allow reasonable complexity
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+
+issues:
+  # Show only new issues
+  new: false
+
+  # Maximum issues count per one linter
+  max-issues-per-linter: 0
+
+  # Maximum count of issues with the same text
+  max-same-issues: 0
+
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo      # Tests can be more complex
+        - errcheck     # Tests often intentionally ignore errors
+        - goconst      # Tests use magic values
+
+run:
+  # Timeout for analysis
+  timeout: 5m
+
+  # Include test files
+  tests: true
+
+  # Which dirs to skip
+  skip-dirs:
+    - vendor
+    - testdata
+    - results
+    - build
+
+output:
+  # Colored output
+  formats: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true

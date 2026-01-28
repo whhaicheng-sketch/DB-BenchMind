@@ -1,0 +1,65 @@
+{
+  "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
+  "id": "swingbench-soe",
+  "name": "Swingbench Order Entry",
+  "description": "Order Entry (SOE) - Simulates an order processing system with mixed workload",
+  "tool": "swingbench",
+  "database_types": ["oracle"],
+  "version": "1.0.0",
+  "parameters": {
+    "threads": {
+      "type": "integer",
+      "label": "Number of users/threads",
+      "default": 10,
+      "min": 1,
+      "max": 500
+    },
+    "time": {
+      "type": "integer",
+      "label": "Runtime (minutes)",
+      "default": 10,
+      "min": 1,
+      "max": 1440
+    },
+    "schema": {
+      "type": "string",
+      "label": "Schema name",
+      "default": "SOE"
+    },
+    "connect_string": {
+      "type": "string",
+      "label": "Oracle connect string (overrides connection)",
+      "default": ""
+    },
+    "think_time": {
+      "type": "integer",
+      "label": "Think time (ms)",
+      "default": 0,
+      "min": 0,
+      "max": 10000
+    },
+    "batch_size": {
+      "type": "integer",
+      "label": "Batch size",
+      "default": 1,
+      "min": 1,
+      "max": 1000
+    }
+  },
+  "command_template": {
+    "prepare": "cd $SWINGBENCH_HOME && ./datagenerator -cs {connection_string} -schema {schema} -scale 1 -t {table_counts} -cl",
+    "run": "cd $SWINGBENCH_HOME && ./ccwizard -cs {connection_string} -u {user} -p {password} -dt {threads} -rt {time} -a soe -think {think_time} -v",
+    "cleanup": "echo 'No cleanup for Swingbench - drop schema manually if needed'"
+  },
+  "output_parser": {
+    "type": "regex",
+    "patterns": {
+      "tps": "TPS\\s*:\\s*(\\d+\\.?\\d*)",
+      "transactions_total": "Total Transactions\\s*:\\s*(\\d+)",
+      "errors": "Errors\\s*:\\s*(\\d+)",
+      "response_time_avg": "Average Response Time\\s*:\\s*(\\d+\\.?\\d*)",
+      "response_time_min": "Min Response Time\\s*:\\s*(\\d+\\.?\\d*)",
+      "response_time_max": "Max Response Time\\s*:\\s*(\\d+\\.?\\d*)"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+db-benchmind
+db-benchmind.exe
+/build/
+/bin/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# DB-BenchMind specific
+results/
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# Keyring testing
+keyring-test/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Claude files (keep .claude/ for configuration)
+.claude/agents/
+.claude/commands/
+.claude/hooks/
+.claude/skills/
+.claude/state/
+
+# Downloaded tools and dependencies
+soft/
+*.zip
+instantclient-basic.zip
+swingbench.zip
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Debug files
+debug
+*.prof
+*.pprof
+
+# Build artifacts
+dist/
+
+# Existing ignores
+.claude/settings.local.json
+.idea/
+.DS_Store

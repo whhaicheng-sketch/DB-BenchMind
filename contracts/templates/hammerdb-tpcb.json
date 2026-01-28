@@ -1,0 +1,67 @@
+{
+  "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
+  "id": "hammerdb-tpcb",
+  "name": "HammerDB TPROC-B",
+  "description": "Standard TPC-B benchmark test (simple banking transaction model)",
+  "tool": "hammerdb",
+  "database_types": ["mysql", "postgresql", "oracle", "sqlserver"],
+  "version": "1.0.0",
+  "parameters": {
+    "threads": {
+      "type": "integer",
+      "label": "Number of virtual users",
+      "default": 10,
+      "min": 1,
+      "max": 1000
+    },
+    "time": {
+      "type": "integer",
+      "label": "Runtime (minutes)",
+      "default": 10,
+      "min": 1,
+      "max": 1440
+    },
+    "branches": {
+      "type": "integer",
+      "label": "Number of branches",
+      "default": 1,
+      "min": 1,
+      "max": 1000
+    },
+    "tellers": {
+      "type": "integer",
+      "label": "Tellers per branch",
+      "default": 10,
+      "min": 1,
+      "max": 100
+    },
+    "accounts": {
+      "type": "integer",
+      "label": "Accounts per branch",
+      "default": 100000,
+      "min": 1000,
+      "max": 10000000
+    },
+    "rampup_time": {
+      "type": "integer",
+      "label": "Ramp up time (minutes)",
+      "default": 2,
+      "min": 0,
+      "max": 60
+    }
+  },
+  "command_template": {
+    "prepare": "hammerdbcli autobuild \"dbset db {db_type}; dbset bm TPC-B; diset connection {connection_config}; diset tpcb {db_type}_count_branch {branches}; diset tpcb {db_type}_count_teller {tellers}; diset tpcb {db_type}_count_account {accounts}; buildschema; wait for completion\"",
+    "run": "hammerdbcli autobuild \"dbset db {db_type}; dbset bm TPC-B; diset connection {connection_config}; diset tpcb {db_type}_driver timed; diset tpcb {db_type}_rampup {rampup_time}; diset tpcb {db_type}_duration {time}; vuset vu {threads}; vucreate; vurun; vudestroy\"",
+    "cleanup": "hammerdbcli autobuild \"dbset db {db_type}; dbset bm TPC-B; diset connection {connection_config}; dropschema\""
+  },
+  "output_parser": {
+    "type": "regex",
+    "patterns": {
+      "tpm": "TPM\\s*:\\s*(\\d+\\.?\\d*)",
+      "nopm": "NOPM\\s*:\\s*(\\d+\\.?\\d*)",
+      "efficiency": "Efficiency\\s*:\\s*(\\d+\\.?\\d*)%",
+      "errors": "Errors\\s*:\\s*(\\d+)"
+    }
+  }
+}
