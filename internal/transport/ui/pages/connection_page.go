@@ -20,15 +20,17 @@ import (
 // ConnectionPage provides the connection management GUI.
 type ConnectionPage struct {
 	connUC   *usecase.ConnectionUseCase
+	win      fyne.Window
 	list     *widget.List
 	conns    []connection.Connection
 	selected int
 }
 
 // NewConnectionPage creates a new connection management page.
-func NewConnectionPage(connUC *usecase.ConnectionUseCase) fyne.CanvasObject {
+func NewConnectionPage(connUC *usecase.ConnectionUseCase, win fyne.Window) fyne.CanvasObject {
 	page := &ConnectionPage{
 		connUC:   connUC,
+		win:     win,
 		selected: -1,
 	}
 
@@ -90,7 +92,7 @@ func (p *ConnectionPage) loadConnections() {
 
 // onAddConnection handles the "Add Connection" button click.
 func (p *ConnectionPage) onAddConnection() {
-	showConnectionDialog(p.connUC, p.list, p.loadConnections)
+	showConnectionDialog(p.connUC, p.win, p.loadConnections)
 }
 
 // onDeleteConnection handles the "Delete" button click.
@@ -109,13 +111,13 @@ func (p *ConnectionPage) onDeleteConnection() {
 			}
 			err := p.connUC.DeleteConnection(context.Background(), conn.GetID())
 			if err != nil {
-				dialog.ShowError(err, nil)
+				dialog.ShowError(err, p.win)
 				return
 			}
-			dialog.ShowInformation("Success", "Connection deleted", nil)
+			dialog.ShowInformation("Success", "Connection deleted", p.win)
 			p.loadConnections()
 		},
-		nil,
+		p.win,
 	)
 }
 
@@ -126,21 +128,22 @@ func (p *ConnectionPage) onTestConnection() {
 	}
 
 	conn := p.conns[p.selected]
+	win := p.win // Capture for goroutine
 
 	// Test in background
 	go func() {
 		result, err := p.connUC.TestConnection(context.Background(), conn.GetID())
 		if err != nil {
-			dialog.ShowError(err, nil)
+			dialog.ShowError(err, win)
 			return
 		}
 
 		if result.Success {
 			msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
 				result.LatencyMs, result.DatabaseVersion)
-			dialog.ShowInformation("Connection Test", msg, nil)
+			dialog.ShowInformation("Connection Test", msg, win)
 		} else {
-			dialog.ShowError(fmt.Errorf("failed: %s", result.Error), nil)
+			dialog.ShowError(fmt.Errorf("failed: %s", result.Error), win)
 		}
 	}()
 }
@@ -150,7 +153,7 @@ func (p *ConnectionPage) onTestConnection() {
 // =============================================================================
 
 // showConnectionDialog shows the connection add/edit dialog.
-func showConnectionDialog(connUC *usecase.ConnectionUseCase, parent fyne.CanvasObject, onSuccess func()) {
+func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, onSuccess func()) {
 	d := &connectionDialog{
 		connUC:    connUC,
 		onSuccess: onSuccess,
@@ -201,13 +204,13 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, parent fyne.CanvasO
 	// Show form dialog
 	dialog.ShowForm("Add Connection", "Save", "Cancel", formItems, func(save bool) {
 		if save {
-			d.onSave()
+			d.onSave(win)
 		}
-	}, nil)
+	}, win)
 }
 
 // onSave handles the save button click.
-func (d *connectionDialog) onSave() {
+func (d *connectionDialog) onSave(win fyne.Window) {
 	ctx := context.Background()
 	now := time.Now()
 	id := fmt.Sprintf("conn-%d", now.UnixNano())
@@ -222,7 +225,7 @@ func (d *connectionDialog) onSave() {
 	sslMode := d.sslSelect.Selected
 
 	if name == "" {
-		dialog.ShowError(fmt.Errorf("name required"), nil)
+		dialog.ShowError(fmt.Errorf("name required"), win)
 		return
 	}
 
@@ -289,23 +292,23 @@ func (d *connectionDialog) onSave() {
 			Password: password,
 		}
 	default:
-		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), nil)
+		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), win)
 		return
 	}
 
 	// Validate
 	if err := conn.Validate(); err != nil {
-		dialog.ShowError(fmt.Errorf("validation: %w", err), nil)
+		dialog.ShowError(fmt.Errorf("validation: %w", err), win)
 		return
 	}
 
 	// Save
 	if err := d.connUC.CreateConnection(ctx, conn); err != nil {
-		dialog.ShowError(fmt.Errorf("save: %w", err), nil)
+		dialog.ShowError(fmt.Errorf("save: %w", err), win)
 		return
 	}
 
-	dialog.ShowInformation("Success", "Connection saved", nil)
+	dialog.ShowInformation("Success", "Connection saved", win)
 
 	if d.onSuccess != nil {
 		d.onSuccess()

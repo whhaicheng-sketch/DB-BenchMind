@@ -58,7 +58,8 @@
       "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli list:*)",
       "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli detect:*)",
       "Bash(head:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(timeout:*)"
     ]
   }
 }

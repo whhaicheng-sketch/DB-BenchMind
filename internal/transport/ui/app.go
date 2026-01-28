@@ -36,7 +36,7 @@ func (a *Application) Run() {
 
 	// Create tabs
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Connections", pages.NewConnectionPage(a.connUC)),
+		container.NewTabItem("Connections", pages.NewConnectionPage(a.connUC, window)),
 		container.NewTabItem("Templates", pages.NewTemplatePage()),
 		container.NewTabItem("Tasks", pages.NewTaskPage()),
 		container.NewTabItem("Monitor", pages.NewMonitorPage()),
