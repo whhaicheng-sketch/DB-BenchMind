@@ -34,9 +34,6 @@ func NewTemplateManagementPage() fyne.CanvasObject {
 		selected: -1,
 	}
 
-	// Load built-in templates
-	page.loadTemplates()
-
 	// Create template list
 	page.list = widget.NewList(
 		func() int {
@@ -63,6 +60,9 @@ func NewTemplateManagementPage() fyne.CanvasObject {
 		tmpl := page.templates[id]
 		page.showTemplateDetails(tmpl)
 	}
+
+	// Load built-in templates
+	page.loadTemplates()
 
 	// Create toolbar
 	btnRefresh := widget.NewButton("Refresh", func() { page.loadTemplates() })
@@ -117,7 +117,9 @@ func (p *TemplateManagementPage) loadTemplates() {
 		},
 	}
 
-	p.list.Refresh()
+	if p.list != nil {
+		p.list.Refresh()
+	}
 }
 
 // showTemplateDetails shows template details.

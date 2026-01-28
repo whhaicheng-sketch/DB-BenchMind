@@ -5,8 +5,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
@@ -19,9 +22,26 @@ import (
 const Version = "1.0.0"
 
 func main() {
-	// Setup logging
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	// Setup logging to both file and console
+	logDir := "./data/logs"
+	os.MkdirAll(logDir, 0755)
+
+	// Create log file with timestamp
+	timestamp := time.Now().Format("2006-01-02")
+	logFile := filepath.Join(logDir, fmt.Sprintf("db-benchmind-cli-%s.log", timestamp))
+
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open log file: %v\n", err)
+		os.Exit(1)
+	}
+	defer file.Close()
+
+	// Create multi-writer for both file and console
+	logger := slog.New(newMultiHandler(os.Stdout, file))
 	slog.SetDefault(logger)
+
+	slog.Info("DB-BenchMind CLI started", "version", Version, "log_file", logFile)
 
 	if len(os.Args) < 2 {
 		showHelp()
@@ -71,6 +91,7 @@ For more information: https://github.com/whhaicheng/DB-BenchMind
 }
 
 func listConnections() {
+	slog.Info("Listing connections", "command", "list")
 	ctx := context.Background()
 
 	// Initialize database
@@ -125,6 +146,7 @@ func listConnections() {
 }
 
 func detectTools() {
+	slog.Info("Detecting benchmark tools", "command", "detect")
 	ctx := context.Background()
 
 	// Initialize settings
@@ -174,4 +196,56 @@ func getHostInfo(conn connection.Connection) string {
 	default:
 		return "unknown"
 	}
+}
+
+// multiHandler writes log records to multiple handlers.
+type multiHandler struct {
+	handlers []slog.Handler
+}
+
+// newMultiHandler creates a new multi-handler that writes to all provided writers.
+func newMultiHandler(writers ...io.Writer) slog.Handler {
+	var handlers []slog.Handler
+	for _, w := range writers {
+		handlers = append(handlers, slog.NewTextHandler(w, nil))
+	}
+	return &multiHandler{handlers: handlers}
+}
+
+// Handle handles the log record by forwarding to all handlers.
+func (m *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m.handlers {
+		if err := h.Handle(ctx, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Enabled reports whether the handler is enabled for the given level.
+func (m *multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
+}
+
+// WithAttrs returns a new handler with the given attributes.
+func (m *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	var newHandlers []slog.Handler
+	for _, h := range m.handlers {
+		newHandlers = append(newHandlers, h.WithAttrs(attrs))
+	}
+	return &multiHandler{handlers: newHandlers}
+}
+
+// WithGroup returns a new handler with the given group name.
+func (m *multiHandler) WithGroup(name string) slog.Handler {
+	var newHandlers []slog.Handler
+	for _, h := range m.handlers {
+		newHandlers = append(newHandlers, h.WithGroup(name))
+	}
+	return &multiHandler{handlers: newHandlers}
 }

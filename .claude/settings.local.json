@@ -49,7 +49,16 @@
       "Bash(grep:*)",
       "Bash(./build/db-benchmind-cli version:*)",
       "Bash(./build/db-benchmind-cli:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(ldconfig:*)",
+      "Bash(dpkg:*)",
+      "Bash(CGO_LDFLAGS=\"-L/usr/lib/x86_64-linux-gnu\" go build:*)",
+      "Bash(/opt/project/DB-BenchMind/build/db-benchmind:*)",
+      "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli:*)",
+      "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli list:*)",
+      "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli detect:*)",
+      "Bash(head:*)",
+      "Bash(pkill:*)"
     ]
   }
 }
