@@ -44,7 +44,8 @@
       "Bash(su:*)",
       "Bash(find:*)",
       "Bash(GOPROXY=https://goproxy.cn,direct go mod tidy:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
