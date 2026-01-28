@@ -48,7 +48,8 @@
       "Bash(git commit:*)",
       "Bash(grep:*)",
       "Bash(./build/db-benchmind-cli version:*)",
-      "Bash(./build/db-benchmind-cli:*)"
+      "Bash(./build/db-benchmind-cli:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

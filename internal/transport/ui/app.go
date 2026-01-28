@@ -15,16 +15,14 @@ import (
 
 // Application represents the Fyne GUI application.
 type Application struct {
-	app    *fyne.App
+	app    fyne.App
 	connUC *usecase.ConnectionUseCase
 }
 
 // NewApplication creates a new Fyne application.
 func NewApplication(connUC *usecase.ConnectionUseCase) *Application {
-	a := app.NewWithID("com.db-benchmind.app")
-
 	return &Application{
-		app:    a,
+		app:    app.NewWithID("com.db-benchmind.app"),
 		connUC: connUC,
 	}
 }

@@ -1,9 +1,12 @@
 // Package pages provides GUI pages for DB-BenchMind.
-// Each page corresponds to a tab in the main window.
 package pages
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -15,24 +18,19 @@ import (
 )
 
 // ConnectionPage provides the connection management GUI.
-// Implements: REQ-CONN-001 (show connection list), REQ-CONN-008 (edit connection)
 type ConnectionPage struct {
-	connUC *usecase.ConnectionUseCase
-	list   *widget.List
-	conns  []connection.Connection
+	connUC   *usecase.ConnectionUseCase
+	list     *widget.List
+	conns    []connection.Connection
+	selected int
 }
 
 // NewConnectionPage creates a new connection management page.
 func NewConnectionPage(connUC *usecase.ConnectionUseCase) fyne.CanvasObject {
 	page := &ConnectionPage{
-		connUC: connUC,
+		connUC:   connUC,
+		selected: -1,
 	}
-
-	// Create toolbar
-	toolbar := container.NewHBox(
-		widget.NewButton("Add Connection", page.onAddConnection),
-		widget.NewButton("Refresh", page.onRefresh),
-	)
 
 	// Create connection list
 	page.list = widget.NewList(
@@ -40,51 +38,111 @@ func NewConnectionPage(connUC *usecase.ConnectionUseCase) fyne.CanvasObject {
 			return len(page.conns)
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("")
+			return widget.NewLabel("Connection Name")
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			label := obj.(*widget.Label)
 			if id < widget.ListItemID(len(page.conns)) {
 				conn := page.conns[id]
-				label.SetText(conn.GetName())
+				label.SetText(fmt.Sprintf("%s (%s)", conn.GetName(), conn.GetType()))
 			}
 		},
+	)
+
+	// Handle selection
+	page.list.OnSelected = func(id widget.ListItemID) {
+		page.selected = int(id)
+	}
+
+	// Handle unselection - Fyne 2.x doesn't have OnUnselected, use OnSelected with -1
+	// page.list.OnUnselected = func() {}
+
+	// Create toolbar
+	btnAdd := widget.NewButton("Add Connection", func() { page.onAddConnection() })
+	btnDelete := widget.NewButton("Delete", func() { page.onDeleteConnection() })
+	btnTest := widget.NewButton("Test", func() { page.onTestConnection() })
+	btnRefresh := widget.NewButton("Refresh", func() { page.loadConnections() })
+
+	toolbar := container.NewHBox(btnAdd, btnDelete, btnTest, btnRefresh)
+
+	content := container.NewVBox(
+		toolbar,
+		widget.NewSeparator(),
+		container.NewPadded(page.list),
 	)
 
 	// Load initial connections
 	page.loadConnections()
 
-	// Create layout
-	return container.NewBorder(
-		toolbar,
-		nil,
-		nil,
-		nil,
-		container.NewPadded(page.list),
-	)
+	return content
 }
 
 // loadConnections loads connections from the use case.
 func (p *ConnectionPage) loadConnections() {
 	conns, err := p.connUC.ListConnections(context.Background())
 	if err != nil {
-		showErrorDialog("Failed to load connections", err, p.list)
+		dialog.ShowError(err, nil)
 		return
 	}
 	p.conns = conns
 	p.list.Refresh()
-	p.list.UnselectAll()
 }
 
 // onAddConnection handles the "Add Connection" button click.
-// Implements: REQ-CONN-001
 func (p *ConnectionPage) onAddConnection() {
-	showConnectionDialog(p.connUC, p.list, nil, p.loadConnections)
+	showConnectionDialog(p.connUC, p.list, p.loadConnections)
 }
 
-// onRefresh handles the "Refresh" button click.
-func (p *ConnectionPage) onRefresh() {
-	p.loadConnections()
+// onDeleteConnection handles the "Delete" button click.
+func (p *ConnectionPage) onDeleteConnection() {
+	if p.selected < 0 || p.selected >= len(p.conns) {
+		return
+	}
+
+	conn := p.conns[p.selected]
+	dialog.ShowConfirm(
+		"Delete Connection",
+		fmt.Sprintf("Delete connection '%s'?", conn.GetName()),
+		func(confirmed bool) {
+			if !confirmed {
+				return
+			}
+			err := p.connUC.DeleteConnection(context.Background(), conn.GetID())
+			if err != nil {
+				dialog.ShowError(err, nil)
+				return
+			}
+			dialog.ShowInformation("Success", "Connection deleted", nil)
+			p.loadConnections()
+		},
+		nil,
+	)
+}
+
+// onTestConnection handles the "Test Connection" button click.
+func (p *ConnectionPage) onTestConnection() {
+	if p.selected < 0 || p.selected >= len(p.conns) {
+		return
+	}
+
+	conn := p.conns[p.selected]
+
+	// Test in background
+	go func() {
+		result, err := p.connUC.TestConnection(context.Background(), conn.GetID())
+		if err != nil {
+			dialog.ShowError(err, nil)
+			return
+		}
+
+		if result.Success {
+			msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
+				result.LatencyMs, result.DatabaseVersion)
+			dialog.ShowInformation("Connection Test", msg, nil)
+		} else {
+			dialog.ShowError(fmt.Errorf("failed: %s", result.Error), nil)
+		}
+	}()
 }
 
 // =============================================================================
@@ -92,89 +150,171 @@ func (p *ConnectionPage) onRefresh() {
 // =============================================================================
 
 // showConnectionDialog shows the connection add/edit dialog.
-func showConnectionDialog(connUC *usecase.ConnectionUseCase, parent fyne.CanvasObject, conn connection.Connection, onSuccess func()) {
+func showConnectionDialog(connUC *usecase.ConnectionUseCase, parent fyne.CanvasObject, onSuccess func()) {
 	d := &connectionDialog{
 		connUC:    connUC,
-		parent:    parent,
-		conn:      conn,
 		onSuccess: onSuccess,
 	}
 
-	// Create dialog items
-	items := d.createDialogItems()
+	// Create form fields
+	d.nameEntry = widget.NewEntry()
+	d.nameEntry.SetPlaceHolder("My Connection")
 
-	dialog.ShowForm("Add Connection", "Save", "Cancel", items, func(b bool) {
-		if b && d.onSuccess != nil {
-			d.onSuccess()
+	d.hostEntry = widget.NewEntry()
+	d.hostEntry.SetText("localhost")
+
+	d.portEntry = widget.NewEntry()
+	d.portEntry.SetText("3306")
+
+	d.dbEntry = widget.NewEntry()
+
+	d.userEntry = widget.NewEntry()
+
+	d.passEntry = widget.NewPasswordEntry()
+
+	d.sslSelect = widget.NewSelect([]string{"disabled", "preferred", "required"}, nil)
+
+	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, func(s string) {
+		switch s {
+		case "MySQL":
+			d.portEntry.SetText("3306")
+		case "PostgreSQL":
+			d.portEntry.SetText("5432")
+		case "Oracle":
+			d.portEntry.SetText("1521")
+		case "SQL Server":
+			d.portEntry.SetText("1433")
+		}
+	})
+
+	formItems := []*widget.FormItem{
+		widget.NewFormItem("Database Type", d.dbTypeSelect),
+		widget.NewFormItem("Name", d.nameEntry),
+		widget.NewFormItem("Host", d.hostEntry),
+		widget.NewFormItem("Port", d.portEntry),
+		widget.NewFormItem("Database", d.dbEntry),
+		widget.NewFormItem("Username", d.userEntry),
+		widget.NewFormItem("Password", d.passEntry),
+		widget.NewFormItem("SSL", d.sslSelect),
+	}
+
+	// Show form dialog
+	dialog.ShowForm("Add Connection", "Save", "Cancel", formItems, func(save bool) {
+		if save {
+			d.onSave()
 		}
 	}, nil)
 }
 
-// createDialogItems creates form items for the connection dialog.
-func (d *connectionDialog) createDialogItems() []*widget.FormItem {
-	// Database type selection
-	dbTypeSelect := widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, func(s string) {
-		// Update form based on selection
-	})
+// onSave handles the save button click.
+func (d *connectionDialog) onSave() {
+	ctx := context.Background()
+	now := time.Now()
+	id := fmt.Sprintf("conn-%d", now.UnixNano())
 
-	// Name
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("Connection Name")
+	dbType := d.dbTypeSelect.Selected
+	name := strings.TrimSpace(d.nameEntry.Text)
+	host := strings.TrimSpace(d.hostEntry.Text)
+	port, _ := strconv.Atoi(d.portEntry.Text)
+	database := strings.TrimSpace(d.dbEntry.Text)
+	username := strings.TrimSpace(d.userEntry.Text)
+	password := d.passEntry.Text
+	sslMode := d.sslSelect.Selected
 
-	// Host
-	hostEntry := widget.NewEntry()
-	hostEntry.SetPlaceHolder("localhost")
-
-	// Port
-	portEntry := widget.NewEntry()
-	portEntry.SetPlaceHolder("3306")
-	portEntry.Validator = func(s string) error {
-		// Port validation will be done by use case
-		return nil
+	if name == "" {
+		dialog.ShowError(fmt.Errorf("name required"), nil)
+		return
 	}
 
-	// Database
-	dbEntry := widget.NewEntry()
-	dbEntry.SetPlaceHolder("Database Name")
+	// Create connection based on type
+	var conn connection.Connection
 
-	// Username
-	userEntry := widget.NewEntry()
-	userEntry.SetPlaceHolder("Username")
+	switch dbType {
+	case "MySQL":
+		conn = &connection.MySQLConnection{
+			BaseConnection: connection.BaseConnection{
+				ID:        id,
+				Name:      name,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			Host:     host,
+			Port:     port,
+			Database: database,
+			Username: username,
+			Password: password,
+			SSLMode:  sslMode,
+		}
+	case "PostgreSQL":
+		conn = &connection.PostgreSQLConnection{
+			BaseConnection: connection.BaseConnection{
+				ID:        id,
+				Name:      name,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			Host:     host,
+			Port:     port,
+			Database: database,
+			Username: username,
+			Password: password,
+			SSLMode:  sslMode,
+		}
+	case "Oracle":
+		conn = &connection.OracleConnection{
+			BaseConnection: connection.BaseConnection{
+				ID:        id,
+				Name:      name,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			Host:     host,
+			Port:     port,
+			SID:      database,
+			Username: username,
+			Password: password,
+		}
+	case "SQL Server":
+		conn = &connection.SQLServerConnection{
+			BaseConnection: connection.BaseConnection{
+				ID:        id,
+				Name:      name,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			Host:     host,
+			Port:     port,
+			Database: database,
+			Username: username,
+			Password: password,
+		}
+	default:
+		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), nil)
+		return
+	}
 
-	// Password
-	passEntry := widget.NewPasswordEntry()
-	passEntry.SetPlaceHolder("Password")
+	// Validate
+	if err := conn.Validate(); err != nil {
+		dialog.ShowError(fmt.Errorf("validation: %w", err), nil)
+		return
+	}
 
-	// SSL Mode
-	sslSelect := widget.NewSelect([]string{"disabled", "preferred", "required"}, nil)
+	// Save
+	if err := d.connUC.CreateConnection(ctx, conn); err != nil {
+		dialog.ShowError(fmt.Errorf("save: %w", err), nil)
+		return
+	}
 
-	// Store references
-	d.nameEntry = nameEntry
-	d.hostEntry = hostEntry
-	d.portEntry = portEntry
-	d.dbEntry = dbEntry
-	d.userEntry = userEntry
-	d.passEntry = passEntry
-	d.sslSelect = sslSelect
-	d.dbTypeSelect = dbTypeSelect
+	dialog.ShowInformation("Success", "Connection saved", nil)
 
-	return []*widget.FormItem{
-		{Text: "Database Type", Widget: dbTypeSelect},
-		{Text: "Name", Widget: nameEntry},
-		{Text: "Host", Widget: hostEntry},
-		{Text: "Port", Widget: portEntry},
-		{Text: "Database", Widget: dbEntry},
-		{Text: "Username", Widget: userEntry},
-		{Text: "Password", Widget: passEntry},
-		{Text: "SSL Mode", Widget: sslSelect},
+	if d.onSuccess != nil {
+		d.onSuccess()
 	}
 }
 
-// connectionDialog represents the connection add/edit dialog.
+// connectionDialog represents the connection dialog.
 type connectionDialog struct {
-	connUC        *usecase.ConnectionUseCase
-	parent       fyne.CanvasObject
-	conn         connection.Connection
+	connUC       *usecase.ConnectionUseCase
 	onSuccess    func()
 	nameEntry    *widget.Entry
 	hostEntry    *widget.Entry
@@ -186,18 +326,13 @@ type connectionDialog struct {
 	dbTypeSelect *widget.Select
 }
 
-// showErrorDialog shows an error dialog.
-func showErrorDialog(title string, err error, parent fyne.CanvasObject) {
-	dialog.ShowError(err, nil)
-}
-
 // =============================================================================
-// Other Page Stubs (to be implemented)
+// Other Pages
 // =============================================================================
 
 // NewTemplatePage creates the template management page.
 func NewTemplatePage() fyne.CanvasObject {
-	return container.NewCenter(widget.NewLabel("Template Management - Coming Soon"))
+	return NewTemplateManagementPage()
 }
 
 // NewTaskPage creates the task configuration page.
