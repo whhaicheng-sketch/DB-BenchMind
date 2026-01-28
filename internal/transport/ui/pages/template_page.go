@@ -4,19 +4,19 @@ package pages
 
 import (
 	"fmt"
-	"strings"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"strings"
 )
 
 // TemplateManagementPage provides the template management GUI.
 type TemplateManagementPage struct {
-	list     *widget.List
+	win       fyne.Window
+	list      *widget.List
 	templates []templateInfo
-	selected int
+	selected  int
 }
 
 // templateInfo represents display info for a template.
@@ -29,11 +29,11 @@ type templateInfo struct {
 }
 
 // NewTemplateManagementPage creates a new template management page.
-func NewTemplateManagementPage() fyne.CanvasObject {
+func NewTemplateManagementPage(win fyne.Window) fyne.CanvasObject {
 	page := &TemplateManagementPage{
+		win:      win,
 		selected: -1,
 	}
-
 	// Create template list
 	page.list = widget.NewList(
 		func() int {
@@ -54,16 +54,13 @@ func NewTemplateManagementPage() fyne.CanvasObject {
 			}
 		},
 	)
-
 	page.list.OnSelected = func(id widget.ListItemID) {
 		page.selected = int(id)
 		tmpl := page.templates[id]
 		page.showTemplateDetails(tmpl)
 	}
-
 	// Load built-in templates
 	page.loadTemplates()
-
 	// Create toolbar
 	btnRefresh := widget.NewButton("Refresh", func() { page.loadTemplates() })
 	btnDetails := widget.NewButton("View Details", func() {
@@ -71,15 +68,12 @@ func NewTemplateManagementPage() fyne.CanvasObject {
 			page.showTemplateDetails(page.templates[page.selected])
 		}
 	})
-
 	toolbar := container.NewHBox(btnRefresh, btnDetails)
-
 	content := container.NewVBox(
 		toolbar,
 		widget.NewSeparator(),
 		container.NewPadded(page.list),
 	)
-
 	return content
 }
 
@@ -116,7 +110,6 @@ func (p *TemplateManagementPage) loadTemplates() {
 			IsBuiltin:   true,
 		},
 	}
-
 	if p.list != nil {
 		p.list.Refresh()
 	}
@@ -125,31 +118,25 @@ func (p *TemplateManagementPage) loadTemplates() {
 // showTemplateDetails shows template details.
 func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 	var sb strings.Builder
-
 	sb.WriteString("# ")
 	sb.WriteString(tmpl.Name)
 	sb.WriteString("\n\n")
-
 	if tmpl.Description != "" {
 		sb.WriteString("**Description:** ")
 		sb.WriteString(tmpl.Description)
 		sb.WriteString("\n\n")
 	}
-
 	sb.WriteString("**ID:** `")
 	sb.WriteString(tmpl.ID)
 	sb.WriteString("`\n\n")
-
 	sb.WriteString("**Tool:** `")
 	sb.WriteString(tmpl.Tool)
 	sb.WriteString("`\n\n")
-
 	if tmpl.IsBuiltin {
 		sb.WriteString("**Type:** Built-in Template\n\n")
 	} else {
 		sb.WriteString("**Type:** Custom Template\n\n")
 	}
-
 	sb.WriteString("**Supported Databases:**\n")
 	switch tmpl.Tool {
 	case "sysbench":
@@ -163,16 +150,14 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		sb.WriteString("- SQL Server\n")
 		sb.WriteString("- PostgreSQL\n")
 	}
-
 	content := widget.NewRichTextFromMarkdown(sb.String())
-
 	dlg := dialog.NewCustomConfirm(
 		"Template Details",
 		"Close",
 		"",
 		content,
 		func(bool) {},
-		nil,
+		p.win,
 	)
 	dlg.Resize(fyne.NewSize(600, 500))
 	dlg.Show()

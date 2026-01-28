@@ -37,13 +37,13 @@ func (a *Application) Run() {
 	// Create tabs
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Connections", pages.NewConnectionPage(a.connUC, window)),
-		container.NewTabItem("Templates", pages.NewTemplatePage()),
-		container.NewTabItem("Tasks", pages.NewTaskPage()),
-		container.NewTabItem("Monitor", pages.NewMonitorPage()),
-		container.NewTabItem("History", pages.NewHistoryPage()),
-		container.NewTabItem("Comparison", pages.NewComparisonPage()),
-		container.NewTabItem("Reports", pages.NewReportPage()),
-		container.NewTabItem("Settings", pages.NewSettingsPage()),
+		container.NewTabItem("Templates", pages.NewTemplatePage(window)),
+		container.NewTabItem("Tasks", pages.NewTaskPage(window)),
+		container.NewTabItem("Monitor", pages.NewMonitorPage(window)),
+		container.NewTabItem("History", pages.NewHistoryPage(window)),
+		container.NewTabItem("Comparison", pages.NewComparisonPage(window)),
+		container.NewTabItem("Reports", pages.NewReportPage(window)),
+		container.NewTabItem("Settings", pages.NewSettingsPage(window, a.connUC)),
 	)
 
 	tabs.SetTabLocation(container.TabLocationTop)
