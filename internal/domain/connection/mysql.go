@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	// Import MySQL driver (will be added later when testing)
-	// _ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
 // MySQLConnection represents a MySQL database connection configuration.
@@ -36,19 +35,30 @@ func (c *MySQLConnection) GetType() DatabaseType {
 
 // GetDSN generates a connection string without password (for logging).
 // Format: username@tcp(host:port)/database
+// If database is empty, returns: username@tcp(host:port)
 func (c *MySQLConnection) GetDSN() string {
+	if c.Database == "" {
+		return fmt.Sprintf("%s@tcp(%s:%d)", c.Username, c.Host, c.Port)
+	}
 	return fmt.Sprintf("%s@tcp(%s:%d)/%s", c.Username, c.Host, c.Port, c.Database)
 }
 
 // GetDSNWithPassword generates a complete connection string with password.
 // Format: username:password@tcp(host:port)/database
+// If database is empty, returns: username:password@tcp(host:port)
 func (c *MySQLConnection) GetDSNWithPassword() string {
+	if c.Database == "" {
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)", c.Username, c.Password, c.Host, c.Port)
+	}
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", c.Username, c.Password, c.Host, c.Port, c.Database)
 }
 
 // Redact returns a redacted connection string for display (REQ-CONN-008).
-// Format: "name (***@host:port/database)"
+// Format: "name (***@host:port/database)" or "name (***@host:port)" if no database
 func (c *MySQLConnection) Redact() string {
+	if c.Database == "" {
+		return fmt.Sprintf("%s (***@%s:%d)", c.Name, c.Host, c.Port)
+	}
 	return fmt.Sprintf("%s (***@%s:%d/%s)", c.Name, c.Host, c.Port, c.Database)
 }
 
@@ -61,6 +71,7 @@ func (c *MySQLConnection) ToJSON() ([]byte, error) {
 
 // Validate validates the connection parameters (REQ-CONN-010).
 // Returns an error if any required field is missing or invalid.
+// Note: database field is optional for MySQL (can connect without specifying database).
 func (c *MySQLConnection) Validate() error {
 	var errs []error
 
@@ -71,9 +82,10 @@ func (c *MySQLConnection) Validate() error {
 	if err := ValidateRequired("host", c.Host); err != nil {
 		errs = append(errs, err)
 	}
-	if err := ValidateRequired("database", c.Database); err != nil {
-		errs = append(errs, err)
-	}
+	// Database is optional for MySQL - can connect without specifying a database
+	// if err := ValidateRequired("database", c.Database); err != nil {
+	// 	errs = append(errs, err)
+	// }
 	if err := ValidateRequired("username", c.Username); err != nil {
 		errs = append(errs, err)
 	}
