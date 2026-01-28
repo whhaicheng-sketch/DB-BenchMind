@@ -45,7 +45,10 @@
       "Bash(find:*)",
       "Bash(GOPROXY=https://goproxy.cn,direct go mod tidy:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "Bash(./build/db-benchmind-cli version:*)",
+      "Bash(./build/db-benchmind-cli:*)"
     ]
   }
 }
