@@ -4,8 +4,8 @@
 *.dll
 *.so
 *.dylib
-db-benchmind
-db-benchmind.exe
+/db-benchmind
+/db-benchmind.exe
 /build/
 /bin/
 
@@ -37,6 +37,7 @@ results/
 *.db
 *.db-shm
 *.db-wal
+data/*.enc
 
 # Keyring testing
 keyring-test/
