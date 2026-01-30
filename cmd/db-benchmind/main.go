@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
+	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/database"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/database/repository"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/keyring"
@@ -21,6 +22,9 @@ import (
 )
 
 func main() {
+	// Check working directory - MUST be project root!
+	checkWorkingDirectory()
+
 	// Set locale to avoid Fyne warning
 	if os.Getenv("LANG") == "" || os.Getenv("LANG") == "C" {
 		os.Setenv("LANG", "en_US.UTF-8")
@@ -73,11 +77,46 @@ func main() {
 
 	// 4. Initialize use cases
 	connUC := usecase.NewConnectionUseCase(connRepo, keyringProvider)
+
+	// Create template repository and use case
+	templateRepo := usecase.NewMemoryTemplateRepository()
+	templateUC := usecase.NewTemplateUseCase(templateRepo, "contracts/templates")
+
+	// Load built-in templates
+	if err := templateUC.LoadBuiltinTemplates(context.Background()); err != nil {
+		slog.Warn("Failed to load built-in templates", "error", err)
+	} else {
+		// Get templates to verify loading
+		templates, _ := templateUC.ListBuiltinTemplates(context.Background())
+		slog.Info("Built-in templates loaded", "count", len(templates))
+	}
+
+	// Create adapter registry
+	adapterReg := adapter.NewAdapterRegistry()
+	adapterReg.Register(adapter.NewSysbenchAdapter())
+	// Register other adapters as needed
+
+	// Create run repository
+	runRepo := usecase.NewMemoryRunRepository()
+
+	// Create benchmark use case
+	benchmarkUC := usecase.NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	// Create history repository and use case
+	historyRepo := repository.NewSQLiteHistoryRepository(db)
+	historyUC := usecase.NewHistoryUseCase(historyRepo)
+
+	// Create export use case
+	exportUC := usecase.NewExportUseCase("./exports")
+
+	// Create comparison use case
+	comparisonUC := usecase.NewComparisonUseCase(historyRepo)
+
 	slog.Info("Use cases initialized")
 
 	// 5. Start GUI
 	slog.Info("Starting GUI")
-	app := ui.NewApplication(connUC)
+	app := ui.NewApplication(connUC, benchmarkUC, templateUC, historyUC, exportUC, comparisonUC)
 	app.Run()
 }
 
@@ -131,4 +170,67 @@ func (m *MultiHandler) WithGroup(name string) slog.Handler {
 		newHandlers = append(newHandlers, h.WithGroup(name))
 	}
 	return &MultiHandler{handlers: newHandlers}
+}
+
+// checkWorkingDirectory verifies that the application is running from the project root directory.
+// This is critical because the application uses relative paths for:
+// - Database: ./data/db-benchmind.db
+// - Logs: ./data/logs/
+// - Templates: contracts/templates/
+func checkWorkingDirectory() {
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not determine executable path: %v\n", err)
+		return
+	}
+
+	// Get the working directory
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not get working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check for key files/directories that should exist in project root
+	requiredPaths := []string{
+		"bin/db-benchmind",    // Executable (if built with make)
+		"contracts/templates", // Template directory
+		"Makefile",            // Makefile
+		"cmd/db-benchmind",    // Source directory
+	}
+
+	missingCount := 0
+	var missingPaths []string
+	for _, path := range requiredPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			missingCount++
+			missingPaths = append(missingPaths, path)
+		}
+	}
+
+	// If more than half of the required paths are missing, we're likely in the wrong directory
+	if missingCount > len(requiredPaths)/2 {
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "❌ ERROR: Not running from project root directory!\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Current working directory: %s\n", wd)
+		fmt.Fprintf(os.Stderr, "Executable path: %s\n", execPath)
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Required files/directories are missing:\n")
+		for _, path := range missingPaths {
+			fmt.Fprintf(os.Stderr, "  ❌ %s\n", path)
+		}
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "SOLUTION:\n")
+		fmt.Fprintf(os.Stderr, "  cd /path/to/DB-BenchMind  # Replace with your actual project path\n")
+		fmt.Fprintf(os.Stderr, "  ./bin/db-benchmind gui\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "See: docs/OPERATION.md for detailed instructions.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		os.Exit(1)
+	}
+
+	// Log the working directory (will be visible after logging is initialized)
+	// We can't log here because slog is not initialized yet
 }

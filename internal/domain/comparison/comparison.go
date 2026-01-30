@@ -1,70 +1,50 @@
 // Package comparison provides result comparison functionality.
-// Implements: Phase 6 - Result comparison and analysis
+// Implements: Phase 5 - Result comparison and analysis
 package comparison
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/history"
 )
 
-// ComparisonType represents the type of comparison.
-type ComparisonType string
+// GroupByField defines how to group comparison results.
+type GroupByField string
 
 const (
-	// ComparisonTypeBaseline compares runs against a baseline.
-	ComparisonTypeBaseline ComparisonType = "baseline"
-	// ComparisonTypeTrend compares runs over time for trend analysis.
-	ComparisonTypeTrend ComparisonType = "trend"
-	// ComparisonTypeMulti compares multiple runs side by side.
-	ComparisonTypeMulti ComparisonType = "multi"
+	// GroupByThreads groups results by thread count.
+	GroupByThreads GroupByField = "threads"
+	// GroupByDatabaseType groups results by database type.
+	GroupByDatabaseType GroupByField = "database_type"
+	// GroupByTemplate groups results by template name.
+	GroupByTemplate GroupByField = "template"
+	// GroupByDate groups results by date.
+	GroupByDate GroupByField = "date"
 )
 
-// Comparison represents a comparison of multiple benchmark runs.
-type Comparison struct {
-	ID         string            `json:"id"`
-	Name       string            `json:"name"`
-	Type       ComparisonType    `json:"type"`
-	RunIDs     []string          `json:"run_ids"`
-	BaselineID string            `json:"baseline_id,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-}
-
-// ComparisonResult contains the comparison results.
-type ComparisonResult struct {
-	Comparison *Comparison      `json:"comparison"`
-	Runs       []*execution.Run `json:"runs"`
-	Metrics    *MetricDiff      `json:"metrics"`
-	Summary    *ComparisonSummary `json:"summary"`
-	CreatedAt  time.Time        `json:"created_at"`
-}
-
-// MetricDiff represents the difference in metrics between runs.
-type MetricDiff struct {
-	TPSDiff         []MetricValueDiff `json:"tps_diff"`
-	LatencyAvgDiff  []MetricValueDiff `json:"latency_avg_diff"`
-	LatencyP95Diff  []MetricValueDiff `json:"latency_p95_diff"`
-	ErrorRateDiff   []MetricValueDiff `json:"error_rate_diff"`
-	BestTps         *MetricStats      `json:"best_tps,omitempty"`
-	WorstTps        *MetricStats      `json:"worst_tps,omitempty"`
-	BestLatency     *MetricStats      `json:"best_latency,omitempty"`
-	WorstLatency    *MetricStats      `json:"worst_latency,omitempty"`
-}
-
-// MetricValueDiff represents a single metric difference.
-type MetricValueDiff struct {
-	RunID     string  `json:"run_id"`
-	RunName   string  `json:"run_name"`
-	Value     float64 `json:"value"`
-	Diff      float64 `json:"diff,omitempty"`     // Difference from baseline
-	DiffPct   float64 `json:"diff_pct,omitempty"` // Percentage difference
-	IsBaseline bool    `json:"is_baseline"`
-	Timestamp string  `json:"timestamp,omitempty"`
+// RecordRef is a reference to a history record with summary info.
+type RecordRef struct {
+	ID             string        `json:"id"`
+	TemplateName   string        `json:"template_name"`
+	DatabaseType   string        `json:"database_type"`
+	Threads        int           `json:"threads"`
+	ConnectionName string        `json:"connection_name"`
+	StartTime      time.Time     `json:"start_time"`
+	TPS            float64       `json:"tps"`
+	LatencyAvg     float64       `json:"latency_avg_ms"`
+	LatencyMin     float64       `json:"latency_min_ms"`
+	LatencyMax     float64       `json:"latency_max_ms"`
+	LatencyP95     float64       `json:"latency_p95_ms"`
+	LatencyP99     float64       `json:"latency_p99_ms"`
+	Duration       time.Duration `json:"duration"`
+	QPS            float64       `json:"qps,omitempty"`
+	ReadQueries    int64         `json:"read_queries,omitempty"`
+	WriteQueries   int64         `json:"write_queries,omitempty"`
+	OtherQueries   int64         `json:"other_queries,omitempty"`
 }
 
 // MetricStats contains statistical information about metrics.
@@ -72,284 +52,167 @@ type MetricStats struct {
 	Min     float64   `json:"min"`
 	Max     float64   `json:"max"`
 	Avg     float64   `json:"avg"`
-	Median  float64   `json:"median"`
-	RunID   string    `json:"run_id"`
-	RunName string    `json:"run_name"`
+	StdDev  float64   `json:"std_dev"`
+	Median  float64   `json:"median,omitempty"`
+	RunID   string    `json:"run_id,omitempty"`
+	RunName string    `json:"run_name,omitempty"`
+	Values  []float64 `json:"values,omitempty"`
+	Labels  []string  `json:"labels,omitempty"`
 }
 
-// ComparisonSummary provides a high-level summary of the comparison.
-type ComparisonSummary struct {
-	TotalRuns       int     `json:"total_runs"`
-	BaselineRunID   string  `json:"baseline_run_id,omitempty"`
-	OverallTpsTrend string  `json:"overall_tps_trend"` // "improving", "declining", "stable"
-	TpsChangePct    float64 `json:"tps_change_pct"`
-	BestRun         *RunHighlight `json:"best_run,omitempty"`
-	WorstRun        *RunHighlight `json:"worst_run,omitempty"`
-	Insights        []string `json:"insights,omitempty"`
+// MultiConfigComparison represents a comparison of multiple configurations.
+// This is the main structure for horizontal comparison across different configurations.
+type MultiConfigComparison struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	CreatedAt     time.Time       `json:"created_at"`
+	Records       []*RecordRef    `json:"records"`
+	GroupBy       GroupByField    `json:"group_by"`
+	GeneratedAt   time.Time       `json:"generated_at"`
+
+	// Comparison results
+	TPSComparison   *MetricStats   `json:"tps_comparison"`
+	LatencyCompare  *LatencyStats  `json:"latency_comparison"`
+	QPSComparison   *MetricStats   `json:"qps_comparison"`
+	ReadWriteRatio  *ReadWriteRatio `json:"read_write_ratio"`
 }
 
-// RunHighlight highlights an interesting run.
-type RunHighlight struct {
-	RunID      string  `json:"run_id"`
-	RunName    string  `json:"run_name"`
-	TPS        float64 `json:"tps"`
-	LatencyAvg float64 `json:"latency_avg_ms"`
-	ErrorRate  float64 `json:"error_rate"`
-	Reason     string  `json:"reason"` // Why this run is highlighted
+// LatencyStats contains detailed latency statistics.
+type LatencyStats struct {
+	Avg *MetricStats `json:"avg"`
+	Min *MetricStats `json:"min"`
+	Max *MetricStats `json:"max"`
+	P95 *MetricStats `json:"p95"`
+	P99 *MetricStats `json:"p99"`
 }
 
-// Validate validates the comparison.
-func (c *Comparison) Validate() error {
-	if c.ID == "" {
-		return fmt.Errorf("comparison ID is required")
-	}
-	if c.Name == "" {
-		return fmt.Errorf("comparison name is required")
-	}
-	if len(c.RunIDs) < 2 {
-		return fmt.Errorf("at least 2 runs are required for comparison")
-	}
-	if c.Type == "" {
-		return fmt.Errorf("comparison type is required")
-	}
-	validTypes := map[ComparisonType]bool{
-		ComparisonTypeBaseline: true,
-		ComparisonTypeTrend:    true,
-		ComparisonTypeMulti:    true,
-	}
-	if !validTypes[c.Type] {
-		return fmt.Errorf("invalid comparison type: %s", c.Type)
-	}
-	if c.Type == ComparisonTypeBaseline && c.BaselineID == "" {
-		return fmt.Errorf("baseline ID is required for baseline comparison")
-	}
-	return nil
+// ReadWriteRatio represents read/write query distribution.
+type ReadWriteRatio struct {
+	ReadQueries  int64   `json:"read_queries"`
+	WriteQueries int64   `json:"write_queries"`
+	OtherQueries int64   `json:"other_queries"`
+	ReadPct      float64 `json:"read_pct"`
+	WritePct     float64 `json:"write_pct"`
+	OtherPct     float64 `json:"other_pct"`
 }
 
-// ToJSON serializes the comparison to JSON.
-func (c *Comparison) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(c, "", "  ")
-}
-
-// FromJSON deserializes a comparison from JSON.
-func (c *Comparison) FromJSON(data []byte) error {
-	return json.Unmarshal(data, c)
-}
-
-// CompareRuns compares multiple runs and generates a comparison result.
-func CompareRuns(runs []*execution.Run, baselineID string, compType ComparisonType) (*ComparisonResult, error) {
-	if len(runs) < 2 {
-		return nil, fmt.Errorf("at least 2 runs are required for comparison")
+// CompareMultiConfig performs multi-config comparison on history records.
+func CompareMultiConfig(records []*history.Record, groupBy GroupByField) (*MultiConfigComparison, error) {
+	if len(records) < 2 {
+		return nil, fmt.Errorf("at least 2 records are required for comparison")
 	}
 
-	comparison := &Comparison{
-		ID:        generateComparisonID(),
-		Type:      compType,
-		RunIDs:    extractRunIDs(runs),
-		BaselineID: baselineID,
-		CreatedAt: time.Now(),
-	}
+	// Sort records by group field
+	sortedRecords := make([]*history.Record, len(records))
+	copy(sortedRecords, records)
 
-	if compType == ComparisonTypeBaseline {
-		comparison.BaselineID = baselineID
-	}
-
-	// Calculate metric differences
-	metrics := calculateMetricDiffs(runs, baselineID)
-
-	// Generate summary
-	summary := generateSummary(runs, metrics, baselineID)
-
-	result := &ComparisonResult{
-		Comparison: comparison,
-		Runs:       runs,
-		Metrics:    metrics,
-		Summary:    summary,
-		CreatedAt:  time.Now(),
-	}
-
-	return result, nil
-}
-
-// calculateMetricDiffs calculates metric differences between runs.
-func calculateMetricDiffs(runs []*execution.Run, baselineID string) *MetricDiff {
-	diff := &MetricDiff{}
-
-	// Find baseline run if specified
-	var baselineRun *execution.Run
-	if baselineID != "" {
-		for _, run := range runs {
-			if run.ID == baselineID {
-				baselineRun = run
-				break
-			}
-		}
-	}
-
-	// Extract TPS values
-	for _, run := range runs {
-		tps := extractTPS(run)
-		latencyAvg := extractLatencyAvg(run)
-		latencyP95 := extractLatencyP95(run)
-		errorRate := extractErrorRate(run)
-
-		valueDiff := MetricValueDiff{
-			RunID:     run.ID,
-			RunName:   run.TaskID, // Use TaskID as name since GetName doesn't exist
-			Value:     tps,
-			Timestamp: run.CreatedAt.Format(time.RFC3339),
-			IsBaseline: run.ID == baselineID,
-		}
-
-		if baselineRun != nil && run.ID != baselineID {
-			baselineTPS := extractTPS(baselineRun)
-			valueDiff.Diff = tps - baselineTPS
-			if baselineTPS != 0 {
-				valueDiff.DiffPct = ((tps - baselineTPS) / baselineTPS) * 100
-			}
-		}
-
-		diff.TPSDiff = append(diff.TPSDiff, valueDiff)
-		diff.LatencyAvgDiff = append(diff.LatencyAvgDiff, MetricValueDiff{
-			RunID:     run.ID,
-			RunName:   run.TaskID,
-			Value:     latencyAvg,
-			IsBaseline: run.ID == baselineID,
+	switch groupBy {
+	case GroupByThreads:
+		sort.Slice(sortedRecords, func(i, j int) bool {
+			return sortedRecords[i].Threads < sortedRecords[j].Threads
 		})
-		diff.LatencyP95Diff = append(diff.LatencyP95Diff, MetricValueDiff{
-			RunID:     run.ID,
-			RunName:   run.TaskID,
-			Value:     latencyP95,
-			IsBaseline: run.ID == baselineID,
+	case GroupByDatabaseType:
+		sort.Slice(sortedRecords, func(i, j int) bool {
+			return sortedRecords[i].DatabaseType < sortedRecords[j].DatabaseType
 		})
-		diff.ErrorRateDiff = append(diff.ErrorRateDiff, MetricValueDiff{
-			RunID:     run.ID,
-			RunName:   run.TaskID,
-			Value:     errorRate,
-			IsBaseline: run.ID == baselineID,
+	case GroupByTemplate:
+		sort.Slice(sortedRecords, func(i, j int) bool {
+			return sortedRecords[i].TemplateName < sortedRecords[j].TemplateName
+		})
+	case GroupByDate:
+		sort.Slice(sortedRecords, func(i, j int) bool {
+			return sortedRecords[i].StartTime.Before(sortedRecords[j].StartTime)
 		})
 	}
 
-	// Calculate best and worst stats
-	diff.BestTps = findBestMetric(runs, extractTPS, true)
-	diff.WorstTps = findBestMetric(runs, extractTPS, false)
-	diff.BestLatency = findBestMetric(runs, extractLatencyAvg, true)
-	diff.WorstLatency = findBestMetric(runs, extractLatencyAvg, false)
-
-	return diff
-}
-
-// generateSummary generates a comparison summary.
-func generateSummary(runs []*execution.Run, metrics *MetricDiff, baselineID string) *ComparisonSummary {
-	summary := &ComparisonSummary{
-		TotalRuns:     len(runs),
-		BaselineRunID: baselineID,
-		Insights:      []string{},
-	}
-
-	if baselineID != "" {
-		summary.BaselineRunID = baselineID
-		// Calculate TPS change from baseline
-		if len(metrics.TPSDiff) > 0 {
-			var totalChange float64
-			var count int
-			for _, diff := range metrics.TPSDiff {
-				if !diff.IsBaseline && diff.DiffPct != 0 {
-					totalChange += diff.DiffPct
-					count++
-				}
-			}
-			if count > 0 {
-				summary.TpsChangePct = totalChange / float64(count)
-			}
+	// Create record references
+	refs := make([]*RecordRef, len(sortedRecords))
+	for i, record := range sortedRecords {
+		durationSec := record.Duration.Seconds()
+		qps := 0.0
+		if durationSec > 0 && record.TotalQueries > 0 {
+			qps = float64(record.TotalQueries) / durationSec
 		}
 
-		// Determine trend
-		if summary.TpsChangePct > 5 {
-			summary.OverallTpsTrend = "improving"
-			summary.Insights = append(summary.Insights,
-				fmt.Sprintf("TPS improved by %.1f%% compared to baseline", summary.TpsChangePct))
-		} else if summary.TpsChangePct < -5 {
-			summary.OverallTpsTrend = "declining"
-			summary.Insights = append(summary.Insights,
-				fmt.Sprintf("TPS declined by %.1f%% compared to baseline", math.Abs(summary.TpsChangePct)))
-		} else {
-			summary.OverallTpsTrend = "stable"
-			summary.Insights = append(summary.Insights, "TPS remained stable compared to baseline")
+		refs[i] = &RecordRef{
+			ID:             record.ID,
+			TemplateName:   record.TemplateName,
+			DatabaseType:   record.DatabaseType,
+			Threads:        record.Threads,
+			ConnectionName: record.ConnectionName,
+			StartTime:      record.StartTime,
+			TPS:            record.TPSCalculated,
+			LatencyAvg:     record.LatencyAvg,
+			LatencyMin:     record.LatencyMin,
+			LatencyMax:     record.LatencyMax,
+			LatencyP95:     record.LatencyP95,
+			LatencyP99:     record.LatencyP99,
+			Duration:       record.Duration,
+			QPS:            qps,
+			ReadQueries:    record.ReadQueries,
+			WriteQueries:   record.WriteQueries,
+			OtherQueries:   record.OtherQueries,
 		}
 	}
 
-	// Find best and worst runs
-	if metrics.BestTps != nil {
-		summary.BestRun = &RunHighlight{
-			RunID:      metrics.BestTps.RunID,
-			RunName:    metrics.BestTps.RunName,
-			TPS:        metrics.BestTps.Max,
-			LatencyAvg: 0, // Would need to extract from run
-			ErrorRate:  0,
-			Reason:     "Highest TPS",
-		}
+	// Calculate TPS comparison
+	tpsStats := calculateMetricStats(refs, func(r *RecordRef) float64 {
+		return r.TPS
+	})
+
+	// Calculate latency comparison
+	latencyStats := &LatencyStats{
+		Avg: calculateMetricStats(refs, func(r *RecordRef) float64 { return r.LatencyAvg }),
+		Min: calculateMetricStats(refs, func(r *RecordRef) float64 { return r.LatencyMin }),
+		Max: calculateMetricStats(refs, func(r *RecordRef) float64 { return r.LatencyMax }),
+		P95: calculateMetricStats(refs, func(r *RecordRef) float64 { return r.LatencyP95 }),
+		P99: calculateMetricStats(refs, func(r *RecordRef) float64 { return r.LatencyP99 }),
 	}
 
-	if metrics.WorstTps != nil {
-		summary.WorstRun = &RunHighlight{
-			RunID:      metrics.WorstTps.RunID,
-			RunName:    metrics.WorstTps.RunName,
-			TPS:        metrics.WorstTps.Min,
-			LatencyAvg: 0,
-			ErrorRate:  0,
-			Reason:     "Lowest TPS",
-		}
+	// Calculate QPS comparison
+	qpsStats := calculateMetricStats(refs, func(r *RecordRef) float64 {
+		return r.QPS
+	})
+
+	// Calculate read/write ratio
+	rwRatio := &ReadWriteRatio{}
+	for _, ref := range refs {
+		rwRatio.ReadQueries += ref.ReadQueries
+		rwRatio.WriteQueries += ref.WriteQueries
+		rwRatio.OtherQueries += ref.OtherQueries
+	}
+	totalQueries := rwRatio.ReadQueries + rwRatio.WriteQueries + rwRatio.OtherQueries
+	if totalQueries > 0 {
+		rwRatio.ReadPct = float64(rwRatio.ReadQueries) / float64(totalQueries) * 100
+		rwRatio.WritePct = float64(rwRatio.WriteQueries) / float64(totalQueries) * 100
+		rwRatio.OtherPct = float64(rwRatio.OtherQueries) / float64(totalQueries) * 100
 	}
 
-	return summary
+	return &MultiConfigComparison{
+		ID:              generateComparisonID(),
+		Name:            fmt.Sprintf("Comparison - %d records", len(records)),
+		CreatedAt:       time.Now(),
+		Records:         refs,
+		GroupBy:         groupBy,
+		GeneratedAt:     time.Now(),
+		TPSComparison:   tpsStats,
+		LatencyCompare:  latencyStats,
+		QPSComparison:   qpsStats,
+		ReadWriteRatio:  rwRatio,
+	}, nil
 }
 
-// Helper functions
-func extractRunIDs(runs []*execution.Run) []string {
-	ids := make([]string, len(runs))
-	for i, run := range runs {
-		ids[i] = run.ID
-	}
-	return ids
-}
-
-func extractTPS(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.TPSCalculated
-	}
-	return 0
-}
-
-func extractLatencyAvg(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.LatencyAvg
-	}
-	return 0
-}
-
-func extractLatencyP95(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.LatencyP95
-	}
-	return 0
-}
-
-func extractErrorRate(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.ErrorRate
-	}
-	return 0
-}
-
-func findBestMetric(runs []*execution.Run, extractor func(*execution.Run) float64, findMax bool) *MetricStats {
-	if len(runs) == 0 {
+// calculateMetricStats calculates statistics for a metric across all records.
+func calculateMetricStats(records []*RecordRef, extractor func(*RecordRef) float64) *MetricStats {
+	if len(records) == 0 {
 		return nil
 	}
 
-	values := make([]float64, len(runs))
-	for i, run := range runs {
-		values[i] = extractor(run)
+	values := make([]float64, len(records))
+	labels := make([]string, len(records))
+	for i, record := range records {
+		values[i] = extractor(record)
+		labels[i] = fmt.Sprintf("%s (%d threads)", record.DatabaseType, record.Threads)
 	}
 
 	sort.Float64s(values)
@@ -363,42 +226,142 @@ func findBestMetric(runs []*execution.Run, extractor func(*execution.Run) float6
 	}
 	avg := sum / float64(len(values))
 
-	// Calculate median
-	var median float64
-	if len(values)%2 == 0 {
-		median = (values[len(values)/2-1] + values[len(values)/2]) / 2
-	} else {
-		median = values[len(values)/2]
+	// Calculate standard deviation
+	var varianceSum float64
+	for _, v := range values {
+		diff := v - avg
+		varianceSum += diff * diff
 	}
-
-	// Find the run with the best value
-	var bestRun *execution.Run
-	var bestVal float64
-	if findMax {
-		bestVal = max
-	} else {
-		bestVal = min
-	}
-
-	for _, run := range runs {
-		if extractor(run) == bestVal {
-			bestRun = run
-			break
-		}
-	}
-
-	if bestRun == nil {
-		return nil
-	}
+	stdDev := math.Sqrt(varianceSum / float64(len(values)))
 
 	return &MetricStats{
 		Min:     min,
 		Max:     max,
 		Avg:     avg,
-		Median:  median,
-		RunID:   bestRun.ID,
-		RunName: bestRun.TaskID, // Use TaskID instead of GetName
+		StdDev:  stdDev,
+		Values:  values,
+		Labels:  labels,
 	}
+}
+
+// FormatTable formats the comparison result as a table.
+func (c *MultiConfigComparison) FormatTable() string {
+	var builder strings.Builder
+
+	builder.WriteString("╔════════════════════════════════════════════════════════════════════════════╗\n")
+	builder.WriteString("║                      Multi-Configuration Comparison Results                         ║\n")
+	builder.WriteString("╠════════════════════════════════════════════════════════════════════════════╣\n")
+	builder.WriteString(fmt.Sprintf("║ Generated: %s                                                                  ║\n", c.GeneratedAt.Format("2006-01-02 15:04:05")))
+	builder.WriteString("╠════════════════════════════════════════════════════════════════════════════╣\n\n")
+
+	// Summary
+	builder.WriteString("## Summary\n\n")
+	builder.WriteString(fmt.Sprintf("Total Records: %d\n", len(c.Records)))
+	builder.WriteString(fmt.Sprintf("Group By: %s\n\n", c.GroupBy))
+
+	// TPS Comparison
+	if c.TPSComparison != nil {
+		builder.WriteString("## TPS Comparison (Transactions Per Second)\n\n")
+		formatMetricTable(&builder, "Configuration", c.TPSComparison)
+	}
+
+	// Latency Comparison
+	if c.LatencyCompare != nil {
+		builder.WriteString("\n## Latency Comparison (ms)\n\n")
+		if c.LatencyCompare.Avg != nil {
+			formatMetricTable(&builder, "Configuration (Avg Latency)", c.LatencyCompare.Avg)
+		}
+	}
+
+	// QPS Comparison
+	if c.QPSComparison != nil {
+		builder.WriteString("\n## QPS Comparison (Queries Per Second)\n\n")
+		formatMetricTable(&builder, "Configuration", c.QPSComparison)
+	}
+
+	// Read/Write Ratio
+	if c.ReadWriteRatio != nil {
+		builder.WriteString("\n## Query Distribution\n\n")
+		builder.WriteString(fmt.Sprintf("  Read:  %d queries (%.1f%%)\n", c.ReadWriteRatio.ReadQueries, c.ReadWriteRatio.ReadPct))
+		builder.WriteString(fmt.Sprintf("  Write: %d queries (%.1f%%)\n", c.ReadWriteRatio.WriteQueries, c.ReadWriteRatio.WritePct))
+		if c.ReadWriteRatio.OtherQueries > 0 {
+			builder.WriteString(fmt.Sprintf("  Other: %d queries (%.1f%%)\n", c.ReadWriteRatio.OtherQueries, c.ReadWriteRatio.OtherPct))
+		}
+	}
+
+	return builder.String()
+}
+
+// formatMetricTable formats a metric stats as a table.
+func formatMetricTable(builder *strings.Builder, label string, stats *MetricStats) {
+	builder.WriteString(fmt.Sprintf("┌─────────────────────────────────────────────────────────────────┐\n"))
+	builder.WriteString(fmt.Sprintf("│ %-65s │\n", label))
+	builder.WriteString(fmt.Sprintf("├─────────────────────────────────────────────────────────────────┤\n"))
+	builder.WriteString(fmt.Sprintf("│ %-20s │ %10s │ %10s │ %10s │ %10s │\n", "Config", "Min", "Avg", "Max", "StdDev"))
+	builder.WriteString(fmt.Sprintf("├─────────────────────────────────────────────────────────────────┤\n"))
+
+	for i := 0; i < len(stats.Values) && i < len(stats.Labels); i++ {
+		label := stats.Labels[i]
+		if len(label) > 20 {
+			label = label[:17] + "..."
+		}
+		builder.WriteString(fmt.Sprintf("│ %-20s │ %10.2f │ %10.2f │ %10.2f │ %10.2f │\n",
+			label, stats.Values[i], stats.Avg, stats.Max, stats.StdDev))
+	}
+
+	builder.WriteString(fmt.Sprintf("└─────────────────────────────────────────────────────────────────┘\n"))
+}
+
+// FormatBarChart formats a simple ASCII bar chart.
+func (c *MultiConfigComparison) FormatBarChart(metric string) string {
+	var builder strings.Builder
+
+	var stats *MetricStats
+	switch metric {
+	case "TPS":
+		stats = c.TPSComparison
+	case "QPS":
+		stats = c.QPSComparison
+	default:
+		return "Unknown metric"
+	}
+
+	if stats == nil || len(stats.Values) == 0 {
+		return "No data available"
+	}
+
+	builder.WriteString(fmt.Sprintf("\n## %s Bar Chart\n\n", metric))
+
+	// Find max for scaling
+	max := stats.Max
+	if max == 0 {
+		max = 1
+	}
+
+	// Calculate bar width (max 50 chars)
+	barWidth := 50
+	for i, val := range stats.Values {
+		label := stats.Labels[i]
+		if len(label) > 20 {
+			label = label[:17] + "..."
+		}
+
+		// Calculate bar length
+		length := int((val / max) * float64(barWidth))
+		if length < 1 {
+			length = 1
+		}
+		if length > barWidth {
+			length = barWidth
+		}
+
+		bar := strings.Repeat("█", length)
+		spaces := strings.Repeat(" ", barWidth-length)
+
+		builder.WriteString(fmt.Sprintf("%-20s │%s %10.2f\n", label, bar+spaces, val))
+	}
+
+	return builder.String()
 }
 
 func generateComparisonID() string {

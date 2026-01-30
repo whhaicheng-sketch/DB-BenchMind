@@ -547,76 +547,241 @@ err := reportUC.GenerateReport(ctx, "run-001", report.FormatPDF)
 
 ## 结果对比
 
-### 对比类型
+### 概述
 
-#### 基线对比 (Baseline Comparison)
+DB-BenchMind 提供强大的多配置横向对比功能，允许您：
+- 选择 2-10 条历史记录进行对比
+- 按 Threads、Database Type、Template Name 或 Date 分组
+- 查看 TPS、延迟、QPS 等关键指标的统计对比
+- 通过表格和 ASCII 柱状图可视化结果
+- 分析读写比例和查询分布
 
-将多次运行与指定的基线运行进行对比：
+### GUI 使用方式
+
+#### 基本流程
+
+1. **打开 Comparison 页面**
+   - 启动 DB-BenchMind GUI
+   - 点击 "Comparison" 标签页
+
+2. **选择要对比的记录**
+   - 从历史记录列表中勾选 2-10 条记录
+   - 每条记录显示：数据库类型 | 模板名 | 线程数 | TPS | QPS | 时间
+
+3. **选择分组方式**
+   - **Threads**: 按线程数分组对比
+   - **Database Type**: 按数据库类型分组对比
+   - **Template Name**: 按模板名称分组对比
+   - **Date**: 按日期分组对比
+
+4. **执行对比**
+   - 点击 "📊 Compare Selected" 按钮
+   - 系统自动计算并显示对比结果
+
+5. **查看结果**
+   - 表格视图：展示 TPS、延迟、QPS 的 Min/Avg/Max/StdDev
+   - 柱状图：ASCII 柱状图可视化指标差异
+   - 查询分布：读写比例统计
+
+6. **导出报告**
+   - 点击 "💾 Export Report" 导出对比结果
+   - 支持 TXT、Markdown、CSV 格式（即将推出）
+
+#### 功能按钮
+
+- **🔄 Refresh**: 刷新历史记录列表
+- **📊 Compare Selected**: 对比选中的记录
+- **💾 Export Report**: 导出对比报告
+- **🗑️ Clear**: 清空对比结果
+
+#### 搜索过滤
+
+使用搜索框快速过滤记录：
+- 支持搜索：数据库类型、模板名称、连接名、线程数
+- 实时过滤显示匹配的记录
+
+### API 使用方式
+
+#### 创建对比用例
+
+```go
+import "github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
+
+// 初始化对比用例
+comparisonUC := usecase.NewComparisonUseCase(historyRepo)
+```
+
+#### 获取历史记录引用
+
+```go
+// 获取所有记录的摘要信息
+refs, err := comparisonUC.GetRecordRefs(ctx)
+
+// RecordRef 包含：
+// - ID: 记录 ID
+// - TemplateName: 模板名称
+// - DatabaseType: 数据库类型
+// - Threads: 线程数
+// - TPS: 每秒事务数
+// - LatencyAvg/P95/P99: 延迟指标
+// - QPS: 每秒查询数
+// - ReadQueries/WriteQueries: 读写查询数
+```
+
+#### 执行多配置对比
 
 ```go
 import "github.com/whhaicheng/DB-BenchMind/internal/domain/comparison"
 
-compUC := usecase.NewComparisonUseCase(runRepo)
-
-// 对比多次运行
-result, err := compUC.CompareRuns(ctx, []string{
-    "run-002",
-    "run-003",
-    "run-004",
-}, "run-001", comparison.ComparisonTypeBaseline)
-
-// 查看差异
-for _, diff := range result.Metrics.TPSDiff {
-    println(diff.RunName)
-    println("  TPS:", diff.Value)
-    println("  差异:", diff.Diff)
-    println("  变化率:", diff.DiffPct, "%")
+// 选择要对比的记录 ID
+recordIDs := []string{
+    "hist-001",
+    "hist-002",
+    "hist-003",
 }
+
+// 选择分组方式
+groupBy := comparison.GroupByThreads // 或 GroupByDatabaseType, GroupByTemplate, GroupByDate
+
+// 执行对比
+result, err := comparisonUC.CompareRecords(ctx, recordIDs, groupBy)
+if err != nil {
+    panic(err)
+}
+
+// 查看结果
+fmt.Println("对比 ID:", result.ID)
+fmt.Println("记录数:", len(result.Records))
+fmt.Println("分组方式:", result.GroupBy)
 ```
 
-#### 趋势分析 (Trend Analysis)
-
-分析特定指标在多次运行中的趋势：
+#### 查看统计指标
 
 ```go
-// 分析 TPS 趋势
-analysis, err := compUC.GetTrendAnalysis(ctx, []string{
-    "run-001",
-    "run-002",
-    "run-003",
-    "run-004",
-}, "tps")
+// TPS 对比
+if result.TPSComparison != nil {
+    fmt.Println("TPS 统计:")
+    fmt.Println("  最小值:", result.TPSComparison.Min)
+    fmt.Println("  最大值:", result.TPSComparison.Max)
+    fmt.Println("  平均值:", result.TPSComparison.Avg)
+    fmt.Println("  标准差:", result.TPSComparison.StdDev)
+}
 
-println("趋势:", analysis.Trend)  // "increasing", "decreasing", "stable"
-println("变化率:", analysis.ChangePct, "%")
-println("最小值:", analysis.MinValue)
-println("最大值:", analysis.MaxValue)
-println("平均值:", analysis.AvgValue)
+// 延迟对比
+if result.LatencyCompare != nil {
+    fmt.Println("延迟统计:")
+    fmt.Println("  平均延迟:", result.LatencyCompare.Avg.Avg)
+    fmt.Println("  P95 延迟:", result.LatencyCompare.P95.Max)
+    fmt.Println("  P99 延迟:", result.LatencyCompare.P99.Max)
+}
+
+// QPS 对比
+if result.QPSComparison != nil {
+    fmt.Println("QPS 统计:")
+    fmt.Println("  平均值:", result.QPSComparison.Avg)
+}
 ```
 
-### 对比摘要
-
-对比结果包含摘要信息：
+#### 查看读写比例
 
 ```go
-summary := result.Summary
-println("总运行数:", summary.TotalRuns)
-println("基线 ID:", summary.BaselineRunID)
-println("TPS 趋势:", summary.OverallTpsTrend)
-println("TPS 变化:", summary.TpsChangePct, "%")
-
-// 最佳运行
-if summary.BestRun != nil {
-    println("最佳运行:", summary.BestRun.RunName)
-    println("  原因:", summary.BestRun.Reason)
-    println("  TPS:", summary.BestRun.TPS)
-}
-
-// 洞察
-for _, insight := range summary.Insights {
-    println("💡", insight)
+if result.ReadWriteRatio != nil {
+    fmt.Println("查询分布:")
+    fmt.Printf("  读: %d (%.1f%%)\n", result.ReadWriteRatio.ReadQueries, result.ReadWriteRatio.ReadPct)
+    fmt.Printf("  写: %d (%.1f%%)\n", result.ReadWriteRatio.WriteQueries, result.ReadWriteRatio.WritePct)
+    fmt.Printf("  其他: %d (%.1f%%)\n", result.ReadWriteRatio.OtherQueries, result.ReadWriteRatio.OtherPct)
 }
 ```
+
+#### 格式化输出
+
+```go
+// 生成表格
+table := result.FormatTable()
+fmt.Println(table)
+
+// 输出示例：
+// ╔════════════════════════════════════════════════════════════════════════════╗
+// ║                      Multi-Configuration Comparison Results                 ║
+// ╠════════════════════════════════════════════════════════════════════════════╣
+// ║ Generated: 2026-01-30 13:00:00                                               ║
+// ╠════════════════════════════════════════════════════════════════════════════╣
+// ## Summary
+// Total Records: 3
+// Group By: threads
+// ## TPS Comparison (Transactions Per Second)
+// ...
+
+// 生成柱状图
+tpsChart := result.FormatBarChart("TPS")
+fmt.Println(tpsChart)
+
+// 输出示例：
+// ## TPS Bar Chart
+// MySQL (4 threads)  │██████████████████████████████████████████████████ 1250.50
+// MySQL (8 threads)  │█████████████████████████████████████████████████████████████████████████ 2100.30
+```
+
+### 对比场景示例
+
+#### 场景 1: 线程数对比
+
+对比不同线程数下的性能表现：
+
+```go
+// 选择相同数据库、相同模板、不同线程数的记录
+recordIDs := []string{
+    "run-4-threads",
+    "run-8-threads",
+    "run-16-threads",
+}
+
+// 按线程数分组
+groupBy := comparison.GroupByThreads
+
+result, _ := comparisonUC.CompareRecords(ctx, recordIDs, groupBy)
+// 结果会按线程数从小到大排序
+```
+
+#### 场景 2: 数据库类型对比
+
+对比不同数据库的性能：
+
+```go
+// 选择相同模板、不同数据库类型的记录
+recordIDs := []string{
+    "mysql-oltp-001",
+    "postgresql-oltp-001",
+}
+
+// 按数据库类型分组
+groupBy := comparison.GroupByDatabaseType
+
+result, _ := comparisonUC.CompareRecords(ctx, recordIDs, groupBy)
+```
+
+#### 场景 3: 性能回归测试
+
+对比优化前后的性能：
+
+```go
+// 优化前的测试
+recordIDs := []string{
+    "before-optimization",
+    "after-optimization",
+}
+
+result, _ := comparisonUC.CompareRecords(ctx, recordIDs, comparison.GroupByDate)
+// 查看 TPS 提升百分比
+```
+
+### 使用建议
+
+1. **对比记录数**: 建议 2-5 条，最多不超过 10 条
+2. **相同配置**: 对比时尽量保持测试配置相似（如相同的测试时长、相同的预热时间）
+3. **多次运行**: 每个配置运行 3-5 次，选择平均值或中位数进行对比
+4. **关注 P95/P99**: 不仅要看平均值，更要关注 P95 和 P99 延迟
+5. **结合业务**: 根据实际业务场景选择合适的分组方式
 
 ---
 

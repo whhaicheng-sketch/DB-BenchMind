@@ -56,15 +56,30 @@ make deps
 make build
 ```
 
-构建完成后，可执行文件位于 `./build/db-benchmind`
+构建完成后，可执行文件位于 `./bin/db-benchmind`
 
 #### 4. 运行应用
 
+⚠️ **重要：必须从项目根目录启动！**
+
 ```bash
+# 方式1：使用 Makefile（推荐）
 make run
-# 或直接运行
-./build/db-benchmind
+
+# 方式2：直接运行（必须确保在项目根目录）
+cd /path/to/DB-Benchmind  # 必须进入项目根目录
+./bin/db-benchmind gui
+
+# 方式3：使用绝对路径（不推荐，可能导致数据文件路径错误）
+/path/to/DB-Benchmind/bin/db-benchmind gui  # ❌ 错误！会找不到 data/db-benchmind.db
 ```
+
+**为什么必须从项目根目录启动？**
+
+- 数据库文件使用相对路径：`./data/db-benchmind.db`
+- 日志目录使用相对路径：`./data/logs/`
+- 配置文件和模板目录都是相对路径
+- 从其他目录启动会导致文件找不到错误
 
 ---
 
@@ -258,6 +273,7 @@ make clean        # 清理构建产物
 ### 用户文档
 
 - [用户手册 (USER_GUIDE.md)](./docs/USER_GUIDE.md) - 详细的使用指南
+- [对比功能指南 (COMPARISON_GUIDE.md)](./docs/COMPARISON_GUIDE.md) - 结果对比功能完整指南
 - [CLI 快速开始 (QUICK_START.md)](./QUICK_START.md) - CLI 工具快速上手
 - [CLI 使用指南 (CLI_USAGE.md)](./CLI_USAGE.md) - CLI 命令参考
 

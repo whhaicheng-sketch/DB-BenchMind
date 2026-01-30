@@ -1,247 +1,147 @@
 // Package usecase provides comparison business logic.
-// Implements: Phase 6 - Result comparison and analysis
 package usecase
 
 import (
 	"context"
 	"fmt"
-	"time"
+	"log/slog"
 
-	"github.com/google/uuid"
+	"github.com/whhaicheng/DB-BenchMind/internal/app/repository"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/comparison"
-	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/history"
 )
 
-// ComparisonUseCase provides comparison business operations.
+// ComparisonUseCase provides comparison business logic.
 type ComparisonUseCase struct {
-	runRepo RunRepository
+	historyRepo repository.HistoryRepository
 }
 
 // NewComparisonUseCase creates a new comparison use case.
-func NewComparisonUseCase(runRepo RunRepository) *ComparisonUseCase {
+func NewComparisonUseCase(historyRepo repository.HistoryRepository) *ComparisonUseCase {
 	return &ComparisonUseCase{
-		runRepo: runRepo,
+		historyRepo: historyRepo,
 	}
 }
 
-// CompareRuns compares multiple runs by their IDs.
-func (uc *ComparisonUseCase) CompareRuns(ctx context.Context, runIDs []string, baselineID string, compType comparison.ComparisonType) (*comparison.ComparisonResult, error) {
-	if len(runIDs) < 2 {
-		return nil, fmt.Errorf("at least 2 runs are required for comparison")
+// GetAllRecords retrieves all history records for comparison selection.
+func (uc *ComparisonUseCase) GetAllRecords(ctx context.Context) ([]*history.Record, error) {
+	return uc.historyRepo.GetAll(ctx)
+}
+
+// GetRecordRefs returns summary references of all history records.
+func (uc *ComparisonUseCase) GetRecordRefs(ctx context.Context) ([]*comparison.RecordRef, error) {
+	records, err := uc.historyRepo.GetAll(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// Fetch all runs
-	runs := make([]*execution.Run, 0, len(runIDs))
-	for _, runID := range runIDs {
-		run, err := uc.runRepo.FindByID(ctx, runID)
-		if err != nil {
-			return nil, fmt.Errorf("get run %s: %w", runID, err)
+	refs := make([]*comparison.RecordRef, len(records))
+	for i, record := range records {
+		durationSec := record.Duration.Seconds()
+		qps := 0.0
+		if durationSec > 0 && record.TotalQueries > 0 {
+			qps = float64(record.TotalQueries) / durationSec
 		}
-		runs = append(runs, run)
+
+		refs[i] = &comparison.RecordRef{
+			ID:             record.ID,
+			TemplateName:    record.TemplateName,
+			DatabaseType:    record.DatabaseType,
+			Threads:        record.Threads,
+			ConnectionName: record.ConnectionName,
+			StartTime:      record.StartTime,
+			TPS:            record.TPSCalculated,
+			LatencyAvg:     record.LatencyAvg,
+			LatencyMin:     record.LatencyMin,
+			LatencyMax:     record.LatencyMax,
+			LatencyP95:     record.LatencyP95,
+			LatencyP99:     record.LatencyP99,
+			Duration:       record.Duration,
+			QPS:            qps,
+			ReadQueries:   record.ReadQueries,
+			WriteQueries:  record.WriteQueries,
+			OtherQueries:  record.OtherQueries,
+		}
+	}
+
+	return refs, nil
+}
+
+// CompareRecords compares selected history records.
+func (uc *ComparisonUseCase) CompareRecords(ctx context.Context, recordIDs []string, groupBy comparison.GroupByField) (*comparison.MultiConfigComparison, error) {
+	if len(recordIDs) < 2 {
+		return nil, fmt.Errorf("at least 2 records must be selected for comparison")
+	}
+
+	slog.Info("Comparison: Starting comparison", "record_count", len(recordIDs), "group_by", groupBy)
+
+	// Fetch all records
+	allRecords, err := uc.historyRepo.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch records: %w", err)
+	}
+
+	// Filter selected records
+	recordMap := make(map[string]*history.Record)
+	for _, record := range allRecords {
+		for _, id := range recordIDs {
+			if record.ID == id {
+				recordMap[id] = record
+				break
+			}
+		}
+	}
+
+	if len(recordMap) != len(recordIDs) {
+		return nil, fmt.Errorf("some records not found: expected %d, found %d", len(recordIDs), len(recordMap))
+	}
+
+	// Convert to slice in original order
+	selectedRecords := make([]*history.Record, len(recordIDs))
+	for i, id := range recordIDs {
+		selectedRecords[i] = recordMap[id]
 	}
 
 	// Perform comparison
-	result, err := comparison.CompareRuns(runs, baselineID, compType)
+	result, err := comparison.CompareMultiConfig(selectedRecords, groupBy)
 	if err != nil {
-		return nil, fmt.Errorf("compare runs: %w", err)
+		return nil, fmt.Errorf("compare: %w", err)
 	}
 
+	slog.Info("Comparison: Completed successfully", "id", result.ID)
 	return result, nil
 }
 
-// CompareRecentRuns compares the most recent N runs.
-func (uc *ComparisonUseCase) CompareRecentRuns(ctx context.Context, count int, baselineID string) (*comparison.ComparisonResult, error) {
-	if count < 2 {
-		return nil, fmt.Errorf("at least 2 runs are required for comparison")
+// FilterRecords filters records by criteria.
+func (uc *ComparisonUseCase) FilterRecords(ctx context.Context, refs []*comparison.RecordRef, filter *ComparisonFilter) []*comparison.RecordRef {
+	if filter == nil {
+		return refs
 	}
 
-	// Fetch recent runs
-	allRuns, err := uc.runRepo.FindAll(ctx, FindOptions{
-		Limit:    count,
-		SortBy:   "created_at",
-		SortOrder: "DESC",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("fetch runs: %w", err)
-	}
-
-	if len(allRuns) < 2 {
-		return nil, fmt.Errorf("not enough runs to compare (found %d)", len(allRuns))
-	}
-
-	// If no baseline specified, use the oldest (last in list)
-	if baselineID == "" {
-		baselineID = allRuns[len(allRuns)-1].ID
-	}
-
-	return uc.CompareRuns(ctx, extractRunIDs(allRuns), baselineID, comparison.ComparisonTypeTrend)
-}
-
-// CreateComparison creates a saved comparison.
-func (uc *ComparisonUseCase) CreateComparison(ctx context.Context, name string, runIDs []string, baselineID string, compType comparison.ComparisonType) (*comparison.Comparison, error) {
-	comp := &comparison.Comparison{
-		ID:         fmt.Sprintf("cmp-%s", uuid.New().String()),
-		Name:       name,
-		Type:       compType,
-		RunIDs:     runIDs,
-		BaselineID: baselineID,
-		CreatedAt:  time.Now(),
-		Metadata:   make(map[string]string),
-	}
-
-	if err := comp.Validate(); err != nil {
-		return nil, fmt.Errorf("validation failed: %w", err)
-	}
-
-	// Note: In a real implementation, you'd save this to a repository
-	return comp, nil
-}
-
-// GetTrendAnalysis analyzes the trend of a specific metric across runs.
-func (uc *ComparisonUseCase) GetTrendAnalysis(ctx context.Context, runIDs []string, metric string) (*TrendAnalysis, error) {
-	if len(runIDs) < 2 {
-		return nil, fmt.Errorf("at least 2 runs are required for trend analysis")
-	}
-
-	runs := make([]*execution.Run, 0, len(runIDs))
-	for _, runID := range runIDs {
-		run, err := uc.runRepo.FindByID(ctx, runID)
-		if err != nil {
-			return nil, fmt.Errorf("get run %s: %w", runID, err)
+	var filtered []*comparison.RecordRef
+	for _, ref := range refs {
+		if filter.DatabaseType != "" && ref.DatabaseType != filter.DatabaseType {
+			continue
 		}
-		runs = append(runs, run)
-	}
-
-	analysis := &TrendAnalysis{
-		Metric: metric,
-		Values: make([]TrendValue, len(runs)),
-	}
-
-	// Extract values
-	for i, run := range runs {
-		var value float64
-		switch metric {
-		case "tps":
-			value = extractTPS(run)
-		case "latency_avg":
-			value = extractLatencyAvg(run)
-		case "latency_p95":
-			value = extractLatencyP95(run)
-		case "error_rate":
-			value = extractErrorRate(run)
-		default:
-			return nil, fmt.Errorf("unknown metric: %s", metric)
+		if filter.TemplateName != "" && ref.TemplateName != filter.TemplateName {
+			continue
 		}
-
-		analysis.Values[i] = TrendValue{
-			RunID:    run.ID,
-			RunName:  run.TaskID, // Use TaskID instead of GetName
-			Value:    value,
-			Datetime: run.CreatedAt,
+		if filter.MinThreads > 0 && ref.Threads < filter.MinThreads {
+			continue
 		}
-	}
-
-	// Calculate trend
-	analysis.calculateTrend()
-
-	return analysis, nil
-}
-
-// TrendAnalysis represents a trend analysis for a metric.
-type TrendAnalysis struct {
-	Metric    string       `json:"metric"`
-	Values    []TrendValue `json:"values"`
-	Trend     string       `json:"trend"`     // "increasing", "decreasing", "stable"
-	ChangePct float64      `json:"change_pct"`
-	MinValue  float64      `json:"min_value"`
-	MaxValue  float64      `json:"max_value"`
-	AvgValue  float64      `json:"avg_value"`
-}
-
-// TrendValue represents a single value in the trend.
-type TrendValue struct {
-	RunID    string    `json:"run_id"`
-	RunName  string    `json:"run_name"`
-	Value    float64   `json:"value"`
-	Datetime time.Time `json:"datetime"`
-}
-
-// calculateTrend calculates the overall trend.
-func (ta *TrendAnalysis) calculateTrend() {
-	if len(ta.Values) < 2 {
-		return
-	}
-
-	first := ta.Values[0].Value
-	last := ta.Values[len(ta.Values)-1].Value
-
-	// Calculate percentage change
-	if first != 0 {
-		ta.ChangePct = ((last - first) / first) * 100
-	}
-
-	// Determine trend direction
-	if ta.ChangePct > 5 {
-		ta.Trend = "increasing"
-	} else if ta.ChangePct < -5 {
-		ta.Trend = "decreasing"
-	} else {
-		ta.Trend = "stable"
-	}
-
-	// Calculate min/max/avg
-	min := ta.Values[0].Value
-	max := ta.Values[0].Value
-	var sum float64
-
-	for _, v := range ta.Values {
-		if v.Value < min {
-			min = v.Value
+		if filter.MaxThreads > 0 && ref.Threads > filter.MaxThreads {
+			continue
 		}
-		if v.Value > max {
-			max = v.Value
-		}
-		sum += v.Value
+		filtered = append(filtered, ref)
 	}
 
-	ta.MinValue = min
-	ta.MaxValue = max
-	ta.AvgValue = sum / float64(len(ta.Values))
+	return filtered
 }
 
-// Helper functions
-func extractRunIDs(runs []*execution.Run) []string {
-	ids := make([]string, len(runs))
-	for i, run := range runs {
-		ids[i] = run.ID
-	}
-	return ids
-}
-
-func extractTPS(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.TPSCalculated
-	}
-	return 0
-}
-
-func extractLatencyAvg(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.LatencyAvg
-	}
-	return 0
-}
-
-func extractLatencyP95(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.LatencyP95
-	}
-	return 0
-}
-
-func extractErrorRate(run *execution.Run) float64 {
-	if run.Result != nil {
-		return run.Result.ErrorRate
-	}
-	return 0
+// ComparisonFilter defines filter criteria for comparison records.
+type ComparisonFilter struct {
+	DatabaseType string
+	TemplateName string
+	MinThreads    int
+	MaxThreads    int
 }

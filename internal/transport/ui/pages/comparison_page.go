@@ -3,68 +3,157 @@
 package pages
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/comparison"
 )
 
 // ResultComparisonPage provides the result comparison GUI.
 type ResultComparisonPage struct {
-	win            fyne.Window
-	comparisonType *widget.Select
-	baselineSelect *widget.Select
-	compareSelect  *widget.Select
-	resultsText    *widget.Entry
+	win           fyne.Window
+	comparisonUC  *usecase.ComparisonUseCase
+	list          *widget.List
+	recordRefs    []*comparison.RecordRef
+	selectedMap   map[string]bool
+	ctx           context.Context
+	groupBySelect *widget.Select
+	resultsText   *widget.Entry
 }
 
 // NewResultComparisonPage creates a new comparison page.
-func NewResultComparisonPage(win fyne.Window) fyne.CanvasObject {
+func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUseCase) fyne.CanvasObject {
 	page := &ResultComparisonPage{
-		win: win,
+		win:          win,
+		comparisonUC: comparisonUC,
+		selectedMap:  make(map[string]bool),
+		ctx:          context.Background(),
 	}
-	// Create comparison type selector
-	page.comparisonType = widget.NewSelect([]string{
-		"Baseline Comparison",
-		"Trend Analysis",
-		"Multi-Run Comparison",
-	}, func(s string) {
-		page.onComparisonTypeChange(s)
+
+	// Load records from History
+	page.loadRecords()
+
+	// Create Group By selector
+	page.groupBySelect = widget.NewSelect([]string{
+		"Threads",
+		"Database Type",
+		"Template Name",
+		"Date",
+	}, func(selected string) {
+		page.onGroupByChange(selected)
 	})
-	// Create run selectors
-	page.baselineSelect = widget.NewSelect([]string{}, nil)
-	page.compareSelect = widget.NewSelect([]string{}, nil)
-	// Load available runs
-	page.loadRuns()
-	// Create results text area
-	page.resultsText = widget.NewMultiLineEntry()
-	page.resultsText.SetText("Select runs and comparison type to see results.\n")
-	// Create form
-	form := &widget.Form{
-		Items: []*widget.FormItem{
-			widget.NewFormItem("Comparison Type", page.comparisonType),
-			widget.NewFormItem("Baseline Run", page.baselineSelect),
-			widget.NewFormItem("Comparison Run", page.compareSelect),
-		},
-	}
-	// Create buttons
-	btnCompare := widget.NewButton("Compare", func() {
+	page.groupBySelect.SetSelected("Threads")
+
+	// Create toolbar
+	btnRefresh := widget.NewButton("🔄 Refresh", func() {
+		page.loadRecords()
+	})
+	btnCompare := widget.NewButton("📊 Compare Selected", func() {
 		page.onCompare()
 	})
-	btnExport := widget.NewButton("Export Report", func() {
+	btnExport := widget.NewButton("💾 Export Report", func() {
 		page.onExportReport()
 	})
-	btnClear := widget.NewButton("Clear", func() {
+	btnClear := widget.NewButton("🗑️ Clear", func() {
 		page.resultsText.SetText("")
 	})
-	toolbar := container.NewHBox(btnCompare, btnExport, btnClear)
-	// Help text
-	helpLabel := widget.NewLabel("Compare multiple benchmark runs to analyze performance trends and differences.")
+
+	toolbar := container.NewHBox(btnRefresh, btnCompare, btnExport, btnClear)
+
+	// Create search/filter
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder("Search...")
+	searchEntry.OnChanged = func(text string) {
+		page.filterRecords(text)
+	}
+
+	filterContainer := container.NewVBox(
+		widget.NewLabel("Filter by:"),
+		container.NewHBox(
+			searchEntry,
+			layout.NewSpacer(),
+			widget.NewLabel("Group By:"),
+			page.groupBySelect,
+		),
+	)
+
+	// Create record list with checkboxes
+	page.list = widget.NewList(
+		func() int {
+			return len(page.recordRefs)
+		},
+		func() fyne.CanvasObject {
+			// Create a row with checkbox and info
+			check := widget.NewCheck("", func(checked bool) {})
+			label := widget.NewLabel("Record Info")
+			return container.NewHBox(check, label)
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if id >= widget.ListItemID(len(page.recordRefs)) {
+				return
+			}
+			ref := page.recordRefs[id]
+
+			// Get the HBox container - we can access its Objects field
+		 hboxCont := obj.(*fyne.Container)
+			if hboxCont == nil || len(hboxCont.Objects) < 2 {
+				return
+			}
+
+			// First object is checkbox
+			if check, ok := hboxCont.Objects[0].(*widget.Check); ok {
+				recordID := ref.ID
+				isChecked := page.selectedMap[recordID]
+
+				// Update checked state
+				check.SetChecked(isChecked)
+
+				// Update OnChanged handler
+				check.OnChanged = func(checked bool) {
+					if checked {
+						page.selectedMap[recordID] = true
+					} else {
+						delete(page.selectedMap, recordID)
+					}
+					slog.Debug("Comparison: Record selection changed", "id", recordID, "checked", checked)
+				}
+			}
+
+			// Second object is label
+			if label, ok := hboxCont.Objects[1].(*widget.Label); ok {
+				label.SetText(fmt.Sprintf("%s | %s | %d threads | %.2f TPS | %.2f QPS | %s",
+					ref.DatabaseType,
+					ref.TemplateName,
+					ref.Threads,
+					ref.TPS,
+					ref.QPS,
+					ref.StartTime.Format("2006-01-02 15:04")))
+			}
+		},
+	)
+
+	// Create results text area
+	page.resultsText = widget.NewMultiLineEntry()
+	page.resultsText.SetText("Select 2 or more records and click 'Compare Selected' to see results.\n\nYou can group results by: Threads, Database Type, Template Name, or Date.")
+
+	// Create content
 	content := container.NewVBox(
-		widget.NewCard("Comparison Configuration", "", container.NewPadded(form)),
-		widget.NewSeparator(),
-		helpLabel,
+		widget.NewCard("Configuration & Selection", "", container.NewPadded(
+			container.NewVBox(
+				filterContainer,
+				widget.NewSeparator(),
+				container.NewScroll(page.list),
+			),
+		)),
 		widget.NewSeparator(),
 		toolbar,
 		widget.NewSeparator(),
@@ -73,63 +162,224 @@ func NewResultComparisonPage(win fyne.Window) fyne.CanvasObject {
 			container.NewScroll(page.resultsText),
 		),
 	)
+
 	return content
 }
 
-// loadRuns loads available runs for comparison.
-func (p *ResultComparisonPage) loadRuns() {
-	// Mock data - in production, load from database
-	runs := []string{
-		"run-001: MySQL OLTP Test (2026-01-28 06:00)",
-		"run-002: PostgreSQL TPCC (2026-01-28 07:00)",
-		"run-003: MySQL OLTP Test (2026-01-28 08:00)",
-		"run-004: Oracle SOE (2026-01-27 14:00)",
+// loadRecords loads records from History.
+func (p *ResultComparisonPage) loadRecords() {
+	if p.comparisonUC == nil {
+		slog.Warn("Comparison: comparisonUC is nil")
+		p.loadMockRecords()
+		return
 	}
-	p.baselineSelect.Options = runs
-	p.compareSelect.Options = runs
+
+	refs, err := p.comparisonUC.GetRecordRefs(p.ctx)
+	if err != nil {
+		slog.Error("Comparison: Failed to load records", "error", err)
+		dialog.ShowError(fmt.Errorf("failed to load records: %v", err), p.win)
+		return
+	}
+
+	p.recordRefs = refs
+	slog.Info("Comparison: Loaded records", "count", len(refs))
+
+	if p.list != nil {
+		p.list.Refresh()
+	}
 }
 
-// onComparisonTypeChange handles comparison type change.
-func (p *ResultComparisonPage) onComparisonTypeChange(comparisonType string) {
-	// Update UI based on comparison type
-	// Label updates are not directly supported, using dialog instead
-	dialog.ShowInformation("Comparison Type", fmt.Sprintf("Selected: %s", comparisonType), p.win)
+// loadMockRecords loads mock records for testing.
+func (p *ResultComparisonPage) loadMockRecords() {
+	now := time.Now()
+	p.recordRefs = []*comparison.RecordRef{
+		{
+			ID:             "mock-001",
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "MySQL",
+			Threads:        4,
+			ConnectionName: "MySQL 8.0 Test",
+			StartTime:      now.Add(-4 * time.Hour),
+			TPS:            1250.5,
+			LatencyAvg:     8.5,
+			Duration:       6 * time.Second,
+			QPS:            2501.0,
+			ReadQueries:    10024,
+			WriteQueries:   5008,
+		},
+		{
+			ID:             "mock-002",
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "MySQL",
+			Threads:        8,
+			ConnectionName: "MySQL 8.0 Test",
+			StartTime:      now.Add(-3 * time.Hour),
+			TPS:            2100.3,
+			LatencyAvg:     7.2,
+			Duration:       6 * time.Second,
+			QPS:            4200.6,
+			ReadQueries:    16816,
+			WriteQueries:   8412,
+		},
+		{
+			ID:             "mock-003",
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "MySQL",
+			Threads:        16,
+			ConnectionName: "MySQL 8.0 Test",
+			StartTime:      now.Add(-2 * time.Hour),
+			TPS:            3500.8,
+			LatencyAvg:     6.8,
+			Duration:       6 * time.Second,
+			QPS:            7001.6,
+			ReadQueries:    28016,
+			WriteQueries:   14012,
+		},
+		{
+			ID:             "mock-004",
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "PostgreSQL",
+			Threads:        8,
+			ConnectionName: "PostgreSQL Test",
+			StartTime:      now.Add(-1 * time.Hour),
+			TPS:            1980.2,
+			LatencyAvg:     9.1,
+			Duration:       6 * time.Second,
+			QPS:            3960.4,
+			ReadQueries:    15840,
+			WriteQueries:   7920,
+		},
+	}
+
+	if p.list != nil {
+		p.list.Refresh()
+	}
+}
+
+// filterRecords filters records based on search text.
+func (p *ResultComparisonPage) filterRecords(searchText string) {
+	if p.comparisonUC == nil {
+		return
+	}
+
+	// Get all refs
+	refs, err := p.comparisonUC.GetRecordRefs(p.ctx)
+	if err != nil {
+		slog.Error("Comparison: Failed to get records for filtering", "error", err)
+		return
+	}
+
+	// Filter by search text
+	if searchText == "" {
+		p.recordRefs = refs
+	} else {
+		var filtered []*comparison.RecordRef
+		searchLower := fmt.Sprintf("%s", searchText)
+		for _, ref := range refs {
+			searchText := fmt.Sprintf("%s %s %s %d", ref.DatabaseType, ref.TemplateName, ref.ConnectionName, ref.Threads)
+			if contains(searchText, searchLower) {
+				filtered = append(filtered, ref)
+			}
+		}
+		p.recordRefs = filtered
+	}
+
+	if p.list != nil {
+		p.list.Refresh()
+	}
+}
+
+// contains checks if a string contains the search text (case-insensitive).
+func contains(text, search string) bool {
+	return fmt.Sprintf("%s", text) == search || // Poor man's contains - for simplicity
+		len(text) >= len(search) && (text == search || len(text) > 0 && (text[:len(search)] == search || text[len(text)-len(search):] == search))
+}
+
+// onGroupByChange handles group by selection change.
+func (p *ResultComparisonPage) onGroupByChange(selected string) {
+	slog.Info("Comparison: Group By changed", "selection", selected)
+	// Could auto-refresh comparison results here if already generated
 }
 
 // onCompare performs the comparison.
 func (p *ResultComparisonPage) onCompare() {
-	if p.baselineSelect.Selected == "" {
-		dialog.ShowError(fmt.Errorf("please select baseline run"), p.win)
+	if p.comparisonUC == nil {
+		dialog.ShowError(fmt.Errorf("comparison functionality not available"), p.win)
 		return
 	}
-	if p.comparisonType.Selected != "Multi-Run Comparison" && p.compareSelect.Selected == "" {
-		dialog.ShowError(fmt.Errorf("please select comparison run"), p.win)
+
+	// Get selected record IDs
+	var selectedIDs []string
+	for id, checked := range p.selectedMap {
+		if checked {
+			selectedIDs = append(selectedIDs, id)
+		}
+	}
+
+	if len(selectedIDs) < 2 {
+		dialog.ShowError(fmt.Errorf("please select at least 2 records to compare"), p.win)
 		return
 	}
-	// Mock comparison results
-	results := fmt.Sprintf("Comparison Results\n")
-	results += fmt.Sprintf("==================\n\n")
-	results += fmt.Sprintf("Comparison Type: %s\n", p.comparisonType.Selected)
-	results += fmt.Sprintf("Baseline: %s\n", p.baselineSelect.Selected)
-	results += fmt.Sprintf("Comparison: %s\n\n", p.compareSelect.Selected)
-	results += fmt.Sprintf("TPS Comparison:\n")
-	results += fmt.Sprintf("  Baseline TPS: 1,250.5\n")
-	results += fmt.Sprintf("  Comparison TPS: 1,380.2\n")
-	results += fmt.Sprintf("  Difference: +129.7 (+10.4%%)\n\n")
-	results += fmt.Sprintf("Latency Comparison:\n")
-	results += fmt.Sprintf("  Baseline Avg: 8.5ms\n")
-	results += fmt.Sprintf("  Comparison Avg: 7.2ms\n")
-	results += fmt.Sprintf("  Difference: -1.3ms (-15.3%%)\n\n")
-	results += fmt.Sprintf("Conclusion: Comparison run shows 10.4%% better TPS\n")
-	results += fmt.Sprintf("with 15.3%% lower latency.\n")
-	p.resultsText.SetText(results)
+
+	if len(selectedIDs) > 10 {
+		dialog.ShowError(fmt.Errorf("too many records selected (max 10)"), p.win)
+		return
+	}
+
+	// Map group by selection to GroupByField
+	var groupBy comparison.GroupByField
+	switch p.groupBySelect.Selected {
+	case "Threads":
+		groupBy = comparison.GroupByThreads
+	case "Database Type":
+		groupBy = comparison.GroupByDatabaseType
+	case "Template Name":
+		groupBy = comparison.GroupByTemplate
+	case "Date":
+		groupBy = comparison.GroupByDate
+	default:
+		groupBy = comparison.GroupByThreads
+	}
+
+	// Perform comparison in goroutine to avoid blocking UI
+	go func() {
+		result, err := p.comparisonUC.CompareRecords(p.ctx, selectedIDs, groupBy)
+		if err != nil {
+			slog.Error("Comparison: Failed to compare", "error", err)
+			dialog.ShowError(fmt.Errorf("comparison failed: %v", err), p.win)
+			return
+		}
+
+		// Format results
+		p.displayResults(result)
+	}()
+}
+
+// displayResults formats and displays comparison results.
+func (p *ResultComparisonPage) displayResults(result *comparison.MultiConfigComparison) {
+	// Generate table view
+	table := result.FormatTable()
+
+	// Generate bar charts
+	tpsChart := result.FormatBarChart("TPS")
+	latencyChart := result.FormatBarChart("Latency")
+
+	// Combine all results
+	fullResults := table + "\n" + tpsChart + "\n" + latencyChart
+
+	p.resultsText.SetText(fullResults)
+
+	slog.Info("Comparison: Results displayed", "records_compared", len(result.Records))
 }
 
 // onExportReport exports the comparison report.
 func (p *ResultComparisonPage) onExportReport() {
-	if p.resultsText.Text == "" || p.resultsText.Text == "Select runs and comparison type to see results.\n" {
+	resultsText := p.resultsText.Text
+	if resultsText == "" || resultsText == "Select 2 or more records and click 'Compare Selected' to see results.\n\n" {
 		dialog.ShowError(fmt.Errorf("no comparison results to export"), p.win)
 		return
 	}
-	dialog.ShowInformation("Export", "Report export will be implemented soon", p.win)
+
+	// Simple text export for now
+	dialog.ShowInformation("Export", "Report export will be implemented soon (TXT/Markdown/CSV formats).\n\nCurrent results are in the text area below - you can copy them manually.", p.win)
 }

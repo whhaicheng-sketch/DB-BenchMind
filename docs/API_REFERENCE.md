@@ -588,53 +588,141 @@ package usecase
 
 type ComparisonUseCase struct {
     // 私有字段
+    historyRepo repository.HistoryRepository
 }
 
-func NewComparisonUseCase(runRepo RunRepository) *ComparisonUseCase
+func NewComparisonUseCase(historyRepo repository.HistoryRepository) *ComparisonUseCase
 
-// 对比多次运行
-func (uc *ComparisonUseCase) CompareRuns(
+// 获取所有历史记录
+func (uc *ComparisonUseCase) GetAllRecords(
     ctx context.Context,
-    runIDs []string,
-    baselineID string,
-    compType comparison.ComparisonType,
-) (*comparison.ComparisonResult, error)
+) ([]*history.Record, error)
 
-// 对比最近的 N 次运行
-func (uc *ComparisonUseCase) CompareRecentRuns(
+// 获取记录引用（摘要信息）
+func (uc *ComparisonUseCase) GetRecordRefs(
     ctx context.Context,
-    count int,
-    baselineID string,
-) (*comparison.ComparisonResult, error)
+) ([]*comparison.RecordRef, error)
 
-// 创建保存的对比
-func (uc *ComparisonUseCase) CreateComparison(
+// 对比选中的记录
+func (uc *ComparisonUseCase) CompareRecords(
     ctx context.Context,
-    name string,
-    runIDs []string,
-    baselineID string,
-    compType comparison.ComparisonType,
-) (*comparison.Comparison, error)
+    recordIDs []string,
+    groupBy comparison.GroupByField,
+) (*comparison.MultiConfigComparison, error)
 
-// 获取趋势分析
-func (uc *ComparisonUseCase) GetTrendAnalysis(
+// 过滤记录
+func (uc *ComparisonUseCase) FilterRecords(
     ctx context.Context,
-    runIDs []string,
-    metric string,
-) (*TrendAnalysis, error)
+    refs []*comparison.RecordRef,
+    filter *ComparisonFilter,
+) []*comparison.RecordRef
 ```
 
-**TrendAnalysis 结构**:
+**ComparisonFilter 结构**:
 ```go
-type TrendAnalysis struct {
-    Metric    string       `json:"metric"`
-    Values    []TrendValue `json:"values"`
-    Trend     string       `json:"trend"`     // "increasing", "decreasing", "stable"
-    ChangePct float64      `json:"change_pct"`
-    MinValue  float64      `json:"min_value"`
-    MaxValue  float64      `json:"max_value"`
-    AvgValue  float64      `json:"avg_value"`
+type ComparisonFilter struct {
+    DatabaseType string
+    TemplateName string
+    MinThreads   int
+    MaxThreads   int
 }
+```
+
+---
+
+### domain.comparison
+
+结果对比领域模型。
+
+```go
+package comparison
+
+// 分组字段
+type GroupByField string
+
+const (
+    GroupByThreads       GroupByField = "threads"
+    GroupByDatabaseType GroupByField = "database_type"
+    GroupByTemplate     GroupByField = "template"
+    GroupByDate         GroupByField = "date"
+)
+
+// 记录引用（摘要信息）
+type RecordRef struct {
+    ID             string        `json:"id"`
+    TemplateName   string        `json:"template_name"`
+    DatabaseType   string        `json:"database_type"`
+    Threads        int           `json:"threads"`
+    ConnectionName string        `json:"connection_name"`
+    StartTime      time.Time     `json:"start_time"`
+    TPS            float64       `json:"tps"`
+    LatencyAvg     float64       `json:"latency_avg_ms"`
+    LatencyMin     float64       `json:"latency_min_ms"`
+    LatencyMax     float64       `json:"latency_max_ms"`
+    LatencyP95     float64       `json:"latency_p95_ms"`
+    LatencyP99     float64       `json:"latency_p99_ms"`
+    Duration       time.Duration `json:"duration"`
+    QPS            float64       `json:"qps,omitempty"`
+    ReadQueries    int64         `json:"read_queries,omitempty"`
+    WriteQueries   int64         `json:"write_queries,omitempty"`
+    OtherQueries   int64         `json:"other_queries,omitempty"`
+}
+
+// 指标统计
+type MetricStats struct {
+    Min     float64   `json:"min"`
+    Max     float64   `json:"max"`
+    Avg     float64   `json:"avg"`
+    StdDev  float64   `json:"std_dev"`
+    Median  float64   `json:"median,omitempty"`
+    Values  []float64 `json:"values,omitempty"`
+    Labels  []string  `json:"labels,omitempty"`
+}
+
+// 延迟统计
+type LatencyStats struct {
+    Avg *MetricStats `json:"avg"`
+    Min *MetricStats `json:"min"`
+    Max *MetricStats `json:"max"`
+    P95 *MetricStats `json:"p95"`
+    P99 *MetricStats `json:"p99"`
+}
+
+// 读写比例
+type ReadWriteRatio struct {
+    ReadQueries  int64   `json:"read_queries"`
+    WriteQueries int64   `json:"write_queries"`
+    OtherQueries int64   `json:"other_queries"`
+    ReadPct      float64 `json:"read_pct"`
+    WritePct     float64 `json:"write_pct"`
+    OtherPct     float64 `json:"other_pct"`
+}
+
+// 多配置对比结果
+type MultiConfigComparison struct {
+    ID              string          `json:"id"`
+    Name            string          `json:"name"`
+    CreatedAt       time.Time       `json:"created_at"`
+    Records         []*RecordRef    `json:"records"`
+    GroupBy         GroupByField    `json:"group_by"`
+    GeneratedAt     time.Time       `json:"generated_at"`
+    TPSComparison   *MetricStats    `json:"tps_comparison"`
+    LatencyCompare  *LatencyStats   `json:"latency_comparison"`
+    QPSComparison   *MetricStats    `json:"qps_comparison"`
+    ReadWriteRatio  *ReadWriteRatio `json:"read_write_ratio"`
+}
+
+// 执行多配置对比
+func CompareMultiConfig(
+    records []*history.Record,
+    groupBy GroupByField,
+) (*MultiConfigComparison, error)
+
+// 格式化为表格
+func (c *MultiConfigComparison) FormatTable() string
+
+// 格式化为柱状图
+func (c *MultiConfigComparison) FormatBarChart(metric string) string
 ```
 
 ---
