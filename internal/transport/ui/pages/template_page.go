@@ -1,22 +1,33 @@
 // Package pages provides GUI pages for DB-BenchMind.
-// Template Management Page implementation.
+// Template Management Page implementation (with add/delete/default template features).
 package pages
 
 import (
 	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"strings"
+)
+
+// Global storage for custom templates (persists across page recreations)
+var (
+	customTemplates      []templateInfo
+	customTemplatesMutex sync.RWMutex
 )
 
 // TemplateManagementPage provides the template management GUI.
 type TemplateManagementPage struct {
-	win       fyne.Window
-	list      *widget.List
-	templates []templateInfo
-	selected  int
+	win             fyne.Window
+	templates       []templateInfo
+	defaultIndex    int    // Index of default template
+	listContainer   *fyne.Container // Use VBox for dynamic list (like Connections)
+	groupContainers map[string]*fyne.Container // DB type -> container
 }
 
 // templateInfo represents display info for a template.
@@ -25,132 +36,485 @@ type templateInfo struct {
 	Name        string
 	Description string
 	Tool        string
+	DBType      string // Database type: MySQL, PostgreSQL, Oracle, SQL Server
 	IsBuiltin   bool
+	IsDefault   bool
+	Parameters  *OLTPParameters // OLTP parameters for sysbench
+}
+
+// OLTPParameters represents sysbench OLTP test parameters.
+type OLTPParameters struct {
+	Tables              int    `json:"tables"`
+	TableSize           int    `json:"table_size"`
+	DBPSMode            string `json:"db_ps_mode"`
+	OLTPTestMode        string `json:"oltp_test_mode"`
+	OLTPPointSelects    int    `json:"oltp_point_selects"`
+	OLTPSimpleRanges    int    `json:"oltp_simple_ranges"`
+	OLTPSumRanges       int    `json:"oltp_sum_ranges"`
+	OLTPOrderRanges     int    `json:"oltp_order_ranges"`
+	OLTPDistinctRanges  int    `json:"oltp_distinct_ranges"`
+	OLTPIndexUpdates    int    `json:"oltp_index_updates"`
+	OLTPNonIndexUpdates int    `json:"oltp_non_index_updates"`
+	OLTPDeleteInserts   int    `json:"oltp_delete_inserts"`
 }
 
 // NewTemplateManagementPage creates a new template management page.
 func NewTemplateManagementPage(win fyne.Window) fyne.CanvasObject {
+	slog.Info("Templates: NewTemplateManagementPage called - creating new page instance")
+
 	page := &TemplateManagementPage{
-		win:      win,
-		selected: -1,
+		win:             win,
+		defaultIndex:    0,
+		templates:       []templateInfo{},
+		groupContainers: make(map[string]*fyne.Container),
+		listContainer:   container.NewVBox(),
 	}
-	// Create template list
-	page.list = widget.NewList(
-		func() int {
-			return len(page.templates)
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("Template Name")
-		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			label := obj.(*widget.Label)
-			if id < widget.ListItemID(len(page.templates)) {
-				tmpl := page.templates[id]
-				icon := "📄"
-				if tmpl.IsBuiltin {
-					icon = "📦"
-				}
-				label.SetText(fmt.Sprintf("%s %s", icon, tmpl.Name))
-			}
-		},
-	)
-	page.list.OnSelected = func(id widget.ListItemID) {
-		page.selected = int(id)
-		tmpl := page.templates[id]
-		page.showTemplateDetails(tmpl)
-	}
-	// Load built-in templates
+
+	// Load templates to populate the list
 	page.loadTemplates()
-	// Create toolbar
-	btnRefresh := widget.NewButton("Refresh", func() { page.loadTemplates() })
-	btnDetails := widget.NewButton("View Details", func() {
-		if page.selected >= 0 && page.selected < len(page.templates) {
-			page.showTemplateDetails(page.templates[page.selected])
-		}
+
+	// Create toolbar with only Add button
+	btnAdd := widget.NewButton("➕ Add Template", func() {
+		slog.Info("Templates: Add Template button clicked")
+		page.onAddTemplate()
 	})
-	toolbar := container.NewHBox(btnRefresh, btnDetails)
-	content := container.NewVBox(
+
+	toolbar := container.NewVBox(
+		container.NewHBox(btnAdd),
+	)
+
+	// Create top area with toolbar
+	topArea := container.NewVBox(
 		toolbar,
 		widget.NewSeparator(),
-		container.NewPadded(page.list),
 	)
+
+	// Use Border layout
+	content := container.NewBorder(
+		topArea,                              // top - toolbar
+		nil,                                   // bottom
+		nil,                                   // left
+		nil,                                   // right
+		container.NewScroll(page.listContainer), // center - fills available space
+	)
+
 	return content
 }
 
-// loadTemplates loads template information.
-func (p *TemplateManagementPage) loadTemplates() {
-	// Built-in templates
-	p.templates = []templateInfo{
+// loadTemplatesData loads and returns template information.
+func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
+	// Built-in templates (cannot be deleted)
+	// Default template with user-specified parameters
+	defaultParams := &OLTPParameters{
+		Tables:              10,
+		TableSize:           10000,
+		DBPSMode:            "disable",
+		OLTPTestMode:        "complex",
+		OLTPPointSelects:    10,
+		OLTPSimpleRanges:    1,
+		OLTPSumRanges:       1,
+		OLTPOrderRanges:     1,
+		OLTPDistinctRanges:  1,
+		OLTPIndexUpdates:    1,
+		OLTPNonIndexUpdates: 1,
+		OLTPDeleteInserts:   1,
+	}
+
+	builtinTemplates := []templateInfo{
 		{
-			ID:          "sysbench-oltp-mixed",
-			Name:        "Sysbench OLTP Mixed",
-			Description: "OLTP read-write mixed workload",
+			ID:          "sysbench-oltp-mysql",
+			Name:        "OLTP Read-Write (Sysbench)",
+			Description: "OLTP read-write mixed workload for MySQL",
 			Tool:        "sysbench",
+			DBType:      "MySQL",
 			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  defaultParams,
 		},
 		{
-			ID:          "sysbench-oltp-read",
-			Name:        "Sysbench OLTP Read Only",
-			Description: "OLTP read-only workload",
+			ID:          "sysbench-oltp-postgresql",
+			Name:        "OLTP Read-Write (Sysbench)",
+			Description: "OLTP read-write mixed workload for PostgreSQL",
 			Tool:        "sysbench",
+			DBType:      "PostgreSQL",
 			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  defaultParams,
 		},
 		{
-			ID:          "swingbench-soe",
-			Name:        "Swingbench SOE",
-			Description: "Sales Order Entry benchmark for Oracle",
-			Tool:        "swingbench",
+			ID:          "sysbench-oltp-oracle",
+			Name:        "OLTP Read-Write (Sysbench)",
+			Description: "OLTP read-write mixed workload for Oracle",
+			Tool:        "sysbench",
+			DBType:      "Oracle",
 			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  defaultParams,
 		},
 		{
-			ID:          "hammerdb-tpcc",
-			Name:        "HammerDB TPCC",
-			Description: "TPC-C benchmark for multiple databases",
-			Tool:        "hammerdb",
+			ID:          "sysbench-oltp-sqlserver",
+			Name:        "OLTP Read-Write (Sysbench)",
+			Description: "OLTP read-write mixed workload for SQL Server",
+			Tool:        "sysbench",
+			DBType:      "SQL Server",
 			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  defaultParams,
 		},
 	}
-	if p.list != nil {
-		p.list.Refresh()
+
+	// Load custom templates from global storage
+	customTemplatesMutex.RLock()
+	defer customTemplatesMutex.RUnlock()
+	slog.Info("Templates: Loading custom templates from global storage", "count", len(customTemplates))
+
+	// Check which DB types have custom default templates
+	dbTypesWithCustomDefault := make(map[string]bool)
+	for _, ct := range customTemplates {
+		if ct.IsDefault {
+			dbTypesWithCustomDefault[ct.DBType] = true
+		}
 	}
+
+	// Update built-in templates' default flag based on custom templates
+	for i := range builtinTemplates {
+		dbType := builtinTemplates[i].DBType
+		// If there's a custom default for this DB type, mark built-in as non-default
+		if dbTypesWithCustomDefault[dbType] {
+			builtinTemplates[i].IsDefault = false
+		} else {
+			builtinTemplates[i].IsDefault = true
+		}
+	}
+
+	// Combine all templates
+	allTemplates := append([]templateInfo{}, builtinTemplates...)
+	allTemplates = append(allTemplates, customTemplates...)
+
+	slog.Info("Templates: Total templates loaded", "builtin", len(builtinTemplates), "custom", len(customTemplates), "total", len(allTemplates))
+	return allTemplates
 }
 
-// showTemplateDetails shows template details.
+// loadTemplates loads template information and refreshes the list.
+func (p *TemplateManagementPage) loadTemplates() {
+	slog.Info("Templates: loadTemplates called")
+	p.templates = p.loadTemplatesData()
+
+	// Group templates by database type
+	groups := make(map[string][]templateInfo)
+	for _, tmpl := range p.templates {
+		dbType := tmpl.DBType
+		if dbType == "" {
+			dbType = "MySQL" // Default to MySQL if not specified
+		}
+		groups[dbType] = append(groups[dbType], tmpl)
+	}
+
+	// Clear list container
+	p.listContainer.Objects = nil
+	p.groupContainers = make(map[string]*fyne.Container)
+
+	// Define order of database types
+	dbOrder := []string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}
+
+	// Create collapsible groups
+	for _, dbType := range dbOrder {
+		templates := groups[dbType]
+		if len(templates) == 0 {
+			continue
+		}
+
+		slog.Info("Templates: Creating group", "db_type", dbType, "count", len(templates))
+		p.createTemplateGroup(dbType, templates)
+	}
+
+	p.listContainer.Refresh()
+	slog.Info("Templates: List refreshed", "total_templates", len(p.templates))
+}
+
+// createTemplateGroup creates a collapsible group for a database type.
+func (p *TemplateManagementPage) createTemplateGroup(dbType string, templates []templateInfo) {
+	slog.Info("Templates: Creating group", "db_type", dbType, "count", len(templates))
+
+	// Group header with expand/collapse button
+	headerText := fmt.Sprintf("📊 %s (%d)", dbType, len(templates))
+	headerBtn := widget.NewButton(headerText, nil)
+
+	// Container for this group's templates
+	groupContainer := container.NewVBox()
+	p.groupContainers[dbType] = groupContainer
+
+	// Initially expanded
+	isExpanded := true
+
+	// Toggle expand/collapse
+	headerBtn.OnTapped = func() {
+		isExpanded = !isExpanded
+		slog.Info("Templates: Group toggled", "db_type", dbType, "expanded", isExpanded)
+		if isExpanded {
+			groupContainer.Show()
+		} else {
+			groupContainer.Hide()
+		}
+	}
+
+	// Add templates to this group
+	for _, tmpl := range templates {
+		// Create icon
+		icon := "📄"
+		if tmpl.IsBuiltin {
+			icon = "📦"
+		}
+		if tmpl.IsDefault {
+			icon += " ⭐"
+		}
+
+		// Template info label
+		text := fmt.Sprintf("    %s %s", icon, tmpl.Name)
+		infoLabel := widget.NewLabel(text)
+
+		// Buttons for this template
+		var buttons []fyne.CanvasObject
+
+		// Edit button (only for custom templates)
+		if !tmpl.IsBuiltin {
+			btnEdit := widget.NewButton("✏️ Edit", func() {
+				slog.Info("Templates: Edit button clicked", "template", tmpl.Name)
+				p.onEditTemplate(tmpl)
+			})
+			buttons = append(buttons, btnEdit)
+		}
+
+		// Delete button (only for custom templates)
+		if !tmpl.IsBuiltin {
+			btnDelete := widget.NewButton("🗑️ Delete", func() {
+				slog.Info("Templates: Delete button clicked", "template", tmpl.Name)
+				p.onDeleteTemplate(tmpl)
+			})
+			buttons = append(buttons, btnDelete)
+		}
+
+		// Set Default button (for all templates)
+		btnSetDefault := widget.NewButton("⭐ Set Default", func() {
+			slog.Info("Templates: Set Default button clicked", "template", tmpl.Name, "db_type", tmpl.DBType)
+			p.onSetDefault(tmpl, dbType)
+		})
+		buttons = append(buttons, btnSetDefault)
+
+		// Details button (for built-in templates) - always last
+		if tmpl.IsBuiltin {
+			btnDetails := widget.NewButton("📋 Details", func() {
+				slog.Info("Templates: Details button clicked", "template", tmpl.Name)
+				p.showTemplateDetails(tmpl)
+			})
+			buttons = append(buttons, btnDetails)
+		}
+
+		// Use Border layout to align info left, buttons right
+		buttonBox := container.NewHBox(buttons...)
+		templateRow := container.NewBorder(nil, nil, infoLabel, buttonBox)
+		groupContainer.Add(templateRow)
+	}
+
+	// Add header and group to main list
+	p.listContainer.Add(headerBtn)
+	p.listContainer.Add(groupContainer)
+}
+
+// onAddTemplate adds a new custom template.
+func (p *TemplateManagementPage) onAddTemplate() {
+	slog.Info("Templates: Add Template button clicked")
+	showTemplateDialog(p.win, "Add Template", nil, "", func(params *OLTPParameters, name string, dbType string) {
+		slog.Info("Templates: Creating new template", "name", name, "db_type", dbType)
+
+		// Create new template
+		newTemplate := templateInfo{
+			ID:          fmt.Sprintf("custom-%d", time.Now().UnixNano()),
+			Name:        name,
+			Description: "Custom template",
+			Tool:        "sysbench",
+			DBType:      dbType, // Set database type
+			IsBuiltin:   false,
+			IsDefault:   false,
+			Parameters:  params,
+		}
+
+		// Save to global storage
+		customTemplatesMutex.Lock()
+		customTemplates = append(customTemplates, newTemplate)
+		slog.Info("Templates: Saved to global storage", "name", name, "total_custom", len(customTemplates))
+		customTemplatesMutex.Unlock()
+
+		// Reload
+		p.loadTemplates()
+
+		slog.Info("Templates: Template added successfully", "name", name, "total_templates", len(p.templates))
+		dialog.ShowInformation("Success", "Template added successfully", p.win)
+	})
+}
+
+// onEditTemplate edits an existing template.
+func (p *TemplateManagementPage) onEditTemplate(tmpl templateInfo) {
+	// Cannot edit built-in templates
+	if tmpl.IsBuiltin {
+		slog.Warn("Templates: Attempted to edit built-in template", "name", tmpl.Name)
+		dialog.ShowError(
+			fmt.Errorf("cannot edit built-in template '%s'", tmpl.Name),
+			p.win,
+		)
+		return
+	}
+
+	slog.Info("Templates: Editing template", "name", tmpl.Name, "db_type", tmpl.DBType)
+
+	// Show dialog with existing parameters and DB type
+	showTemplateDialogWithDBType(p.win, "Edit Template", tmpl.Parameters, tmpl.Name, tmpl.DBType, func(params *OLTPParameters, newName string, newDBType string) {
+		slog.Info("Templates: Updating template", "old_name", tmpl.Name, "new_name", newName, "old_db_type", tmpl.DBType, "new_db_type", newDBType)
+
+		// Update in global storage
+		customTemplatesMutex.Lock()
+		for i, ct := range customTemplates {
+			if ct.ID == tmpl.ID {
+				customTemplates[i].Name = newName
+				customTemplates[i].Parameters = params
+				customTemplates[i].DBType = newDBType // Update DB type
+				slog.Info("Templates: Updated in global storage", "id", tmpl.ID, "new_name", newName, "new_db_type", newDBType)
+				break
+			}
+		}
+		customTemplatesMutex.Unlock()
+
+		// Reload
+		p.loadTemplates()
+
+		slog.Info("Templates: Template updated successfully", "name", newName)
+		dialog.ShowInformation("Success", "Template updated successfully", p.win)
+	})
+}
+
+// onDeleteTemplate deletes a template.
+func (p *TemplateManagementPage) onDeleteTemplate(tmpl templateInfo) {
+	// Cannot delete built-in templates
+	if tmpl.IsBuiltin {
+		slog.Warn("Templates: Attempted to delete built-in template", "name", tmpl.Name)
+		dialog.ShowError(
+			fmt.Errorf("cannot delete built-in template '%s'", tmpl.Name),
+			p.win,
+		)
+		return
+	}
+
+	dialog.ShowConfirm(
+		"Delete Template",
+		fmt.Sprintf("Delete custom template '%s'?", tmpl.Name),
+		func(confirmed bool) {
+			if !confirmed {
+				return
+			}
+
+			slog.Info("Templates: Deleting custom template", "name", tmpl.Name)
+
+			// Delete from global storage
+			customTemplatesMutex.Lock()
+			for i, ct := range customTemplates {
+				if ct.ID == tmpl.ID {
+					customTemplates = append(customTemplates[:i], customTemplates[i+1:]...)
+					break
+				}
+			}
+			customTemplatesMutex.Unlock()
+
+			// Reload
+			p.loadTemplates()
+
+			dialog.ShowInformation("Deleted", "Template deleted", p.win)
+		},
+		p.win,
+	)
+}
+
+// onSetDefault sets a template as default for its database type.
+func (p *TemplateManagementPage) onSetDefault(tmpl templateInfo, dbType string) {
+	// Update custom templates in global storage
+	customTemplatesMutex.Lock()
+	// Clear default flag for all templates of the same database type
+	for i := range customTemplates {
+		if customTemplates[i].DBType == dbType {
+			customTemplates[i].IsDefault = false
+		}
+	}
+
+	// Set the selected template as default
+	for i := range customTemplates {
+		if customTemplates[i].ID == tmpl.ID {
+			customTemplates[i].IsDefault = true
+			customTemplates[i].DBType = dbType // Ensure DB type is set
+			break
+		}
+	}
+	customTemplatesMutex.Unlock()
+
+	// Reload UI (must release lock first to avoid deadlock)
+	p.loadTemplates()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Default template for %s changed to: %s\n\n", dbType, tmpl.Name))
+	sb.WriteString("This template will be auto-selected in Tasks page.")
+
+	dialog.ShowInformation("Default Set", sb.String(), p.win)
+}
+
+// showTemplateDetails shows template details with all parameters.
 func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 	var sb strings.Builder
-	sb.WriteString("# ")
+
+	sb.WriteString("## ")
 	sb.WriteString(tmpl.Name)
+	if tmpl.IsDefault {
+		sb.WriteString(" ⭐ (Default)")
+	}
 	sb.WriteString("\n\n")
+
 	if tmpl.Description != "" {
 		sb.WriteString("**Description:** ")
 		sb.WriteString(tmpl.Description)
 		sb.WriteString("\n\n")
 	}
-	sb.WriteString("**ID:** `")
-	sb.WriteString(tmpl.ID)
-	sb.WriteString("`\n\n")
+
 	sb.WriteString("**Tool:** `")
 	sb.WriteString(tmpl.Tool)
 	sb.WriteString("`\n\n")
-	if tmpl.IsBuiltin {
-		sb.WriteString("**Type:** Built-in Template\n\n")
-	} else {
-		sb.WriteString("**Type:** Custom Template\n\n")
+	sb.WriteString("**Database Type:** `")
+	sb.WriteString(tmpl.DBType)
+	sb.WriteString("`\n\n")
+
+	sb.WriteString("**Type:** 📦 Built-in Template\n")
+	sb.WriteString("**Actions:** Can be set as default\n\n")
+
+	// Show parameters
+	if tmpl.Parameters != nil {
+		sb.WriteString("---\n\n")
+		sb.WriteString("### Parameters\n\n")
+
+		sb.WriteString("**General Parameters:**\n\n")
+		sb.WriteString(fmt.Sprintf("- `--tables=%d` - Number of tables\n", tmpl.Parameters.Tables))
+		sb.WriteString(fmt.Sprintf("- `--table-size=%d` - Rows per table\n", tmpl.Parameters.TableSize))
+		sb.WriteString(fmt.Sprintf("- `--db-ps-mode=%s` - Prepared statement mode\n", tmpl.Parameters.DBPSMode))
+
+		sb.WriteString("\n**OLTP Test Parameters:**\n\n")
+		sb.WriteString(fmt.Sprintf("- `--oltp-test-mode=%s` - Test mode (complex/simple/nontrx/specific)\n", tmpl.Parameters.OLTPTestMode))
+		sb.WriteString(fmt.Sprintf("- `--oltp-point-selects=%d` - Point select ratio\n", tmpl.Parameters.OLTPPointSelects))
+		sb.WriteString(fmt.Sprintf("- `--oltp-simple-ranges=%d` - Simple range ratio\n", tmpl.Parameters.OLTPSimpleRanges))
+		sb.WriteString(fmt.Sprintf("- `--oltp-sum-ranges=%d` - Sum range ratio\n", tmpl.Parameters.OLTPSumRanges))
+		sb.WriteString(fmt.Sprintf("- `--oltp-order-ranges=%d` - Order range ratio\n", tmpl.Parameters.OLTPOrderRanges))
+		sb.WriteString(fmt.Sprintf("- `--oltp-distinct-ranges=%d` - Distinct range ratio\n", tmpl.Parameters.OLTPDistinctRanges))
+		sb.WriteString(fmt.Sprintf("- `--oltp-index-updates=%d` - Index update ratio\n", tmpl.Parameters.OLTPIndexUpdates))
+		sb.WriteString(fmt.Sprintf("- `--oltp-non-index-updates=%d` - Non-index update ratio\n", tmpl.Parameters.OLTPNonIndexUpdates))
+		sb.WriteString(fmt.Sprintf("- `--oltp-delete-inserts=%d` - Delete-insert ratio\n", tmpl.Parameters.OLTPDeleteInserts))
 	}
-	sb.WriteString("**Supported Databases:**\n")
-	switch tmpl.Tool {
-	case "sysbench":
-		sb.WriteString("- MySQL\n")
-		sb.WriteString("- PostgreSQL\n")
-	case "swingbench":
-		sb.WriteString("- Oracle\n")
-	case "hammerdb":
-		sb.WriteString("- MySQL\n")
-		sb.WriteString("- Oracle\n")
-		sb.WriteString("- SQL Server\n")
-		sb.WriteString("- PostgreSQL\n")
-	}
+
 	content := widget.NewRichTextFromMarkdown(sb.String())
+
 	dlg := dialog.NewCustomConfirm(
 		"Template Details",
 		"Close",
@@ -159,6 +523,260 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		func(bool) {},
 		p.win,
 	)
-	dlg.Resize(fyne.NewSize(600, 500))
+	dlg.Resize(fyne.NewSize(700, 600))
 	dlg.Show()
+}
+
+// GetDefaultTemplate returns the default template for use in Tasks page.
+func (p *TemplateManagementPage) GetDefaultTemplate() *templateInfo {
+	if p.defaultIndex >= 0 && p.defaultIndex < len(p.templates) {
+		return &p.templates[p.defaultIndex]
+	}
+	return nil
+}
+
+// =============================================================================
+// Template Add/Edit Dialog
+// =============================================================================
+
+// templateDialog represents the template add/edit dialog.
+type templateDialog struct {
+	win                 fyne.Window
+	onSuccess           func(*OLTPParameters, string, string) // Added dbType parameter
+	isEditMode          bool
+	originalName        string // For edit mode - original template name
+	templateID          string // For edit mode - template ID
+	dialog              *dialog.CustomDialog
+	nameEntry           *widget.Entry
+	dbTypeSelect        *widget.Select // Added database type selection
+	tablesEntry         *widget.Entry
+	tableSizeEntry      *widget.Entry
+	dbPSModeEntry       *widget.Select
+	oltpTestModeEntry   *widget.Select
+	oltpPointSelects    *widget.Entry
+	oltpSimpleRanges    *widget.Entry
+	oltpSumRanges       *widget.Entry
+	oltpOrderRanges     *widget.Entry
+	oltpDistinctRanges  *widget.Entry
+	oltpIndexUpdates    *widget.Entry
+	oltpNonIndexUpdates *widget.Entry
+	oltpDeleteInserts   *widget.Entry
+}
+
+// showTemplateDialog shows the template add/edit dialog.
+func showTemplateDialog(win fyne.Window, title string, existingParams *OLTPParameters, existingName string, onSuccess func(*OLTPParameters, string, string)) {
+	showTemplateDialogWithDBType(win, title, existingParams, existingName, "MySQL", onSuccess)
+}
+
+// showTemplateDialogWithDBType shows the template add/edit dialog with initial DB type.
+func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams *OLTPParameters, existingName string, initialDBType string, onSuccess func(*OLTPParameters, string, string)) {
+	slog.Info("Templates: Showing template dialog", "title", title, "is_edit_mode", existingParams != nil, "existing_name", existingName, "initial_db_type", initialDBType)
+	d := &templateDialog{
+		win:          win,
+		onSuccess:    onSuccess,
+		isEditMode:   existingParams != nil,
+		originalName: existingName, // Store original name for edit mode
+	}
+
+	// Default values
+	defaultParams := &OLTPParameters{
+		Tables:              10,
+		TableSize:           10000,
+		DBPSMode:            "disable",
+		OLTPTestMode:        "complex",
+		OLTPPointSelects:    10,
+		OLTPSimpleRanges:    1,
+		OLTPSumRanges:       1,
+		OLTPOrderRanges:     1,
+		OLTPDistinctRanges:  1,
+		OLTPIndexUpdates:    1,
+		OLTPNonIndexUpdates: 1,
+		OLTPDeleteInserts:   1,
+	}
+
+	if existingParams != nil {
+		defaultParams = existingParams
+	}
+
+	// Create form fields
+	d.nameEntry = widget.NewEntry()
+	d.nameEntry.SetPlaceHolder("My Custom Template")
+	if existingName != "" {
+		d.nameEntry.SetText(existingName)
+	}
+
+	// Database type selection
+	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, nil)
+	d.dbTypeSelect.SetSelected(initialDBType) // Use initial DB type
+
+	d.tablesEntry = widget.NewEntry()
+	d.tablesEntry.SetText(fmt.Sprintf("%d", defaultParams.Tables))
+
+	d.tableSizeEntry = widget.NewEntry()
+	d.tableSizeEntry.SetText(fmt.Sprintf("%d", defaultParams.TableSize))
+
+	d.dbPSModeEntry = widget.NewSelect([]string{"disable", "auto", "no_ps"}, nil)
+	d.dbPSModeEntry.SetSelected(defaultParams.DBPSMode)
+
+	d.oltpTestModeEntry = widget.NewSelect([]string{"complex", "simple", "nontrx", "specific"}, nil)
+	d.oltpTestModeEntry.SetSelected(defaultParams.OLTPTestMode)
+
+	d.oltpPointSelects = widget.NewEntry()
+	d.oltpPointSelects.SetText(fmt.Sprintf("%d", defaultParams.OLTPPointSelects))
+
+	d.oltpSimpleRanges = widget.NewEntry()
+	d.oltpSimpleRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPSimpleRanges))
+
+	d.oltpSumRanges = widget.NewEntry()
+	d.oltpSumRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPSumRanges))
+
+	d.oltpOrderRanges = widget.NewEntry()
+	d.oltpOrderRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPOrderRanges))
+
+	d.oltpDistinctRanges = widget.NewEntry()
+	d.oltpDistinctRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPDistinctRanges))
+
+	d.oltpIndexUpdates = widget.NewEntry()
+	d.oltpIndexUpdates.SetText(fmt.Sprintf("%d", defaultParams.OLTPIndexUpdates))
+
+	d.oltpNonIndexUpdates = widget.NewEntry()
+	d.oltpNonIndexUpdates.SetText(fmt.Sprintf("%d", defaultParams.OLTPNonIndexUpdates))
+
+	d.oltpDeleteInserts = widget.NewEntry()
+	d.oltpDeleteInserts.SetText(fmt.Sprintf("%d", defaultParams.OLTPDeleteInserts))
+
+	// Create form with visible parameters
+	formItems := []*widget.FormItem{
+		widget.NewFormItem("Database Type", d.dbTypeSelect),
+		widget.NewFormItem("Template Name", d.nameEntry),
+		widget.NewFormItem("Tables (N)", d.tablesEntry),
+		widget.NewFormItem("Table Size (N)", d.tableSizeEntry),
+		widget.NewFormItem("DB PS Mode", d.dbPSModeEntry),
+		widget.NewFormItem("OLTP Test Mode", d.oltpTestModeEntry),
+		widget.NewFormItem("Point Selects", d.oltpPointSelects),
+		widget.NewFormItem("Simple Ranges", d.oltpSimpleRanges),
+		widget.NewFormItem("Sum Ranges", d.oltpSumRanges),
+		widget.NewFormItem("Order Ranges", d.oltpOrderRanges),
+		widget.NewFormItem("Distinct Ranges", d.oltpDistinctRanges),
+		widget.NewFormItem("Index Updates", d.oltpIndexUpdates),
+		widget.NewFormItem("Non-Index Updates", d.oltpNonIndexUpdates),
+		widget.NewFormItem("Delete Inserts", d.oltpDeleteInserts),
+	}
+
+	// Create buttons
+	btnSave := widget.NewButton("Save", func() {
+		if d.onSave() {
+			d.dialog.Hide()
+		}
+		// If onSave returns false, dialog stays open
+	})
+	btnSave.Importance = widget.HighImportance
+
+	btnCancel := widget.NewButton("Cancel", func() {
+		// Will be set to close dialog after dialog is created
+	})
+
+	buttonContainer := container.NewHBox(btnSave, btnCancel)
+
+	// Create form
+	form := widget.NewForm(formItems...)
+
+	// Create dialog content with buttons at bottom
+	content := container.NewVBox(form, widget.NewSeparator(), buttonContainer)
+
+	// Create custom dialog without buttons
+	dlg := dialog.NewCustomWithoutButtons(title, content, win)
+	dlg.Resize(fyne.NewSize(500, 700))
+	d.dialog = dlg
+
+	// Update Cancel button to close dialog
+	btnCancel.OnTapped = func() {
+		dlg.Hide()
+	}
+
+	dlg.Show()
+}
+
+// onSave handles the save button click.
+// Returns true if save was successful (dialog should close), false otherwise (dialog stays open).
+func (d *templateDialog) onSave() bool {
+	slog.Info("Templates: Save button clicked in dialog")
+	// Parse and validate parameters
+	name := strings.TrimSpace(d.nameEntry.Text)
+	if name == "" {
+		slog.Warn("Templates: Template name is empty")
+		dialog.ShowError(fmt.Errorf("template name is required"), d.win)
+		return false
+	}
+
+	// Check for duplicate names
+	customTemplatesMutex.RLock()
+	for _, tmpl := range customTemplates {
+		// Skip self in edit mode if name hasn't changed
+		if d.isEditMode && tmpl.Name == d.originalName && name == d.originalName {
+			continue
+		}
+		// Check for duplicate
+		if tmpl.Name == name {
+			customTemplatesMutex.RUnlock()
+			slog.Warn("Templates: Template name already exists", "name", name)
+			dialog.ShowError(fmt.Errorf("template name '%s' already exists", name), d.win)
+			return false
+		}
+	}
+	customTemplatesMutex.RUnlock()
+
+	// Also check built-in templates
+	if name == "OLTP Read-Write (Sysbench)" {
+		slog.Warn("Templates: Template name conflicts with built-in template", "name", name)
+		dialog.ShowError(fmt.Errorf("template name '%s' conflicts with built-in template", name), d.win)
+		return false
+	}
+
+	slog.Info("Templates: Template validated", "name", name)
+
+	// Parse numeric values (simplified - no strict validation)
+	tables := parseIntOrDefault(d.tablesEntry.Text, 10)
+	tableSize := parseIntOrDefault(d.tableSizeEntry.Text, 10000)
+	pointSelects := parseIntOrDefault(d.oltpPointSelects.Text, 10)
+	simpleRanges := parseIntOrDefault(d.oltpSimpleRanges.Text, 1)
+	sumRanges := parseIntOrDefault(d.oltpSumRanges.Text, 1)
+	orderRanges := parseIntOrDefault(d.oltpOrderRanges.Text, 1)
+	distinctRanges := parseIntOrDefault(d.oltpDistinctRanges.Text, 1)
+	indexUpdates := parseIntOrDefault(d.oltpIndexUpdates.Text, 1)
+	nonIndexUpdates := parseIntOrDefault(d.oltpNonIndexUpdates.Text, 1)
+	deleteInserts := parseIntOrDefault(d.oltpDeleteInserts.Text, 1)
+
+	params := &OLTPParameters{
+		Tables:              tables,
+		TableSize:           tableSize,
+		DBPSMode:            d.dbPSModeEntry.Selected,
+		OLTPTestMode:        d.oltpTestModeEntry.Selected,
+		OLTPPointSelects:    pointSelects,
+		OLTPSimpleRanges:    simpleRanges,
+		OLTPSumRanges:       sumRanges,
+		OLTPOrderRanges:     orderRanges,
+		OLTPDistinctRanges:  distinctRanges,
+		OLTPIndexUpdates:    indexUpdates,
+		OLTPNonIndexUpdates: nonIndexUpdates,
+		OLTPDeleteInserts:   deleteInserts,
+	}
+
+	dbType := d.dbTypeSelect.Selected
+	slog.Info("Templates: DB Type from selector", "db_type", dbType, "selected", d.dbTypeSelect.Selected, "options", d.dbTypeSelect.Options)
+
+	if d.onSuccess != nil {
+		d.onSuccess(params, name, dbType)
+	}
+
+	return true
+}
+
+// parseIntOrDefault parses an integer or returns default value.
+func parseIntOrDefault(s string, defaultValue int) int {
+	var val int
+	if _, err := fmt.Sscanf(s, "%d", &val); err != nil {
+		return defaultValue
+	}
+	return val
 }

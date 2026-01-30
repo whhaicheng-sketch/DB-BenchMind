@@ -141,6 +141,30 @@ CREATE INDEX IF NOT EXISTS idx_run_logs_timestamp ON run_logs(timestamp);
 CREATE INDEX IF NOT EXISTS idx_run_logs_stream ON run_logs(stream);
 
 -- =============================================================================
+-- Table 6.5: history_records
+-- 历史记录表（保存成功的运行记录）
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS history_records (
+    id TEXT PRIMARY KEY,  -- Run ID
+    created_at TEXT NOT NULL,  -- When the record was created (when saved to history)
+    connection_name TEXT NOT NULL,  -- Connection name
+    template_name TEXT NOT NULL,  -- Template name
+    database_type TEXT NOT NULL,  -- Database type (MySQL/PostgreSQL)
+    threads INTEGER NOT NULL,  -- Thread count
+    start_time TEXT NOT NULL,  -- Benchmark start time
+    duration_seconds REAL NOT NULL,  -- Run duration in seconds
+    tps REAL NOT NULL,  -- Transactions per second
+    record_json TEXT NOT NULL  -- Full record JSON with all statistics
+);
+
+-- Index for history_records
+CREATE INDEX IF NOT EXISTS idx_history_records_connection_name ON history_records(connection_name);
+CREATE INDEX IF NOT EXISTS idx_history_records_template_name ON history_records(template_name);
+CREATE INDEX IF NOT EXISTS idx_history_records_database_type ON history_records(database_type);
+CREATE INDEX IF NOT EXISTS idx_history_records_start_time ON history_records(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_history_records_tps ON history_records(tps DESC);
+
+-- =============================================================================
 -- Table 7: reports
 -- 报告导出记录表
 -- =============================================================================

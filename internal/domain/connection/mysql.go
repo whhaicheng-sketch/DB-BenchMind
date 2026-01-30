@@ -35,20 +35,20 @@ func (c *MySQLConnection) GetType() DatabaseType {
 
 // GetDSN generates a connection string without password (for logging).
 // Format: username@tcp(host:port)/database
-// If database is empty, returns: username@tcp(host:port)
+// If database is empty, returns: username@tcp(host:port)/
 func (c *MySQLConnection) GetDSN() string {
 	if c.Database == "" {
-		return fmt.Sprintf("%s@tcp(%s:%d)", c.Username, c.Host, c.Port)
+		return fmt.Sprintf("%s@tcp(%s:%d)/", c.Username, c.Host, c.Port)
 	}
 	return fmt.Sprintf("%s@tcp(%s:%d)/%s", c.Username, c.Host, c.Port, c.Database)
 }
 
 // GetDSNWithPassword generates a complete connection string with password.
 // Format: username:password@tcp(host:port)/database
-// If database is empty, returns: username:password@tcp(host:port)
+// If database is empty, returns: username:password@tcp(host:port)/
 func (c *MySQLConnection) GetDSNWithPassword() string {
 	if c.Database == "" {
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)", c.Username, c.Password, c.Host, c.Port)
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)/", c.Username, c.Password, c.Host, c.Port)
 	}
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", c.Username, c.Password, c.Host, c.Port, c.Database)
 }

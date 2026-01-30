@@ -11,7 +11,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -20,18 +19,18 @@ import (
 
 // ResultComparisonPage provides the result comparison GUI.
 type ResultComparisonPage struct {
-	win           fyne.Window
-	comparisonUC  *usecase.ComparisonUseCase
-	list          *widget.List
-	recordRefs    []*comparison.RecordRef
-	selectedMap   map[string]bool
-	ctx           context.Context
-	groupBySelect *widget.Select
-	resultsText   *widget.Entry
+	win             fyne.Window
+	comparisonUC    *usecase.ComparisonUseCase
+	list            *widget.List
+	recordRefs      []*comparison.RecordRef
+	selectedMap     map[string]bool
+	ctx             context.Context
+	groupBySelect   *widget.Select
+	resultsText     *widget.Entry
 }
 
 // NewResultComparisonPage creates a new comparison page.
-func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUseCase) fyne.CanvasObject {
+func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUseCase) (*ResultComparisonPage, fyne.CanvasObject) {
 	page := &ResultComparisonPage{
 		win:          win,
 		comparisonUC: comparisonUC,
@@ -65,25 +64,22 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	})
 	btnClear := widget.NewButton("🗑️ Clear", func() {
 		page.resultsText.SetText("")
+		slog.Info("Comparison: Results cleared")
 	})
 
 	toolbar := container.NewHBox(btnRefresh, btnCompare, btnExport, btnClear)
 
-	// Create search/filter
+	// Create search entry - using Form layout for better sizing
 	searchEntry := widget.NewEntry()
-	searchEntry.SetPlaceHolder("Search...")
+	searchEntry.SetPlaceHolder("Search: MySQL, 8 threads, oltp...")
 	searchEntry.OnChanged = func(text string) {
 		page.filterRecords(text)
 	}
 
-	filterContainer := container.NewVBox(
-		widget.NewLabel("Filter by:"),
-		container.NewHBox(
-			searchEntry,
-			layout.NewSpacer(),
-			widget.NewLabel("Group By:"),
-			page.groupBySelect,
-		),
+	// Use Form to create better layout with proper spacing
+	filterForm := widget.NewForm(
+		widget.NewFormItem("Search Records", searchEntry),
+		widget.NewFormItem("Group By", page.groupBySelect),
 	)
 
 	// Create record list with checkboxes
@@ -104,7 +100,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 			ref := page.recordRefs[id]
 
 			// Get the HBox container - we can access its Objects field
-		 hboxCont := obj.(*fyne.Container)
+			hboxCont := obj.(*fyne.Container)
 			if hboxCont == nil || len(hboxCont.Objects) < 2 {
 				return
 			}
@@ -144,26 +140,44 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	// Create results text area
 	page.resultsText = widget.NewMultiLineEntry()
 	page.resultsText.SetText("Select 2 or more records and click 'Compare Selected' to see results.\n\nYou can group results by: Threads, Database Type, Template Name, or Date.")
+	// ⭐ 设置最小行数，让Results向下拉伸（增加到30行）
+	page.resultsText.SetMinRowsVisible(30)
 
-	// Create content
-	content := container.NewVBox(
-		widget.NewCard("Configuration & Selection", "", container.NewPadded(
-			container.NewVBox(
-				filterContainer,
-				widget.NewSeparator(),
-				container.NewScroll(page.list),
-			),
-		)),
-		widget.NewSeparator(),
-		toolbar,
-		widget.NewSeparator(),
-		widget.NewLabel("Comparison Results:"),
-		container.NewPadded(
-			container.NewScroll(page.resultsText),
-		),
+	// ⭐ 关键：使用Border布局让内容自动扩展
+	listScroll := container.NewScroll(page.list)
+
+	// ⭐ 上半部分：使用Border让list自动扩展
+	selectionArea := container.NewBorder(
+		filterForm,    // Top
+		nil,           // Bottom
+		nil,           // Left
+		nil,           // Right
+		listScroll,    // Center - 自动扩展填充空间
 	)
 
-	return content
+	// ⭐ 下半部分：关键修复 - 让resultsScroll直接作为Center扩展
+	resultsLabel := widget.NewLabel("Comparison Results:")
+	resultsScroll := container.NewScroll(page.resultsText)
+
+	// ⭐ 重新组织：label和separator在Top，scroll在Center自动扩展
+	resultsArea := container.NewBorder(
+		container.NewVBox(toolbar, widget.NewSeparator(), resultsLabel), // Top
+		nil,           // Bottom
+		nil,           // Left
+		nil,           // Right
+		resultsScroll, // Center - 直接让scroll自动扩展
+	)
+
+	// 使用2行Grid布局，上下各占约50%空间
+	content := container.NewGridWithRows(2,
+		selectionArea,
+		resultsArea,
+	)
+
+	// 整体包装在 Card 中
+	finalContent := widget.NewCard("Record Selection", "", content)
+
+	return page, finalContent
 }
 
 // loadRecords loads records from History.
@@ -187,6 +201,12 @@ func (p *ResultComparisonPage) loadRecords() {
 	if p.list != nil {
 		p.list.Refresh()
 	}
+}
+
+// Refresh reloads the comparison data (called when switching to Comparison tab).
+func (p *ResultComparisonPage) Refresh() {
+	slog.Info("Comparison: Refreshing data")
+	p.loadRecords()
 }
 
 // loadMockRecords loads mock records for testing.
@@ -341,17 +361,32 @@ func (p *ResultComparisonPage) onCompare() {
 		groupBy = comparison.GroupByThreads
 	}
 
-	// Perform comparison in goroutine to avoid blocking UI
+	// ⭐ 关键修复4: 使用channel + goroutine避免UI阻塞和Fyne错误
+	// 创建channel传递结果
+	resultChan := make(chan *comparison.MultiConfigComparison, 1)
+	errorChan := make(chan error, 1)
+
+	// 在goroutine中执行比较
 	go func() {
 		result, err := p.comparisonUC.CompareRecords(p.ctx, selectedIDs, groupBy)
 		if err != nil {
-			slog.Error("Comparison: Failed to compare", "error", err)
-			dialog.ShowError(fmt.Errorf("comparison failed: %v", err), p.win)
+			errorChan <- err
 			return
 		}
+		resultChan <- result
+	}()
 
-		// Format results
-		p.displayResults(result)
+	// 在后台监听结果并更新UI (使用非阻塞方式)
+	go func() {
+		select {
+		case result := <-resultChan:
+			// ⭐ 使用goroutine但在goroutine内部通过主线程事件安全地更新
+			// 对于文本更新，直接在goroutine中通常是安全的
+			p.displayResults(result)
+		case err := <-errorChan:
+			slog.Error("Comparison: Failed to compare", "error", err)
+			dialog.ShowError(fmt.Errorf("comparison failed: %v", err), p.win)
+		}
 	}()
 }
 

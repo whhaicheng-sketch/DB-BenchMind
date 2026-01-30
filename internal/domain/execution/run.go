@@ -27,6 +27,7 @@ type Run struct {
 	// Results
 	Result       *BenchmarkResult `json:"result,omitempty"`
 	ErrorMessage string           `json:"error_message,omitempty"`
+	Message      string           `json:"message,omitempty"` // User-friendly message for UI display
 
 	// Work directory for storing logs and artifacts
 	WorkDir string `json:"work_dir,omitempty"`
@@ -41,8 +42,11 @@ type BenchmarkResult struct {
 	// Core metrics (spec.md 3.5.2)
 	TPSCalculated float64 `json:"tps_calculated"` // Calculated TPS
 	LatencyAvg    float64 `json:"latency_avg_ms"` // Average latency (ms)
+	LatencyMin    float64 `json:"latency_min_ms"` // Minimum latency (ms)
+	LatencyMax    float64 `json:"latency_max_ms"` // Maximum latency (ms)
 	LatencyP95    float64 `json:"latency_p95_ms"` // 95th percentile latency (ms)
 	LatencyP99    float64 `json:"latency_p99_ms"` // 99th percentile latency (ms)
+	LatencySum    float64 `json:"latency_sum_ms"`  // Sum of all latencies (ms)
 	ErrorCount    int64   `json:"error_count"`    // Total errors
 	ErrorRate     float64 `json:"error_rate_percent"` // Error rate (%)
 
@@ -50,6 +54,30 @@ type BenchmarkResult struct {
 	Duration          time.Duration `json:"duration"`           // Run duration
 	TotalTransactions int64         `json:"total_transactions"` // Total transactions
 	TotalQueries      int64         `json:"total_queries,omitempty"` // Total queries
+
+	// SQL Statistics
+	ReadQueries  int64 `json:"read_queries,omitempty"`  // Read queries
+	WriteQueries int64 `json:"write_queries,omitempty"` // Write queries
+	OtherQueries  int64 `json:"other_queries,omitempty"` // Other queries
+	IgnoredErrors int64 `json:"ignored_errors,omitempty"` // Ignored errors
+	Reconnects    int64 `json:"reconnects,omitempty"`    // Reconnects
+
+	// General Statistics
+	TotalTime   float64 `json:"total_time_seconds,omitempty"`   // Total time in seconds
+	TotalEvents int64   `json:"total_events,omitempty"`      // Total number of events
+
+	// Threads Fairness
+	EventsAvg    float64 `json:"events_avg,omitempty"`     // Events average
+	EventsStddev float64 `json:"events_stddev,omitempty"`  // Events stddev
+	ExecTimeAvg  float64 `json:"exec_time_avg,omitempty"`   // Execution time average
+	ExecTimeStddev float64 `json:"exec_time_stddev,omitempty"` // Execution time stddev
+
+	// Connection and Template Info (for History)
+	ConnectionName string `json:"connection_name,omitempty"` // Connection name
+	TemplateName   string `json:"template_name,omitempty"`   // Template name
+	DatabaseType    string `json:"database_type,omitempty"`    // Database type
+	Threads        int    `json:"threads,omitempty"`           // Thread count
+	StartTime      time.Time `json:"start_time,omitempty"`      // Benchmark start time
 
 	// Time series data
 	TimeSeries []MetricSample `json:"time_series,omitempty"` // Time series metrics
@@ -66,6 +94,7 @@ type MetricSample struct {
 	LatencyP95  float64   `json:"latency_p95_ms"` // 95th percentile latency (ms)
 	LatencyP99  float64   `json:"latency_p99_ms"` // 99th percentile latency (ms)
 	ErrorRate   float64   `json:"error_rate_percent"` // Error rate (%)
+	RawLine     string    `json:"raw_line,omitempty"` // Original output line
 }
 
 // IsCompleted checks if the run is in a terminal state.

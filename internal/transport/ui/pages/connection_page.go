@@ -778,7 +778,8 @@ func NewHistoryPage(win fyne.Window) fyne.CanvasObject {
 
 // NewComparisonPage creates the result comparison page.
 func NewComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUseCase) fyne.CanvasObject {
-	return NewResultComparisonPage(win, comparisonUC)
+	_, content := NewResultComparisonPage(win, comparisonUC)
+	return content
 }
 
 // NewReportPage creates the report export page.

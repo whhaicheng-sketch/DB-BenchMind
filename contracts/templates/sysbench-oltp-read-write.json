@@ -44,9 +44,9 @@
     }
   },
   "command_template": {
-    "prepare": "sysbench {db_type} --tables={tables} --table-size={table_size} {connection_string} prepare",
-    "run": "sysbench {db_type} --threads={threads} --time={time} --tables={tables} --report-interval=1 {rate_arg} {connection_string} run",
-    "cleanup": "sysbench {db_type} --tables={tables} {connection_string} cleanup"
+    "prepare": "sysbench oltp_read_write --tables={tables} --table-size={table_size} {connection_string} prepare",
+    "run": "sysbench oltp_read_write --threads={threads} --time={time} --tables={tables} --report-interval=1 {rate_arg} {connection_string} run",
+    "cleanup": "sysbench oltp_read_write --tables={tables} {connection_string} cleanup"
   },
   "output_parser": {
     "type": "regex",

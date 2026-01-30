@@ -100,6 +100,9 @@ type RunRepository interface {
 	// SaveMetricSample saves a metric sample for a run.
 	SaveMetricSample(ctx context.Context, runID string, sample execution.MetricSample) error
 
+	// GetMetricSamples retrieves all metric samples for a run.
+	GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error)
+
 	// SaveLogEntry saves a log entry for a run.
 	SaveLogEntry(ctx context.Context, runID string, entry LogEntry) error
 

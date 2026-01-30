@@ -52,24 +52,31 @@ func (a *Application) Run() {
 	// Create history page and save reference
 	historyPage, historyPageContent := pages.NewHistoryRecordPage(window, a.historyUC, a.exportUC)
 
+	// Create comparison page and save reference
+	comparisonPage, comparisonPageContent := pages.NewResultComparisonPage(window, a.comparisonUC)
+
 	// Create tabs
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Connections", pages.NewConnectionPage(a.connUC, window)),
 		container.NewTabItem("Templates", pages.NewTemplatePage(window)),
 		container.NewTabItem("Tasks & Monitor", pages.NewTaskMonitorPageWithUC(window, a.connUC, a.benchmarkUC, a.templateUC, a.historyUC)),
 		container.NewTabItem("History", historyPageContent),
-		container.NewTabItem("Comparison", pages.NewComparisonPage(window, a.comparisonUC)),
+		container.NewTabItem("Comparison", comparisonPageContent),
 		container.NewTabItem("Reports", pages.NewReportPage(window)),
 		container.NewTabItem("Settings", pages.NewSettingsPage(window, a.connUC)),
 	)
 
 	tabs.SetTabLocation(container.TabLocationTop)
 
-	// Add tab change listener to auto-refresh History when selected
+	// Add tab change listener to auto-refresh pages when selected
 	tabs.OnSelected = func(tab *container.TabItem) {
-		// Check if the selected tab is History (index 3)
+		// Auto-refresh History when selected
 		if tab.Text == "History" {
 			historyPage.Refresh()
+		}
+		// Auto-refresh Comparison when selected
+		if tab.Text == "Comparison" {
+			comparisonPage.Refresh()
 		}
 	}
 

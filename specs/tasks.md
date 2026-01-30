@@ -1346,3 +1346,208 @@ Phase 2 可并行执行的任务组：
 ---
 
 **文档结束**
+
+---
+
+## Phase X: Tasks & Monitor 页面实现
+
+**目标**: 实现实时监控和任务管理界面
+
+**完成日期**: 2026-01-30
+
+---
+
+### Task X.1: Tasks & Monitor 页面布局设计 [COMPLETED]
+
+**Type**: impl
+**File**: `internal/transport/ui/pages/task_monitor_page.go`
+**Description**: 设计并实现Tasks & Monitor页面的UI布局
+
+**Acceptance**:
+- [x] 页面分为两个主要区域：Task Configuration 和 Real-time Monitor
+- [x] Task Configuration 包含可配置参数
+- [x] Real-time Monitor 显示实时指标和日志输出
+
+**Implementation**:
+```
+Task Configuration (顶部):
+- Connection: 下拉选择
+- Template: 下拉选择
+- Threads: 线程数输入
+- Duration: 压测时长（秒）
+- Database Name: 数据库名称
+
+Real-time Monitor (底部，使用Border布局，可向下拉伸):
+- 第一行: Status (单独一行，加粗显示)
+- 分隔线
+- 指标网格 (4列布局):
+  - TPS: -- (实时更新)
+  - QPS: -- (实时更新)
+  - 95% Latency: -- (实时更新)
+  - Threads: -- (显示线程数)
+  - Errors/s: 0.00 (实时更新)
+- 分隔线
+- Progress: 进度条
+- 分隔线
+- "Real-time Output:" 标签
+- 日志输出区域 (MultiLineEntry, 可向下拉伸，最多显示60行，默认显示约10行)
+```
+
+**关键设计决策**:
+1. 使用Border布局让日志区域自动填充剩余空间
+2. 预填充10个空行确保初始显示约10行
+3. 新数据追加到底部，超过60行时删除顶部最老的行
+4. 自动滚动到底部显示最新数据
+
+---
+
+### Task X.2: 实时监控指标实现 [COMPLETED]
+
+**Type**: impl
+**File**: `internal/transport/ui/pages/task_monitor_page.go`
+**Description**: 实现TPS、QPS、95% Latency、Errors等实时指标的显示
+
+**Acceptance**:
+- [x] 每秒从数据库读取最新的metric sample
+- [x] 更新UI显示数值
+- [x] 捕获sysbench原始输出并透传显示
+
+**Implementation**:
+- 监控goroutine每秒调用 `benchmarkUC.GetMetricSamples()`
+- 提取最新sample的TPS、QPS、LatencyP95、ErrorRate
+- 更新对应Label显示
+- 将原始输出行（RawLine）追加到日志文本框
+
+**数据流**:
+```
+sysbench output (stdout)
+  → SysbenchAdapter.StartRealtimeCollection()
+    → Sample{TPS, QPS, LatencyP95, RawLine}
+      → MetricSample{...RawLine}
+        → SQLiteRunRepository.SaveMetricSample()
+          → BenchmarkUseCase.GetMetricSamples()
+            → UI更新 (label + logEntry)
+```
+
+---
+
+### Task X.3: 独立阶段按钮实现 [COMPLETED]
+
+**Type**: impl
+**File**: `internal/transport/ui/pages/task_monitor_page.go`
+**Description**: 实现Prepare、Run、Cleanup三个独立按钮
+
+**Acceptance**:
+- [x] 三个按钮可以独立执行，不强制顺序
+- [x] Run按钮默认可用（不置灰）
+- [x] 执行期间禁用所有按钮，启用Stop按钮
+- [x] 执行完成后恢复按钮状态
+
+**Implementation**:
+- 删除了 `btnRun.Disable()` 初始化代码
+- 每个按钮调用独立的phase函数：
+  - `onPreparePhase()`: 执行prepare阶段
+  - `onRunPhase()`: 执行run阶段
+  - `onCleanupPhase()`: 执行cleanup阶段
+- `validateAndExecutePhase()` 统一处理验证和执行
+
+---
+
+### Task X.4: 实时输出显示优化 [COMPLETED]
+
+**Type**: impl
+**File**: `internal/transport/ui/pages/task_monitor_page.go`
+**Description**: 优化日志输出区域的显示效果
+
+**Acceptance**:
+- [x] 最多保留60行历史数据
+- [x] 新数据追加到底部
+- [x] 自动滚动到底部显示最新数据
+- [x] 使用Border布局让日志区域可向下拉伸
+- [x] 预填充10行确保初始显示足够空间
+
+**Implementation Details**:
+```go
+// Border layout
+logContainer = container.NewBorder(
+    topSection,   // Top: Status + Metrics + Progress (固定)
+    nil,          // Bottom: 无
+    nil,          // Left: 无
+    nil,          // Right: 无
+    page.logEntry // Center: 填充所有剩余空间 ⬇️
+)
+
+// 预填充空行
+placeholderLines := ""
+for i := 0; i < 10; i++ {
+    placeholderLines += "\n"
+}
+placeholderLines += "Waiting for benchmark data...\n"
+page.logEntry.SetText(placeholderLines)
+```
+
+---
+
+### 附录：Real-time Monitor 显示字段
+
+**仅展示以下字段**:
+
+1. **Status** (Label)
+   - 显示状态：Idle, Running (Prepare/Run/Cleanup), Completed, Stopped, Error
+   - 加粗显示
+   - 单独一行
+
+2. **TPS** (Label: "--")
+   - 实时更新每秒事务数
+
+3. **QPS** (Label: "--")
+   - 实时更新每秒查询数
+
+4. **95% Latency** (Label: "--")
+   - 实时更新95分位延迟
+
+5. **Errors/s** (Label: "0.00")
+   - 实时更新错误率
+
+6. **Progress** (ProgressBar)
+   - 显示任务进度
+
+7. **Real-time Output** (MultiLineEntry)
+   - 显示sysbench原始输出
+   - 格式: `[ 10s ] thds: 4 tps: 342.03 qps: 6846.39 ...`
+   - 最多60行，默认显示约10行
+   - 可向下拉伸
+
+**移除字段**:
+- ❌ Avg Latency (sysbench实时输出中没有此字段)
+- ❌ Threads (已从指标网格移除，改为在配置中显示)
+
+---
+
+### 附录：Run完成对话框显示内容
+
+**Run阶段成功完成后，显示详细统计信息**:
+
+对话框标题: "Run Completed"
+
+显示内容:
+```
+Benchmark completed successfully!
+
+Duration: XX.X seconds
+
+Transactions:                XXXXX  (XXX.XX per sec.)
+Queries:                     XXXXXX  (XXX.XX per sec.)
+
+Latency (ms):
+     min:                      XX.XX
+     avg:                      XX.XX
+     max:                      XX.XX
+     95th percentile:          XX.XX
+     sum:                      XXXX.XX
+```
+
+**数据来源**:
+- 从 `run.Result` (BenchmarkResult) 中获取
+- 包含完整的sysbench最终统计信息
+

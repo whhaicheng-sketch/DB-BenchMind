@@ -79,13 +79,8 @@ func (c *OracleConnection) Validate() error {
 		errs = append(errs, err)
 	}
 
-	// Validate that either ServiceName or SID is provided (but not both)
-	if c.ServiceName == "" && c.SID == "" {
-		errs = append(errs, &ValidationError{
-			Field:   "service_name/sid",
-			Message: "either service_name or sid must be specified",
-		})
-	}
+	// ServiceName/SID is optional - can connect to Oracle instance without specifying database
+	// Validate that ServiceName and SID are not both specified (mutually exclusive)
 	if c.ServiceName != "" && c.SID != "" {
 		errs = append(errs, &ValidationError{
 			Field:   "service_name/sid",

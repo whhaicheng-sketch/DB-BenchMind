@@ -288,8 +288,8 @@ func (r *SQLiteRunRepository) UpdateState(ctx context.Context, id string, state 
 func (r *SQLiteRunRepository) SaveMetricSample(ctx context.Context, runID string, sample execution.MetricSample) error {
 	query := `
 		INSERT INTO metric_samples (
-			run_id, timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			run_id, timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate, raw_line
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
@@ -302,12 +302,64 @@ func (r *SQLiteRunRepository) SaveMetricSample(ctx context.Context, runID string
 		sample.LatencyP95,
 		sample.LatencyP99,
 		sample.ErrorRate,
+		sample.RawLine,
 	)
 	if err != nil {
 		return fmt.Errorf("save metric sample: %w", err)
 	}
 
 	return nil
+}
+
+// GetMetricSamples retrieves all metric samples for a run.
+func (r *SQLiteRunRepository) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
+	query := `
+		SELECT timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate, raw_line
+		FROM metric_samples
+		WHERE run_id = ?
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, runID)
+	if err != nil {
+		return nil, fmt.Errorf("query metric samples: %w", err)
+	}
+	defer rows.Close()
+
+	var samples []execution.MetricSample
+	for rows.Next() {
+		var sample execution.MetricSample
+		var timestampStr string
+
+		err := rows.Scan(
+			&timestampStr,
+			&sample.Phase,
+			&sample.TPS,
+			&sample.QPS,
+			&sample.LatencyAvg,
+			&sample.LatencyP95,
+			&sample.LatencyP99,
+			&sample.ErrorRate,
+			&sample.RawLine,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan metric sample: %w", err)
+		}
+
+		// Parse timestamp
+		sample.Timestamp, err = time.Parse(time.RFC3339, timestampStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse timestamp: %w", err)
+		}
+
+		samples = append(samples, sample)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate metric samples: %w", err)
+	}
+
+	return samples, nil
 }
 
 // SaveLogEntry saves a log entry for a run.

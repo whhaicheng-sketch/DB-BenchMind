@@ -5,6 +5,7 @@ package adapter
 import (
 	"context"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
@@ -78,11 +79,46 @@ type Result struct {
 type Sample struct {
 	Timestamp   time.Time `json:"timestamp"`
 	TPS         float64   `json:"tps"`
+	QPS         float64   `json:"qps"`
 	LatencyAvg  float64   `json:"latency_avg_ms"`
 	LatencyP95  float64   `json:"latency_p95_ms"`
 	LatencyP99  float64   `json:"latency_p99_ms"`
 	ErrorRate   float64   `json:"error_rate"`
 	ThreadCount int       `json:"thread_count,omitempty"`
+	RawLine     string    `json:"raw_line"` // Original output line from sysbench
+}
+
+// FinalResult represents the final benchmark results.
+// Implements: REQ-EXEC-005 (result collection)
+type FinalResult struct {
+	// SQL Statistics
+	TotalTransactions int64
+	TransactionsPerSec float64
+	TotalQueries      int64
+	QueriesPerSec     float64
+	ReadQueries       int64
+	WriteQueries      int64
+	OtherQueries      int64
+	IgnoredErrors     int64
+	Reconnects        int64
+
+	// Latency (ms)
+	LatencyMin        float64
+	LatencyAvg        float64
+	LatencyMax        float64
+	LatencyP95        float64
+	LatencyP99        float64
+	LatencySum        float64
+
+	// General Statistics
+	TotalTime         float64
+	TotalEvents       int64
+
+	// Threads Fairness
+	EventsAvg         float64
+	EventsStddev      float64
+	ExecTimeAvg       float64
+	ExecTimeStddev    float64
 }
 
 // ProgressUpdate represents a progress update during execution.
@@ -118,14 +154,21 @@ type BenchmarkAdapter interface {
 	ParseRunOutput(ctx context.Context, stdout string, stderr string) (*Result, error)
 
 	// StartRealtimeCollection starts realtime metric collection from the running process.
-	// Returns a channel that will receive samples until the context is cancelled.
+	// Returns a channel that will receive samples until the context is cancelled,
+	// an error channel, and a buffer containing the complete stdout for final result parsing.
+	// Note: This only reads stdout. stderr should be captured separately by the caller.
 	// Implements: REQ-EXEC-004 (realtime monitoring)
-	StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error)
+	StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan Sample, <-chan error, *strings.Builder)
 
 	// ValidateConfig validates the configuration for this adapter.
 	// Returns an error if the configuration is invalid.
 	// Implements: REQ-EXEC-001 (pre-check)
 	ValidateConfig(ctx context.Context, config *Config) error
+
+	// ParseFinalResults parses the final benchmark results from sysbench output.
+	// Returns detailed final metrics including SQL statistics, latency, etc.
+	// Implements: REQ-EXEC-005 (result collection)
+	ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error)
 
 	// SupportsDatabase checks if this adapter supports the given database type.
 	SupportsDatabase(dbType connection.DatabaseType) bool

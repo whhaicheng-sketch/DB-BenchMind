@@ -5,9 +5,11 @@ package usecase
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
@@ -37,13 +40,20 @@ var (
 	ErrExecutionFailed = errors.New("execution failed")
 )
 
+// RealtimeSampleCallback is called for each realtime sample during benchmark execution.
+type RealtimeSampleCallback func(runID string, sample execution.MetricSample)
+
 // BenchmarkUseCase provides benchmark execution business operations.
 // Implements: REQ-EXEC-001 ~ REQ-EXEC-010
 type BenchmarkUseCase struct {
-	runRepo       RunRepository
-	adapterReg    *adapter.AdapterRegistry
-	connUseCase   *ConnectionUseCase
-	templateUseCase *TemplateUseCase
+	runRepo             RunRepository
+	adapterReg          *adapter.AdapterRegistry
+	connUseCase         *ConnectionUseCase
+	templateUseCase     *TemplateUseCase
+	realtimeCallback    RealtimeSampleCallback // Optional callback for realtime samples
+	realtimeCallbackMu  sync.RWMutex            // Protects realtimeCallback
+	runningProcesses    map[string]*exec.Cmd     // Track running processes by run ID
+	runningProcessesMu  sync.RWMutex            // Protects runningProcesses
 }
 
 // NewBenchmarkUseCase creates a new benchmark use case.
@@ -54,11 +64,20 @@ func NewBenchmarkUseCase(
 	templateUseCase *TemplateUseCase,
 ) *BenchmarkUseCase {
 	return &BenchmarkUseCase{
-		runRepo:         runRepo,
-		adapterReg:      adapterReg,
-		connUseCase:     connUseCase,
-		templateUseCase: templateUseCase,
+		runRepo:          runRepo,
+		adapterReg:       adapterReg,
+		connUseCase:      connUseCase,
+		templateUseCase:  templateUseCase,
+		runningProcesses: make(map[string]*exec.Cmd),
 	}
+}
+
+// SetRealtimeCallback sets a callback function to receive realtime samples.
+// The callback will be invoked for each sample as it's collected during benchmark execution.
+func (uc *BenchmarkUseCase) SetRealtimeCallback(callback RealtimeSampleCallback) {
+	uc.realtimeCallbackMu.Lock()
+	defer uc.realtimeCallbackMu.Unlock()
+	uc.realtimeCallback = callback
 }
 
 // =============================================================================
@@ -134,21 +153,215 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		Connection: conn,
 		Template:   tmpl,
 		Parameters: task.Parameters,
-		Options:    execution.TaskOptions{}, // TODO: Get from task
+		Options:    task.Options,
 		WorkDir:    run.WorkDir,
 	}
 
+	slog.Info("Benchmark: executeBenchmark started",
+		"run_id", run.ID,
+		"skip_prepare", task.Options.SkipPrepare,
+		"skip_cleanup", task.Options.SkipCleanup,
+		"warmup_time", task.Options.WarmupTime)
+
 	// Run pre-checks
+	slog.Info("Benchmark: Running pre-checks", "run_id", run.ID)
 	if err := uc.preChecks(ctx, run, adapt, config); err != nil {
+		slog.Error("Benchmark: Pre-checks failed", "error", err, "run_id", run.ID)
 		uc.markAsFailed(ctx, run.ID, fmt.Sprintf("pre-check: %v", err))
 		return
+	}
+	slog.Info("Benchmark: Pre-checks passed", "run_id", run.ID)
+
+	// Check if we should only execute prepare phase (time=0 indicates prepare-only)
+	runTime := 0
+	hasTime := false
+	if timeVal, ok := task.Parameters["time"].(int); ok {
+		runTime = timeVal
+		hasTime = true
+	}
+
+	hasOriginalTime := false
+	if _, ok := task.Parameters["_original_time"].(int); ok {
+		hasOriginalTime = true
+	}
+
+	slog.Info("Benchmark: Checking execution mode",
+		"run_id", run.ID,
+		"hasTime", hasTime,
+		"runTime", runTime,
+		"hasOriginalTime", hasOriginalTime,
+		"skipCleanup", task.Options.SkipCleanup)
+
+	if hasTime && runTime == 0 && hasOriginalTime {
+		// Prepare-only mode: execute prepare then mark as completed
+		slog.Info("Benchmark: Prepare-only mode detected", "run_id", run.ID)
+
+		// Create database if needed
+		if err := uc.createDatabaseIfNeeded(ctx, run, adapt, config); err != nil {
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("create database: %v", err))
+			return
+		}
+
+		// Prepare phase
+		// For prepare-only mode, we bypass executePhase to avoid StatePrepared
+		// and go directly to StateCompleted
+		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
+
+		cmd, err := adapt.BuildPrepareCommand(ctx, config)
+		if err != nil {
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("build prepare command: %v", err))
+			return
+		}
+
+		if err := uc.executeCommand(ctx, run, cmd); err != nil {
+			// Check if error is "table already exists" (MySQL error 1050)
+			errMsg := err.Error()
+			slog.Info("Benchmark: Prepare command failed, checking error type", "run_id", run.ID, "error", errMsg)
+
+			if strings.Contains(errMsg, "1050") || strings.Contains(errMsg, "already exists") ||
+			   strings.Contains(errMsg, "Duplicate key") || strings.Contains(errMsg, "Table.*already exists") ||
+			   strings.Contains(errMsg, "Table '") && strings.Contains(errMsg, "already exists") {
+				slog.Info("Benchmark: Prepare phase - data already exists, treating as success",
+					"error", err, "run_id", run.ID)
+
+				// Set user-friendly message for UI popup
+				run.Message = "✓ Table data already exists\n\nThe benchmark tables are already prepared and ready to use."
+				uc.runRepo.Save(ctx, run)
+
+				// Save log entries
+				msg1 := "✓ Table data already exists - skipping prepare phase"
+				msg2 := "Info: The benchmark tables are already prepared and ready to use."
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					Stream:    "info",
+					Content:   strings.Repeat("=", 60),
+				})
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					Stream:    "info",
+					Content:   msg1,
+				})
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					Stream:    "info",
+					Content:   msg2,
+				})
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					Stream:    "info",
+					Content:   strings.Repeat("=", 60),
+				})
+				// Data already exists, this is OK for prepare phase - continue to mark as completed
+			} else {
+				uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
+				return
+			}
+		} else {
+			// Prepare completed successfully
+			msg1 := "✓ Prepare phase completed successfully"
+			msg2 := "Info: All tables created and data loaded successfully."
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   strings.Repeat("=", 60),
+			})
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   msg1,
+			})
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   msg2,
+			})
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   strings.Repeat("=", 60),
+			})
+		}
+
+		// For prepare-only mode, mark as completed directly (bypassing StatePrepared)
+		uc.markAsCompleted(ctx, run.ID, 0)
+		return
+	}
+
+	// Check if we should only execute cleanup phase
+	if hasTime && runTime == 0 && !hasOriginalTime && !task.Options.SkipCleanup {
+		// Cleanup-only mode
+		slog.Info("Benchmark: Cleanup-only mode detected", "run_id", run.ID)
+
+		// Cleanup phase
+		// For cleanup-only mode, we bypass executePhase to avoid StatePrepared
+		// and go directly to StateCompleted
+		slog.Info("Benchmark: Executing cleanup phase (cleanup-only mode)", "run_id", run.ID)
+
+		cmd, err := adapt.BuildCleanupCommand(ctx, config)
+		if err != nil {
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("build cleanup command: %v", err))
+			return
+		}
+
+		if err := uc.executeCommand(ctx, run, cmd); err != nil {
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("cleanup: %v", err))
+			return
+		}
+
+		// Cleanup completed successfully - add friendly message
+		msg1 := "✓ Cleanup phase completed successfully"
+		msg2 := "Info: All benchmark tables and data have been removed."
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   strings.Repeat("=", 60),
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   msg1,
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   msg2,
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   strings.Repeat("=", 60),
+		})
+
+		// For cleanup-only mode, mark as completed directly (bypassing StatePrepared)
+		uc.markAsCompleted(ctx, run.ID, 0)
+		return
+	}
+
+	// Full benchmark execution (prepare + run + cleanup)
+
+	// Create database if needed (before prepare phase)
+	if !task.Options.SkipPrepare {
+		if err := uc.createDatabaseIfNeeded(ctx, run, adapt, config); err != nil {
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("create database: %v", err))
+			return
+		}
 	}
 
 	// Prepare phase
 	if !task.Options.SkipPrepare {
 		if err := uc.executePhase(ctx, run, adapt, config, "prepare", execution.StatePreparing, execution.StatePrepared); err != nil {
-			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
-			return
+			// Check if error is "table already exists" (MySQL error 1050)
+			// This is OK - means data was already prepared, we can continue
+			if strings.Contains(err.Error(), "1050") || strings.Contains(err.Error(), "already exists") {
+				slog.Warn("Benchmark: Prepare phase failed with 'table already exists', continuing",
+					"error", err, "run_id", run.ID)
+				// Continue to run phase anyway
+				uc.updateState(ctx, run.ID, execution.StatePrepared)
+			} else {
+				// For other errors, fail the benchmark
+				uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
+				return
+			}
 		}
 	} else {
 		uc.updateState(ctx, run.ID, execution.StatePrepared)
@@ -164,7 +377,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 
 	// Run phase
 	startTime := time.Now()
-	if err := uc.executeRun(ctx, run, adapt, config, task.Options.RunTimeout); err != nil {
+	if err := uc.executeRun(ctx, run, adapt, config, task.Options.RunTimeout, conn, tmpl); err != nil {
 		uc.markAsFailed(ctx, run.ID, fmt.Sprintf("run: %v", err))
 		return
 	}
@@ -205,6 +418,49 @@ func (uc *BenchmarkUseCase) preChecks(ctx context.Context, run *execution.Run, a
 	return nil
 }
 
+// createDatabaseIfNeeded creates the database if it doesn't exist.
+// This runs before the prepare phase to ensure sysbench can connect to the database.
+func (uc *BenchmarkUseCase) createDatabaseIfNeeded(ctx context.Context, run *execution.Run, adapt adapter.BenchmarkAdapter, config *adapter.Config) error {
+	// Check if adapter supports database creation
+	type DatabaseCreator interface {
+		BuildCreateDatabaseCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error)
+	}
+
+	creator, ok := adapt.(DatabaseCreator)
+	if !ok {
+		// Adapter doesn't support database creation, skip
+		slog.Info("Benchmark: Adapter does not support database creation, skipping", "adapter", adapt.Type())
+		return nil
+	}
+
+	// Build create database command
+	cmd, err := creator.BuildCreateDatabaseCommand(ctx, config)
+	if err != nil {
+		return fmt.Errorf("build create database command: %w", err)
+	}
+
+	// Execute command (ignore errors if database already exists)
+	slog.Info("Benchmark: Creating database if not exists",
+		"work_dir", run.WorkDir,
+		"cmd_line", cmd.CmdLine,
+		"env_vars", len(cmd.Env))
+	if err := uc.executeCommand(ctx, run, cmd); err != nil {
+		// Log error but don't fail - database might already exist
+		// Get exit code if available
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			slog.Warn("Benchmark: Create database command failed",
+				"error", err,
+				"exit_code", exitErr.ExitCode(),
+				"stderr", string(exitErr.Stderr))
+		} else {
+			slog.Warn("Benchmark: Create database command failed (database may already exist)", "error", err)
+		}
+	}
+
+	return nil
+}
+
 // executePhase executes a single phase (prepare/cleanup).
 func (uc *BenchmarkUseCase) executePhase(
 	ctx context.Context,
@@ -217,6 +473,7 @@ func (uc *BenchmarkUseCase) executePhase(
 ) error {
 	// Update state
 	uc.updateState(ctx, run.ID, targetState)
+	slog.Info("Benchmark: Starting phase", "phase", phase, "run_id", run.ID)
 
 	var cmd *adapter.Command
 	var err error
@@ -231,13 +488,26 @@ func (uc *BenchmarkUseCase) executePhase(
 	}
 
 	if err != nil {
-		return err
+		return fmt.Errorf("build %s command: %w", phase, err)
 	}
+
+	slog.Info("Benchmark: Executing phase command",
+		"phase", phase,
+		"cmd", cmd.CmdLine,
+		"run_id", run.ID)
 
 	// Execute command
 	if err := uc.executeCommand(ctx, run, cmd); err != nil {
+		slog.Warn("Benchmark: Phase command failed",
+			"phase", phase,
+			"error", err,
+			"run_id", run.ID)
 		return err
 	}
+
+	slog.Info("Benchmark: Phase completed successfully",
+		"phase", phase,
+		"run_id", run.ID)
 
 	// Update to success state
 	uc.updateState(ctx, run.ID, successState)
@@ -271,13 +541,15 @@ func (uc *BenchmarkUseCase) executeWarmup(
 }
 
 // executeRun executes the main benchmark run with realtime monitoring.
-// Implements: REQ-EXEC-002, REQ-EXEC-004
+// Implements: REQ-EXEC-002, REQ-EXEC-004, REQ-EXEC-005
 func (uc *BenchmarkUseCase) executeRun(
 	ctx context.Context,
 	run *execution.Run,
 	adapt adapter.BenchmarkAdapter,
 	config *adapter.Config,
 	timeout time.Duration,
+	conn connection.Connection,
+	tmpl *domaintemplate.Template,
 ) error {
 	// Update state
 	uc.updateState(ctx, run.ID, execution.StateRunning)
@@ -302,16 +574,29 @@ func (uc *BenchmarkUseCase) executeRun(
 	}
 
 	// Start command
-	process, stdout, stderr, err := uc.startCommand(runCtx, cmd)
+	process, stdout, _, err := uc.startCommand(runCtx, cmd)
 	if err != nil {
 		return fmt.Errorf("start command: %w", err)
 	}
-	defer process.Wait()
-	defer stdout.Close()
-	defer stderr.Close()
 
-	// Start realtime collection
-	sampleCh, errCh := adapt.StartRealtimeCollection(runCtx, stdout, stderr)
+	// Save process reference for later stop operations
+	uc.runningProcessesMu.Lock()
+	uc.runningProcesses[run.ID] = process
+	uc.runningProcessesMu.Unlock()
+
+	// Clean up process reference when done
+	defer func() {
+		uc.runningProcessesMu.Lock()
+		delete(uc.runningProcesses, run.ID)
+		uc.runningProcessesMu.Unlock()
+	}()
+
+	// We'll read stderr after process completes
+	// Don't close stderr here - we'll read it after process.Wait()
+	defer stdout.Close()
+
+	// Start realtime collection from stdout only
+	sampleCh, errCh, stdoutBuf := adapt.StartRealtimeCollection(runCtx, stdout)
 
 	// Monitor process
 	done := make(chan error, 1)
@@ -322,30 +607,243 @@ func (uc *BenchmarkUseCase) executeRun(
 	// Collect samples and monitor for completion
 	for {
 		select {
-		case sample := <-sampleCh:
-			// Save metric sample
-			metricSample := execution.MetricSample{
-				Timestamp:   sample.Timestamp,
-				Phase:       "run",
-				TPS:         sample.TPS,
-				LatencyAvg:  sample.LatencyAvg,
-				LatencyP95:  sample.LatencyP95,
-				LatencyP99:  sample.LatencyP99,
-				ErrorRate:   sample.ErrorRate,
-			}
-			uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample)
+		case sample, ok := <-sampleCh:
+			if !ok {
+				// Channel closed - wait briefly for any remaining samples to be processed
+				// This ensures the final second's data is captured before we exit
+				slog.Info("Benchmark: Sample channel closed, waiting for final samples", "run_id", run.ID)
+				time.Sleep(500 * time.Millisecond)
 
-		case err := <-errCh:
-			// Log error
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "stderr",
-				Content:   err.Error(),
-			})
+				// Now wait for process to complete
+				processErr := <-done
+				if processErr != nil {
+					errMsg := processErr.Error()
+					slog.Info("Benchmark: Run process failed", "run_id", run.ID, "error", errMsg)
+
+					// Check if tables exist by querying the database
+					// This is more reliable than parsing stderr
+					tablesExist := uc.checkTablesExist(ctx, config.Connection, config.Parameters)
+
+					if !tablesExist {
+						// Table does not exist - set user-friendly message
+						slog.Info("Benchmark: Run phase - tables do not exist", "run_id", run.ID)
+						run.Message = "✗ Error: Benchmark tables do not exist\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button."
+						uc.runRepo.Save(ctx, run)
+
+						// Save error to logs
+						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+							Timestamp: time.Now().Format(time.RFC3339),
+							Stream:    "error",
+							Content:   "============================================================",
+						})
+						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+							Timestamp: time.Now().Format(time.RFC3339),
+							Stream:    "error",
+							Content:   run.Message,
+						})
+						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+							Timestamp: time.Now().Format(time.RFC3339),
+							Stream:    "error",
+							Content:   "============================================================",
+						})
+					}
+					return fmt.Errorf("process error: %w", processErr)
+				}
+
+				// Process completed successfully, parse final results
+				slog.Info("Benchmark: Process completed successfully, parsing final results", "run_id", run.ID)
+				finalResult, err := adapt.ParseFinalResults(ctx, stdoutBuf.String())
+				slog.Info("Benchmark: ParseFinalResults returned", "run_id", run.ID, "err", err, "finalResult_nil", finalResult == nil)
+				if err != nil {
+					slog.Error("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
+				} else {
+					slog.Info("Benchmark: Final result parsed",
+						"run_id", run.ID,
+						"transactions", finalResult.TotalTransactions,
+						"tps", finalResult.TransactionsPerSec,
+						"queries", finalResult.TotalQueries,
+						"qps", finalResult.QueriesPerSec,
+						"latency_min", finalResult.LatencyMin,
+						"latency_avg", finalResult.LatencyAvg,
+						"latency_max", finalResult.LatencyMax,
+						"latency_p95", finalResult.LatencyP95)
+
+					// Get threads count from parameters
+					threads := 0
+					if t, ok := config.Parameters["threads"].(int); ok {
+						threads = t
+					}
+
+					// Convert finalResult to BenchmarkResult and save to run
+					slog.Info("Benchmark: Creating BenchmarkResult", "run_id", run.ID)
+					result := &execution.BenchmarkResult{
+						RunID:              run.ID,
+						TPSCalculated:      finalResult.TransactionsPerSec,
+						LatencyAvg:         finalResult.LatencyAvg,
+						LatencyMin:         finalResult.LatencyMin,
+						LatencyMax:         finalResult.LatencyMax,
+						LatencyP95:         finalResult.LatencyP95,
+						LatencyP99:         finalResult.LatencyP99,
+						LatencySum:         finalResult.LatencySum,
+						TotalTransactions: finalResult.TotalTransactions,
+						TotalQueries:       finalResult.TotalQueries,
+						Duration:           time.Duration(finalResult.TotalTime) * time.Second,
+
+						// SQL Statistics
+						ReadQueries:  finalResult.ReadQueries,
+						WriteQueries: finalResult.WriteQueries,
+						OtherQueries: finalResult.OtherQueries,
+						IgnoredErrors: finalResult.IgnoredErrors,
+						Reconnects:    finalResult.Reconnects,
+
+						// General Statistics
+						TotalTime:   finalResult.TotalTime,
+						TotalEvents: finalResult.TotalEvents,
+
+						// Threads Fairness
+						EventsAvg:      finalResult.EventsAvg,
+						EventsStddev:   finalResult.EventsStddev,
+						ExecTimeAvg:    finalResult.ExecTimeAvg,
+						ExecTimeStddev: finalResult.ExecTimeStddev,
+
+						// Connection and Template Info (for History)
+						ConnectionName: conn.GetName(),
+						TemplateName:   tmpl.Name,
+						DatabaseType:   string(conn.GetType()),
+						Threads:        threads,
+						StartTime:      *run.StartedAt,
+					}
+
+					slog.Info("Benchmark: Saving result to run", "run_id", run.ID)
+					// Save result to run
+					run.Result = result
+					if err := uc.runRepo.Save(ctx, run); err != nil {
+						slog.Error("Benchmark: Failed to save final result to run", "run_id", run.ID, "error", err)
+					} else {
+						slog.Info("Benchmark: Final result saved successfully", "run_id", run.ID)
+					}
+				}
+				return nil
+			}
+			// Save metric sample with error handling
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("Benchmark: Panic in SaveMetricSample", "run_id", run.ID, "panic", r)
+					}
+				}()
+				metricSample := execution.MetricSample{
+					Timestamp:   sample.Timestamp,
+					Phase:       "run",
+					TPS:         sample.TPS,
+					QPS:         sample.QPS,
+					LatencyAvg:  sample.LatencyAvg,
+					LatencyP95:  sample.LatencyP95,
+					LatencyP99:  sample.LatencyP99,
+					ErrorRate:   sample.ErrorRate,
+					RawLine:     sample.RawLine,
+				}
+				if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
+					slog.Error("Benchmark: Failed to save metric sample", "run_id", run.ID, "error", err)
+				}
+
+				// Invoke realtime callback if set (for UI streaming)
+				uc.realtimeCallbackMu.RLock()
+				callback := uc.realtimeCallback
+				uc.realtimeCallbackMu.RUnlock()
+
+				if callback != nil {
+					// Call callback in goroutine to avoid blocking sample processing
+					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								slog.Error("Benchmark: Panic in realtime callback", "run_id", run.ID, "panic", r)
+							}
+						}()
+						callback(run.ID, metricSample)
+					}()
+				}
+			}()
+
+		case err, ok := <-errCh:
+			if !ok {
+				// Channel closed
+				continue
+			}
+			// Log error with panic recovery
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("Benchmark: Panic in SaveLogEntry", "run_id", run.ID, "panic", r)
+					}
+				}()
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: time.Now().Format(time.RFC3339),
+					Stream:    "stderr",
+					Content:   err.Error(),
+				})
+			}()
 
 		case err := <-done:
 			if err != nil {
+				// Check if error is "table does not exist"
+				errMsg := err.Error()
+				slog.Info("Benchmark: Run command failed, checking error type", "run_id", run.ID, "error", errMsg)
+
+				if strings.Contains(errMsg, "1146") || // Table doesn't exist
+				   strings.Contains(errMsg, "Table.*doesn't exist") ||
+				   strings.Contains(errMsg, "Table.*not exist") ||
+				   strings.Contains(errMsg, "no such table") {
+					// Table does not exist - set user-friendly message
+					slog.Info("Benchmark: Run phase - tables do not exist", "run_id", run.ID)
+					run.Message = "✗ Error: Benchmark tables do not exist\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button."
+					uc.runRepo.Save(ctx, run)
+
+					// Save log entries
+					msg1 := "✗ Error: Benchmark tables do not exist"
+					msg2 := "Please run the Prepare phase first to create the tables and load data."
+					msg3 := "Go to Task Configuration and click the '📦 Prepare' button."
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   strings.Repeat("=", 60),
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   msg1,
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "info",
+						Content:   msg2,
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "info",
+						Content:   msg3,
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   strings.Repeat("=", 60),
+					})
+				}
 				return fmt.Errorf("process error: %w", err)
+			}
+			// Process completed successfully, parse final results
+			finalResult, err := adapt.ParseFinalResults(ctx, stdoutBuf.String())
+			if err != nil {
+				slog.Warn("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
+			} else {
+				// Save final results to run
+				slog.Info("Benchmark: Final results parsed",
+					"run_id", run.ID,
+					"tps", finalResult.TransactionsPerSec,
+					"qps", finalResult.QueriesPerSec,
+					"latency_avg", finalResult.LatencyAvg,
+					"latency_p95", finalResult.LatencyP95)
+				// TODO: Save finalResult to run object or database
 			}
 			return nil
 
@@ -396,27 +894,69 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 	execCmd.Dir = cmd.WorkDir
 	execCmd.Env = append(os.Environ(), cmd.Env...)
 
-	// Get pipes
-	stdout, err := execCmd.StdoutPipe()
+	// Debug: Log command execution with environment details
+	hasMYSQL_PWD := false
+	hasPGPASSWORD := false
+	for _, env := range execCmd.Env {
+		if strings.HasPrefix(env, "MYSQL_PWD=") {
+			hasMYSQL_PWD = true
+		}
+		if strings.HasPrefix(env, "PGPASSWORD=") {
+			hasPGPASSWORD = true
+		}
+	}
+
+	// Log the actual command that will be executed
+	slog.Info("Benchmark: === EXECUTING COMMAND ===",
+		"run_id", run.ID,
+		"binary", parts[0],
+		"arguments", parts[1:],
+		"work_dir", execCmd.Dir,
+		"env_count", len(execCmd.Env),
+		"has_mysql_pwd", hasMYSQL_PWD,
+		"has_pgpassword", hasPGPASSWORD)
+
+	// Use CombinedOutput to capture both stdout and stderr
+	// This avoids the race condition of reading both pipes concurrently
+	output, err := execCmd.CombinedOutput()
+
+	// Split output into lines and save to repository
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// Determine if this is stderr (error messages) by checking content
+		stream := "stdout"
+		lineLower := strings.ToLower(line)
+		if strings.Contains(lineLower, "error") ||
+		   strings.Contains(lineLower, "failed") ||
+		   strings.Contains(lineLower, "fatal") ||
+		   strings.Contains(lineLower, "warning") {
+			stream = "stderr"
+		}
+
+		// Save to repository
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    stream,
+			Content:   line,
+		})
+
+		// Also log important messages to slog
+		if stream == "stderr" {
+			slog.Info("Benchmark: command output", "run_id", run.ID, "stream", stream, "line", line)
+		}
+	}
+
+	// If command failed, return error with output
 	if err != nil {
-		return err
-	}
-	stderr, err := execCmd.StderrPipe()
-	if err != nil {
-		return err
+		slog.Error("Benchmark: Command failed", "run_id", run.ID, "exit_error", err, "output", string(output))
+		// Return error that includes output information
+		return fmt.Errorf("command failed with exit status %v: %w", err, fmt.Errorf("output:\n%s", string(output)))
 	}
 
-	// Start command
-	if err := execCmd.Start(); err != nil {
-		return fmt.Errorf("start command: %w", err)
-	}
-
-	// Capture output
-	go uc.captureOutput(ctx, run.ID, "stdout", stdout)
-	go uc.captureOutput(ctx, run.ID, "stderr", stderr)
-
-	// Wait for completion
-	return execCmd.Wait()
+	return nil
 }
 
 // startCommand starts a command and returns the process and pipes.
@@ -429,6 +969,20 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	execCmd.Dir = cmd.WorkDir
 	execCmd.Env = append(os.Environ(), cmd.Env...)
+
+	// Debug: Log command execution with environment details
+	hasMYSQL_PWD := false
+	for _, env := range execCmd.Env {
+		if strings.HasPrefix(env, "MYSQL_PWD=") {
+			hasMYSQL_PWD = true
+			break
+		}
+	}
+	slog.Info("Benchmark: Starting command",
+		"cmd", execCmd.String(),
+		"work_dir", execCmd.Dir,
+		"env_count", len(execCmd.Env),
+		"has_mysql_pwd", hasMYSQL_PWD)
 
 	stdout, err := execCmd.StdoutPipe()
 	if err != nil {
@@ -471,18 +1025,55 @@ func (uc *BenchmarkUseCase) captureOutput(ctx context.Context, runID, stream str
 // StopBenchmark stops a running benchmark.
 // Implements: REQ-EXEC-006 (graceful stop)
 func (uc *BenchmarkUseCase) StopBenchmark(ctx context.Context, runID string, force bool) error {
+	slog.Info("Benchmark: StopBenchmark called", "run_id", runID, "force", force)
+
+	uc.runningProcessesMu.RLock()
+	processCount := len(uc.runningProcesses)
+	uc.runningProcessesMu.RUnlock()
+	slog.Info("Benchmark: Current running processes", "count", processCount)
+
 	run, err := uc.runRepo.FindByID(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
+
+	slog.Info("Benchmark: Run state", "run_id", runID, "state", run.State)
 
 	// Check state
 	if run.State != execution.StateRunning && run.State != execution.StateWarmingUp {
 		return fmt.Errorf("%w: run is not running", ErrInvalidState)
 	}
 
-	// TODO: Send SIGTERM to process
-	// For now, just update state
+	// Get the running process and kill it
+	uc.runningProcessesMu.Lock()
+	process := uc.runningProcesses[runID]
+	uc.runningProcessesMu.Unlock()
+
+	slog.Info("Benchmark: Retrieved process from map", "run_id", runID, "process_found", process != nil, "process_nil", process == nil)
+
+	if process != nil && process.Process != nil {
+		slog.Info("Benchmark: Stopping process", "run_id", runID, "force", force, "pid", process.Process.Pid)
+
+		// Send SIGTERM first (graceful shutdown)
+		if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+			slog.Error("Benchmark: Failed to send SIGTERM", "run_id", runID, "error", err)
+		} else {
+			slog.Info("Benchmark: SIGTERM sent successfully", "run_id", runID)
+		}
+
+		// If force stopping, wait a bit then send SIGKILL if needed
+		if force {
+			time.Sleep(2 * time.Second)
+			if err := process.Process.Signal(syscall.SIGKILL); err != nil {
+				slog.Error("Benchmark: Failed to send SIGKILL", "run_id", runID, "error", err)
+			} else {
+				slog.Info("Benchmark: SIGKILL sent successfully", "run_id", runID)
+			}
+		}
+	} else {
+		slog.Error("Benchmark: Process not found in map or Process is nil", "run_id", runID)
+	}
+
 	if force {
 		return uc.updateState(ctx, runID, execution.StateForceStopped)
 	}
@@ -532,21 +1123,50 @@ func (uc *BenchmarkUseCase) markAsFailed(ctx context.Context, runID string, errM
 }
 
 // markAsCompleted marks a run as completed.
+// For prepare-only and cleanup-only modes, this bypasses normal state machine validation.
 func (uc *BenchmarkUseCase) markAsCompleted(ctx context.Context, runID string, duration time.Duration) {
 	if uc.runRepo == nil {
+		slog.Error("Benchmark: markAsCompleted failed - runRepo is nil", "run_id", runID)
 		return
 	}
 	run, err := uc.runRepo.FindByID(ctx, runID)
 	if err != nil {
+		slog.Error("Benchmark: markAsCompleted failed - cannot find run", "run_id", runID, "error", err)
 		return
 	}
 
+	slog.Info("Benchmark: markAsCompleted called", "run_id", runID, "current_state", run.State, "duration", duration)
+
 	now := time.Now()
+
+	// For prepare-only and cleanup-only modes, we bypass normal state machine
+	// because StatePending cannot directly transition to StateCompleted
+	// We force the state transition for these special cases
+	if run.State == execution.StatePending {
+		slog.Info("Benchmark: Forcing state transition from pending to completed (prepare/cleanup-only mode)", "run_id", runID)
+		run.State = execution.StateCompleted
+		run.CompletedAt = &now
+		run.Duration = &duration
+		if err := uc.runRepo.Save(ctx, run); err != nil {
+			slog.Error("Benchmark: markAsCompleted failed to save", "run_id", runID, "error", err)
+		} else {
+			slog.Info("Benchmark: markAsCompleted saved successfully (forced transition)", "run_id", runID, "state", run.State)
+		}
+		return
+	}
+
+	// Normal path: use SetState with validation
 	if err := run.SetState(execution.StateCompleted); err == nil {
 		run.State = execution.StateCompleted
 		run.CompletedAt = &now
 		run.Duration = &duration
-		uc.runRepo.Save(ctx, run)
+		if err := uc.runRepo.Save(ctx, run); err != nil {
+			slog.Error("Benchmark: markAsCompleted failed to save", "run_id", runID, "error", err)
+		} else {
+			slog.Info("Benchmark: markAsCompleted saved successfully", "run_id", runID, "state", run.State)
+		}
+	} else {
+		slog.Error("Benchmark: markAsCompleted - SetState failed", "run_id", runID, "error", err)
 	}
 }
 
@@ -581,11 +1201,110 @@ func (uc *BenchmarkUseCase) checkDiskSpace(path string, requiredBytes int64) err
 	return nil
 }
 
+// checkTablesExist checks if the benchmark tables exist in the database
+func (uc *BenchmarkUseCase) checkTablesExist(ctx context.Context, conn connection.Connection, params map[string]interface{}) bool {
+	// Get database name
+	dbName := "sbtest"
+	if db, ok := params["db_name"].(string); ok && db != "" {
+		dbName = db
+	}
+
+	// For MySQL connection, check if sbtest1 table exists
+	mysqlConn, ok := conn.(*connection.MySQLConnection)
+	if !ok {
+		return true // Assume tables exist for non-MySQL
+	}
+
+	// Build connection string
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
+		mysqlConn.Username,
+		mysqlConn.Password,
+		mysqlConn.Host,
+		mysqlConn.Port,
+		dbName)
+
+	// Open database connection
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		slog.Warn("checkTablesExist: Failed to open database", "error", err)
+		return true // Assume tables exist if we can't check
+	}
+	defer db.Close()
+
+	// Check if first benchmark table exists
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'sbtest1'", dbName).Scan(&count)
+	if err != nil {
+		slog.Warn("checkTablesExist: Failed to query table", "error", err)
+		return true // Assume tables exist if query fails
+	}
+
+	return count > 0
+}
 // parseCommandLine parses a command line string into parts.
+// Handles quoted strings (both single and double quotes) and backticks.
 func parseCommandLine(cmdLine string) ([]string, error) {
-	// Simple implementation - split on spaces
-	// TODO: Use proper shell parsing for quoted strings
-	return strings.Fields(cmdLine), nil
+	var parts []string
+	var current strings.Builder
+	var inSingleQuote, inDoubleQuote, inBacktick bool
+	var escapeNext bool
+
+	for i, r := range cmdLine {
+		if escapeNext {
+			current.WriteRune(r)
+			escapeNext = false
+			continue
+		}
+
+		switch r {
+		case '\\':
+			escapeNext = true
+		case '\'':
+			if !inDoubleQuote && !inBacktick {
+				inSingleQuote = !inSingleQuote
+			} else {
+				current.WriteRune(r)
+			}
+		case '"':
+			if !inSingleQuote && !inBacktick {
+				inDoubleQuote = !inDoubleQuote
+			} else {
+				current.WriteRune(r)
+			}
+		case '`':
+			if !inSingleQuote && !inDoubleQuote {
+				inBacktick = !inBacktick
+			} else {
+				current.WriteRune(r)
+			}
+		case ' ', '\t':
+			if inSingleQuote || inDoubleQuote || inBacktick {
+				current.WriteRune(r)
+			} else if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+
+		// Check for unclosed quotes at end
+		if i == len(cmdLine)-1 && (inSingleQuote || inDoubleQuote || inBacktick) {
+			return nil, fmt.Errorf("unclosed quote at position %d", i)
+		}
+	}
+
+	// Add last part
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	// Handle empty command
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty command")
+	}
+
+	return parts, nil
 }
 
 // GetRunLogs retrieves log entries for a run.
@@ -596,8 +1315,7 @@ func (uc *BenchmarkUseCase) GetRunLogs(ctx context.Context, runID string, stream
 
 // GetMetricSamples retrieves metric samples for a run.
 func (uc *BenchmarkUseCase) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
-	// TODO: Implement metric sample retrieval
-	return []execution.MetricSample{}, nil
+	return uc.runRepo.GetMetricSamples(ctx, runID)
 }
 
 // BenchmarkExecutor manages an active benchmark execution.

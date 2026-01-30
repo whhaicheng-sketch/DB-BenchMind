@@ -215,9 +215,10 @@ func (a *HammerDBAdapter) ParseRunOutput(ctx context.Context, stdout string, std
 }
 
 // StartRealtimeCollection starts realtime metric collection from hammerdb output.
-func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error) {
+func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
 	sampleChan := make(chan Sample, 10)
 	errChan := make(chan error, 1)
+	var stdoutBuf strings.Builder
 
 	go func() {
 		defer close(sampleChan)
@@ -230,6 +231,10 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 		for scanner.Scan() {
 			line := scanner.Text()
 			line = strings.TrimSpace(line)
+
+			// Save to stdout buffer
+			stdoutBuf.WriteString(line)
+			stdoutBuf.WriteString("\n")
 
 			// Parse realtime TPM/NOPM
 			if strings.Contains(line, "NOPM") || strings.Contains(line, "TPM") {
@@ -278,7 +283,14 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 		}
 	}()
 
-	return sampleChan, errChan
+	return sampleChan, errChan, &stdoutBuf
+}
+
+// ParseFinalResults parses final results from hammerdb output.
+// TODO: Implement hammerdb-specific parsing
+func (a *HammerDBAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
+	// Stub implementation for now
+	return &FinalResult{}, fmt.Errorf("parse final results not implemented for hammerdb")
 }
 
 // ValidateConfig validates the configuration for hammerdb.

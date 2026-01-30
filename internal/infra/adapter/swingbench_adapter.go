@@ -209,9 +209,10 @@ func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, s
 }
 
 // StartRealtimeCollection starts realtime metric collection from swingbench output.
-func (a *SwingbenchAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error) {
+func (a *SwingbenchAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
 	sampleChan := make(chan Sample, 10)
 	errChan := make(chan error, 1)
+	var stdoutBuf strings.Builder
 
 	go func() {
 		defer close(sampleChan)
@@ -274,7 +275,14 @@ func (a *SwingbenchAdapter) StartRealtimeCollection(ctx context.Context, stdout 
 		}
 	}()
 
-	return sampleChan, errChan
+	return sampleChan, errChan, &stdoutBuf
+}
+
+// ParseFinalResults parses final results from swingbench output.
+// TODO: Implement swingbench-specific parsing
+func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
+	// Stub implementation for now
+	return &FinalResult{}, fmt.Errorf("parse final results not implemented for swingbench")
 }
 
 // ValidateConfig validates the configuration for swingbench.

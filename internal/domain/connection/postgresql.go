@@ -66,9 +66,10 @@ func (c *PostgreSQLConnection) Validate() error {
 	if err := ValidateRequired("host", c.Host); err != nil {
 		errs = append(errs, err)
 	}
-	if err := ValidateRequired("database", c.Database); err != nil {
-		errs = append(errs, err)
-	}
+	// Database is optional for PostgreSQL - can connect without specifying a database
+	// if err := ValidateRequired("database", c.Database); err != nil {
+	// 	errs = append(errs, err)
+	// }
 	if err := ValidateRequired("username", c.Username); err != nil {
 		errs = append(errs, err)
 	}
