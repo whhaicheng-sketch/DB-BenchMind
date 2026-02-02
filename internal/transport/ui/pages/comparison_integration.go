@@ -210,7 +210,7 @@ func (p *ResultComparisonPage) AddComprehensiveReportButton(toolbar *fyne.Contai
 }
 
 // GeneratePerformanceReport generates and displays a performance report.
-// Automatically uses ALL history records from the database.
+// Uses SELECTED records from the comparison page.
 // This is the main reporting feature for performance analysis.
 func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 	if p.comparisonUC == nil {
@@ -218,32 +218,25 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		return
 	}
 
-	ctx := context.Background()
-
-	// Get all record IDs (use all available records for simplified analysis)
-	refs, err := p.comparisonUC.GetAllRecords(ctx)
-	if err != nil {
-		slog.Error("Comparison: Failed to get records", "error", err)
-		dialog.ShowError(fmt.Errorf("failed to get records: %v", err), p.win)
-		return
+	// Get selected record IDs
+	var selectedIDs []string
+	for id := range p.selectedMap {
+		selectedIDs = append(selectedIDs, id)
 	}
 
-	if len(refs) < 2 {
-		dialog.ShowInformation("Insufficient Data",
-			fmt.Sprintf("Need at least 2 records for comparison, found %d.\n\nPlease run more benchmarks first.", len(refs)),
+	if len(selectedIDs) < 2 {
+		dialog.ShowInformation("Insufficient Selection",
+			fmt.Sprintf("Please select at least 2 records to compare.\n\nCurrently selected: %d\n\nUse 'Select All' to select all records, or click checkboxes individually.",
+				len(selectedIDs)),
 			p.win)
 		return
 	}
 
-	// Extract record IDs
-	recordIDs := make([]string, len(refs))
-	for i, ref := range refs {
-		recordIDs[i] = ref.ID
-	}
+	ctx := context.Background()
 
 	// Show progress
-	progress := dialog.NewInformation("Generating Simplified Report",
-		"Analyzing benchmark data...\n\nPlease wait.", p.win)
+	progress := dialog.NewInformation("Generating Comparison Report",
+		fmt.Sprintf("Analyzing %d selected records...\n\nPlease wait.", len(selectedIDs)), p.win)
 	progress.Show()
 
 	// Determine group by field
@@ -253,15 +246,17 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		switch selected {
 		case "Threads":
 			groupBy = comparison.GroupByThreads
-		case "Database":
+		case "Database Type":
 			groupBy = comparison.GroupByDatabaseType
-		case "Template":
+		case "Template Name":
 			groupBy = comparison.GroupByTemplate
+		case "Date":
+			groupBy = comparison.GroupByDate
 		}
 	}
 
 	// Generate simplified report (synchronous for simplicity)
-	report, err := p.comparisonUC.GenerateSimplifiedReport(ctx, recordIDs, groupBy)
+	report, err := p.comparisonUC.GenerateSimplifiedReport(ctx, selectedIDs, groupBy)
 	if err != nil {
 		slog.Error("Comparison: Failed to generate simplified report", "error", err)
 		progress.Hide()

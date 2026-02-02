@@ -87,7 +87,8 @@
       "Bash(/opt/project/DB-Benchmind/.claude/commands/start:*)",
       "Bash(tail:*)",
       "Bash(./bin/db-benchmind:*)",
-      "Bash(./test_simplified_report:*)"
+      "Bash(./test_simplified_report:*)",
+      "Bash(gh auth status:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

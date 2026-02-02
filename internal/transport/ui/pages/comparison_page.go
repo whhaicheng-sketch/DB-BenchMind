@@ -57,7 +57,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	btnRefresh := widget.NewButton("🔄 Refresh", func() {
 		page.loadRecords()
 	})
-	btnReport := widget.NewButton("📊 Performance Report", func() {
+	btnCompare := widget.NewButton("📊 Compare Records", func() {
 		page.GenerateSimplifiedReport()
 	})
 	btnExport := widget.NewButton("💾 Export Report", func() {
@@ -68,7 +68,16 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 		slog.Info("Comparison: Results cleared")
 	})
 
-	toolbar := container.NewHBox(btnRefresh, btnReport, btnExport, btnClear)
+	toolbar := container.NewHBox(btnRefresh, btnCompare, btnExport, btnClear)
+
+	// Selection control buttons
+	btnSelectAll := widget.NewButton("✓ Select All", func() {
+		page.selectAllRecords(true)
+	})
+	btnDeselectAll := widget.NewButton("✗ Deselect All", func() {
+		page.selectAllRecords(false)
+	})
+	selectButtons := container.NewHBox(btnSelectAll, btnDeselectAll)
 
 	// Create search entry - using Form layout for better sizing
 	searchEntry := widget.NewEntry()
@@ -78,9 +87,12 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	}
 
 	// Use Form to create better layout with proper spacing
-	filterForm := widget.NewForm(
-		widget.NewFormItem("Search Records", searchEntry),
-		widget.NewFormItem("Group By", page.groupBySelect),
+	filterForm := container.NewVBox(
+		widget.NewForm(
+			widget.NewFormItem("Search Records", searchEntry),
+			widget.NewFormItem("Group By", page.groupBySelect),
+		),
+		selectButtons,
 	)
 
 	// Create record list with checkboxes
@@ -320,6 +332,27 @@ func contains(text, search string) bool {
 func (p *ResultComparisonPage) onGroupByChange(selected string) {
 	slog.Info("Comparison: Group By changed", "selection", selected)
 	// Could auto-refresh comparison results here if already generated
+}
+
+// selectAllRecords selects or deselects all records.
+func (p *ResultComparisonPage) selectAllRecords(selectAll bool) {
+	for _, ref := range p.recordRefs {
+		if selectAll {
+			p.selectedMap[ref.ID] = true
+		} else {
+			delete(p.selectedMap, ref.ID)
+		}
+	}
+	// Refresh the list to update checkboxes
+	if p.list != nil {
+		p.list.Refresh()
+	}
+	selectedCount := len(p.selectedMap)
+	action := "deselected"
+	if selectAll {
+		action = "selected"
+	}
+	slog.Info("Comparison: Records "+action, "count", selectedCount)
 }
 
 // onExportReport exports the current performance report.
