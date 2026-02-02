@@ -86,7 +86,8 @@
       "Bash(/opt/project/DB-BenchMind/.claude/commands/start)",
       "Bash(/opt/project/DB-Benchmind/.claude/commands/start:*)",
       "Bash(tail:*)",
-      "Bash(./bin/db-benchmind:*)"
+      "Bash(./bin/db-benchmind:*)",
+      "Bash(./test_simplified_report:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

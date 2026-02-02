@@ -1,0 +1,23 @@
+╔════════════════════════════════════════════════════════════════╗
+║              Sysbench Comparison Report (Simplified)                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+Generated: 2026-02-02 06:32:51
+Report ID: report-20260202_063251
+Records: 5
+
+Configuration Groups:
+  threads=1: 1 run(s), TPS=63.93
+  threads=2: 1 run(s), TPS=116.84
+  threads=4: 1 run(s), TPS=255.63
+  threads=8: 1 run(s), TPS=608.50
+  threads=16: 1 run(s), TPS=751.37
+
+Sanity Checks:
+
+Total: 4/4 passed
+
+Findings:
+  Best TPS: threads=16 (TPS=751.37)
+  Best Latency: threads=8 (p95=16.41ms)
+  Recommendation: threads=16 (TPS=751.37, p95=31.94ms)
