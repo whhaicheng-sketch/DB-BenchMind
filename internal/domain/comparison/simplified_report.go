@@ -48,6 +48,7 @@ type ThreadGroupStats struct {
 	QPS         GroupMetricStats
 	LatencyAvg  GroupMetricStats
 	LatencyP95  GroupMetricStats
+	LatencyMax  GroupMetricStats
 	Errors      int64
 	Reconnects  int64
 }
@@ -134,12 +135,14 @@ func calculateThreadStats(records []*RecordRef) ThreadGroupStats {
 	qpsValues := make([]float64, n)
 	latAvgValues := make([]float64, n)
 	latP95Values := make([]float64, n)
+	latMaxValues := make([]float64, n)
 
 	for i, record := range records {
 		tpsValues[i] = record.TPS
 		qpsValues[i] = record.QPS
 		latAvgValues[i] = record.LatencyAvg
 		latP95Values[i] = record.LatencyP95
+		latMaxValues[i] = record.LatencyMax
 		stats.Errors += record.IgnoredErrors
 		stats.Reconnects += record.Reconnects
 	}
@@ -149,6 +152,7 @@ func calculateThreadStats(records []*RecordRef) ThreadGroupStats {
 	stats.QPS = calculateGroupMetricStats(qpsValues)
 	stats.LatencyAvg = calculateGroupMetricStats(latAvgValues)
 	stats.LatencyP95 = calculateGroupMetricStats(latP95Values)
+	stats.LatencyMax = calculateGroupMetricStats(latMaxValues)
 
 	return stats
 }
@@ -340,47 +344,233 @@ func (r *SimplifiedReport) FormatMarkdown() string {
 	var builder strings.Builder
 
 	// Header
-	builder.WriteString("# Sysbench Comparison Report\n\n")
-	builder.WriteString(fmt.Sprintf("- **Generated at:** %s\n", r.GeneratedAt.Format("2006-01-02 15:04:05")))
-	builder.WriteString(fmt.Sprintf("- **Report ID:** %s\n", r.ReportID))
-	builder.WriteString(fmt.Sprintf("- **Group By:** %s\n", r.GroupBy))
-	builder.WriteString(fmt.Sprintf("- **Selected Records:** %d\n", r.SelectedRecords))
-	builder.WriteString(fmt.Sprintf("- **Notes:** %s\n\n", r.Notes))
-	builder.WriteString("---\n\n")
+	builder.WriteString("# Sysbench Multi-Configuration Comparison Report\n\n")
+	builder.WriteString(fmt.Sprintf("* **Generated at:** %s\n", r.GeneratedAt.Format("2006-01-02 15:04:05")))
+	builder.WriteString(fmt.Sprintf("* **Report ID:** %s\n", r.ReportID))
+	builder.WriteString(fmt.Sprintf("* **Group by:** %s\n", r.GroupBy))
+	builder.WriteString(fmt.Sprintf("* **Config Groups:** %d\n", len(r.ConfigGroups)))
+	builder.WriteString("\n---\n\n")
 
-	// Section 0: Record Selection Summary
-	builder.WriteString("## 0) Record Selection Summary\n\n")
-	builder.WriteString("### 0.1 Filters (UI Inputs)\n")
-	builder.WriteString("- Search Query: (none)\n")
-	builder.WriteString("- Selected Templates: All templates\n")
-	builder.WriteString("- Threads in Selection: ")
-	threads := make(map[int]bool)
-	for _, group := range r.ConfigGroups {
-		threads[group.Threads] = true
-	}
-	threadList := make([]int, 0, len(threads))
-	for t := range threads {
-		threadList = append(threadList, t)
-	}
-	sort.Ints(threadList)
-	for i, t := range threadList {
-		if i > 0 {
-			builder.WriteString(", ")
+	// Section 1: Experiment Metadata
+	builder.WriteString("## 1) Experiment Metadata\n\n")
+	builder.WriteString("### 1.1 Basic Information\n\n")
+	builder.WriteString("| Item | Value |\n")
+	builder.WriteString("|------|-------|\n")
+	builder.WriteString(fmt.Sprintf("| Report ID | %s |\n", r.ReportID))
+	builder.WriteString(fmt.Sprintf("| Generated | %s |\n", r.GeneratedAt.Format("2006-01-02 15:04:05")))
+	builder.WriteString(fmt.Sprintf("| Group By | %s |\n", r.GroupBy))
+	builder.WriteString(fmt.Sprintf("| Config Groups | %d |\n", len(r.ConfigGroups)))
+	builder.WriteString("\n")
+
+	builder.WriteString("### 1.3 Measurement Policy\n\n")
+	builder.WriteString("* **Report interval:** 1s\n")
+	builder.WriteString("* **Test duration:** Varies by run\n")
+	builder.WriteString("* **Runs per config (N):** Varies by config\n")
+	builder.WriteString("* **Execution order:** Based on start time\n")
+	builder.WriteString("* **Acceptance criteria:** errors=0 && reconnects=0\n")
+	builder.WriteString("\n")
+
+	// Section 2: Experiment Matrix
+	builder.WriteString("## 2) Experiment Matrix\n\n")
+	builder.WriteString("| Config ID | threads | Database | Template | Runs (N) | Tags |\n")
+	builder.WriteString("|---------:|-------:|---------|----------|--------:|------|\n")
+	for i, group := range r.ConfigGroups {
+		cid := fmt.Sprintf("C%d", i+1)
+		database := group.Records[0].DatabaseType
+		template := group.Records[0].TemplateName
+		n := group.Statistics.N
+
+		var tags []string
+		if r.Findings != nil && group.Threads == r.Findings.BestTPSThreads {
+			tags = append(tags, "best-tps")
 		}
-		builder.WriteString(fmt.Sprintf("%d", t))
+		if r.Findings != nil && group.Threads == r.Findings.BestLatencyThreads {
+			tags = append(tags, "best-latency")
+		}
+		if group.Threads == 1 {
+			tags = append(tags, "baseline")
+		}
+		tagStr := strings.Join(tags, " ")
+
+		builder.WriteString(fmt.Sprintf("| %s | %d | %s | %s | %d | %s |\n",
+			cid, group.Threads, database, template, n, tagStr))
 	}
 	builder.WriteString("\n")
 
-	// Section 1: Parsing & Sanity Checks
-	builder.WriteString("## 1) Parsing & Sanity Checks (Global)\n\n")
-	builder.WriteString("### 1.1 Global Parse Summary\n")
-	builder.WriteString("| Item | Value |\n")
-	builder.WriteString("|------|-------|\n")
-	builder.WriteString(fmt.Sprintf("| Runs parsed successfully | %d |\n", r.SelectedRecords))
-	builder.WriteString("| Runs failed to parse | 0 |\n")
-	builder.WriteString("| Unknown/Unparsed lines (count) | 0 |\n\n")
+	// Section 3: Main Comparison (Run Summary Metrics)
+	builder.WriteString("## 3) Main Comparison (Run Summary Metrics)\n\n")
+	builder.WriteString("> **Note:** If N=1, StdDev = N/A; Min=Avg=Max=Single value\n")
+	builder.WriteString("> Latency unit: milliseconds\n\n")
 
-	builder.WriteString("### 1.2 Sanity Checks (Must Pass)\n")
+	builder.WriteString("### 3.1 Throughput & Latency Summary\n\n")
+	builder.WriteString("| threads | N | TPS (mean ± sd) | TPS (min..max) | QPS (mean ± sd) | QPS (min..max) | Lat avg ms (mean ± sd) | Lat p95 ms (mean ± sd) | Lat max ms (max-of-max) |\n")
+	builder.WriteString("|-------:|:-:|---------------:|--------------:|---------------:|--------------:|----------------------:|----------------------:|-----------------------:|\n")
+
+	for _, group := range r.ConfigGroups {
+		// Calculate max latency (max-of-max across all runs in this group)
+		maxLat := group.Statistics.LatencyMax.Max
+
+		builder.WriteString(fmt.Sprintf("| %d | %d | %s | %s | %s | %s | %s | %s | %.2f |\n",
+			group.Threads,
+			group.Statistics.N,
+			formatGroupMetric(group.Statistics.TPS),
+			formatGroupMetricRange(group.Statistics.TPS),
+			formatGroupMetric(group.Statistics.QPS),
+			formatGroupMetricRange(group.Statistics.QPS),
+			formatGroupMetric(group.Statistics.LatencyAvg),
+			formatGroupMetric(group.Statistics.LatencyP95),
+			maxLat,
+		))
+	}
+	builder.WriteString("\n")
+
+	builder.WriteString("### 3.2 Reliability\n\n")
+	builder.WriteString("| threads | N | Total Errors | Total Reconnects | Any non-zero? |\n")
+	builder.WriteString("|-------:|:-:|------------:|---------------:|:-------------|\n")
+	for _, group := range r.ConfigGroups {
+		anyNonZero := "NO"
+		if group.Statistics.Errors > 0 || group.Statistics.Reconnects > 0 {
+			anyNonZero = "YES"
+		}
+		builder.WriteString(fmt.Sprintf("| %d | %d | %d | %d | %s |\n",
+			group.Threads, group.Statistics.N,
+			group.Statistics.Errors, group.Statistics.Reconnects, anyNonZero))
+	}
+	builder.WriteString("\n")
+
+	// Calculate query mix from first group (assuming same mix across all)
+	if len(r.ConfigGroups) > 0 && len(r.ConfigGroups[0].Records) > 0 {
+		record := r.ConfigGroups[0].Records[0]
+		totalQ := record.ReadQueries + record.WriteQueries + record.OtherQueries
+		if totalQ > 0 {
+			builder.WriteString("### 3.3 Actual Query Mix (from SQL statistics)\n\n")
+			builder.WriteString("| threads | Read % | Write % | Other % | Queries / Transaction |\n")
+			builder.WriteString("|-------:|------:|-------:|-------:|--------------------:|\n")
+			for _, group := range r.ConfigGroups {
+				if len(group.Records) > 0 {
+					r := group.Records[0]
+					tot := r.ReadQueries + r.WriteQueries + r.OtherQueries
+					if tot > 0 {
+						rp := float64(r.ReadQueries) / float64(tot) * 100
+						wp := float64(r.WriteQueries) / float64(tot) * 100
+						op := float64(r.OtherQueries) / float64(tot) * 100
+						qpt := 0.0
+						if r.TPS > 0 {
+							qpt = float64(r.TotalQueries) / r.TPS
+						}
+						builder.WriteString(fmt.Sprintf("| %d | %.1f | %.1f | %.1f | %.2f |\n",
+							group.Threads, rp, wp, op, qpt))
+					}
+				}
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	// Section 5: Scaling & Efficiency
+	if len(r.ConfigGroups) > 0 && r.ConfigGroups[0].Threads == 1 {
+		builder.WriteString("## 5) Scaling & Efficiency (Threads Analysis)\n\n")
+		baselineTPS := r.ConfigGroups[0].Statistics.TPS.Mean
+		builder.WriteString(fmt.Sprintf("**Baseline:** threads=1 (TPS=%.2f)\n\n", baselineTPS))
+
+		builder.WriteString("| threads | TPS_mean | Speedup | Efficiency (Speedup / threads) | ΔTPS vs prev | Δp95 latency |\n")
+		builder.WriteString("|-------:|--------:|-------:|-------------------------------:|------------:|-------------:|\n")
+
+		for i, group := range r.ConfigGroups {
+			speedup := group.Statistics.TPS.Mean / baselineTPS
+			efficiency := speedup / float64(group.Threads)
+
+			deltaTPS := "—"
+			deltaP95 := "—"
+
+			if i > 0 {
+				prevGroup := r.ConfigGroups[i-1]
+				deltaTPS = fmt.Sprintf("%.2f", group.Statistics.TPS.Mean-prevGroup.Statistics.TPS.Mean)
+				deltaP95 = fmt.Sprintf("%.2f", group.Statistics.LatencyP95.Mean-prevGroup.Statistics.LatencyP95.Mean)
+			}
+
+			builder.WriteString(fmt.Sprintf("| %d | %.2f | %.2fx | %.2f%% | %s | %s |\n",
+				group.Threads,
+				group.Statistics.TPS.Mean,
+				speedup,
+				efficiency*100,
+				deltaTPS,
+				deltaP95,
+			))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Section 6: Visuals
+	builder.WriteString("## 6) Visuals (ASCII Charts)\n\n")
+
+	builder.WriteString("### 6.1 TPS vs Threads\n")
+	builder.WriteString("```text\n")
+	maxTPS := 0.0
+	for _, g := range r.ConfigGroups {
+		if g.Statistics.TPS.Max > maxTPS {
+			maxTPS = g.Statistics.TPS.Max
+		}
+	}
+	for _, g := range r.ConfigGroups {
+		tps := g.Statistics.TPS.Mean
+		barWidth := 50
+		barLength := int((tps / maxTPS) * float64(barWidth))
+		if barLength < 1 {
+			barLength = 1
+		}
+		if barLength > barWidth {
+			barLength = barWidth
+		}
+		bar := strings.Repeat("█", barLength)
+		spaces := strings.Repeat(" ", barWidth-barLength)
+		builder.WriteString(fmt.Sprintf("threads=%d  |%s%s %.2f\n",
+			g.Threads, bar, spaces, tps))
+	}
+	builder.WriteString("```\n\n")
+
+	builder.WriteString("### 6.2 p95 Latency vs Threads\n")
+	builder.WriteString("```text\n")
+	maxP95 := 0.0
+	for _, g := range r.ConfigGroups {
+		if g.Statistics.LatencyP95.Max > maxP95 {
+			maxP95 = g.Statistics.LatencyP95.Max
+		}
+	}
+	for _, g := range r.ConfigGroups {
+		p95 := g.Statistics.LatencyP95.Mean
+		barWidth := 50
+		barLength := int((p95 / maxP95) * float64(barWidth))
+		if barLength < 1 {
+			barLength = 1
+		}
+		if barLength > barWidth {
+			barLength = barWidth
+		}
+		bar := strings.Repeat("█", barLength)
+		spaces := strings.Repeat(" ", barWidth-barLength)
+		builder.WriteString(fmt.Sprintf("threads=%d  |%s%s %.2fms\n",
+			g.Threads, bar, spaces, p95))
+	}
+	builder.WriteString("```\n\n")
+
+	// Section 7: Sanity Checks
+	builder.WriteString("## 7) Sanity Checks\n\n")
+
+	allPassed := true
+	for _, check := range r.SanityChecks {
+		if !check.Passed {
+			allPassed = false
+			break
+		}
+	}
+
+	if allPassed {
+		builder.WriteString("✅ **ALL CHECKS PASSED**\n\n")
+	} else {
+		builder.WriteString("⚠️  **SOME CHECKS FAILED**\n\n")
+	}
+
 	builder.WriteString("| Check | Result | Details |\n")
 	builder.WriteString("|------|--------|----------|\n")
 	for _, check := range r.SanityChecks {
@@ -392,201 +582,98 @@ func (r *SimplifiedReport) FormatMarkdown() string {
 		if len(details) > 50 {
 			details = details[:47] + "..."
 		}
-		builder.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
-			check.Name, result, details))
+		builder.WriteString(fmt.Sprintf("| %s | %s | %s |\n", check.Name, result, details))
 	}
 	builder.WriteString("\n")
 
-	// Section 2: Executive Summary
-	builder.WriteString("## 2) Executive Summary (Across All Included Runs)\n\n")
-	builder.WriteString("### 2.1 Best Points (by common criteria)\n")
+	// Section 8: Findings & Recommendations
+	builder.WriteString("## 8) Findings & Recommendations\n\n")
+
+	builder.WriteString("### 8.1 Key Findings\n\n")
 	if r.Findings != nil {
-		builder.WriteString(fmt.Sprintf("- Highest TPS (run-summary mean): **threads=%d** → TPS=%.2f\n",
-			r.Findings.BestTPSThreads, r.Findings.BestTPSValue))
+		builder.WriteString(fmt.Sprintf("* **Best throughput point:** threads=%d (TPS=%.2f, p95=%.2fms)\n",
+			r.Findings.BestTPSThreads, r.Findings.BestTPSValue,
+			getLatencyForThreads(r.ConfigGroups, r.Findings.BestTPSThreads)))
+
 		if r.Findings.BestLatencyThreads > 0 {
-			builder.WriteString(fmt.Sprintf("- Lowest p95 latency (run-summary mean): **threads=%d** → p95=%.2f\n",
+			builder.WriteString(fmt.Sprintf("* **Best latency point:** threads=%d (p95=%.2fms)\n",
 				r.Findings.BestLatencyThreads, r.Findings.BestLatencyValue))
 		}
-	}
-	builder.WriteString("\n")
 
-	// Section 4: Comparison Sections
-	builder.WriteString("## 4) Comparison Sections (Per Thread Count)\n\n")
-
-	for i, group := range r.ConfigGroups {
-		builder.WriteString(fmt.Sprintf("## 4.%d Thread Group: threads=%d\n\n", i+1, group.Threads))
-
-		// Experiment Matrix
-		builder.WriteString(fmt.Sprintf("### 4.%d.1 Experiment Matrix\n\n", i+1))
-		builder.WriteString("| threads | N | date_span | tags |\n")
-		builder.WriteString("|-------:|-:|----------|------|\n")
-		// Calculate date span
-		var earliest, latest time.Time
-		for _, record := range group.Records {
-			if earliest.IsZero() || record.StartTime.Before(earliest) {
-				earliest = record.StartTime
-			}
-			if latest.IsZero() || record.StartTime.After(latest) {
-				latest = record.StartTime
-			}
-		}
-		dateSpan := "N/A"
-		if !earliest.IsZero() && !latest.IsZero() {
-			dateSpan = fmt.Sprintf("%s to %s",
-				earliest.Format("2006-01-02 15:04"),
-				latest.Format("2006-01-02 15:04"))
+		if r.Findings.ScalingKnee > 0 {
+			builder.WriteString(fmt.Sprintf("* **Scaling knee:** threads=~%d (efficiency drops significantly)\n",
+				r.Findings.ScalingKnee))
 		}
 
-		var tags []string
-		if r.Findings != nil && group.Threads == r.Findings.BestTPSThreads {
-			tags = append(tags, "best-tps")
-		}
-		if r.Findings != nil && group.Threads == r.Findings.BestLatencyThreads {
-			tags = append(tags, "best-latency")
-		}
-		tagStr := strings.Join(tags, ", ")
-		if tagStr == "" {
-			tagStr = "-"
-		}
-
-		builder.WriteString(fmt.Sprintf("| %d | %d | %s | %s |\n\n",
-			group.Threads, group.Statistics.N, dateSpan, tagStr))
-
-		// Main Comparison
-		builder.WriteString(fmt.Sprintf("### 4.%d.2 Main Comparison (Run Summary Metrics)\n\n", i+1))
-		builder.WriteString("> Source: sysbench tail summary (SQL statistics / General statistics / Latency)\n\n")
-		builder.WriteString("|                          threads |  N | TPS mean±sd | TPS min..max | QPS mean±sd | Lat avg mean±sd | Lat p95 mean±sd | Errors | Reconnects |\n")
-		builder.WriteString("| -------------------------------: | -: | ----------: | -----------: | ----------: | --------------: | --------------: | -----: | ---------: |\n")
-		builder.WriteString(fmt.Sprintf("| %30s | %d | %s | %s | %s | %s | %s | %d | %d |\n",
-			"-",
-			group.Statistics.N,
-			formatGroupMetric(group.Statistics.TPS),
-			formatGroupMetricRange(group.Statistics.TPS),
-			formatGroupMetric(group.Statistics.QPS),
-			formatGroupMetric(group.Statistics.LatencyAvg),
-			formatGroupMetric(group.Statistics.LatencyP95),
-			group.Statistics.Errors,
-			group.Statistics.Reconnects,
-		))
-		builder.WriteString("\n")
-
-		// Scaling & Efficiency
-		if i > 0 {
-			builder.WriteString("### 4.%d.5 Scaling & Efficiency (Threads Analysis)\n\n")
-			builder.WriteString("|                  threads | TPS_mean | Speedup | Efficiency | ΔTPS vs prev | Δp95 vs prev |\n")
-			builder.WriteString("| -----------------------: | -------: | ------: | ---------: | -----------: | -----------: |\n")
-
-			for j := 0; j <= i; j++ {
-				group := r.ConfigGroups[j]
-				metrics := calculateScalingMetrics(group, r.ConfigGroups)
-
-				deltaTPS := "—"
-				deltaP95 := "—"
-
-				if j > 0 {
-					prevGroup := r.ConfigGroups[j-1]
-					deltaTPS = fmt.Sprintf("%.2f", group.Statistics.TPS.Mean-prevGroup.Statistics.TPS.Mean)
-					deltaP95 = fmt.Sprintf("%.2f", group.Statistics.LatencyP95.Mean-prevGroup.Statistics.LatencyP95.Mean)
+		// Check stability
+		stable := true
+		for _, group := range r.ConfigGroups {
+			if group.Statistics.N > 1 {
+				cv := (group.Statistics.TPS.StdDev / group.Statistics.TPS.Mean) * 100
+				if cv > 10 {
+					stable = false
+					break
 				}
+			}
+		}
+		if stable {
+			builder.WriteString("* **Stability:** All configs stable (CV < 10%)\n")
+		} else {
+			builder.WriteString("* **Stability:** Some configs show high variance (CV > 10%)\n")
+		}
+	}
 
-				builder.WriteString(fmt.Sprintf("| %25s | %8.2f | %7.2fx | %9s | %11s | %12s |\n",
-					fmt.Sprintf("threads=%d", group.Threads),
-					group.Statistics.TPS.Mean,
-					metrics.Speedup,
-					formatPercentage(metrics.Efficiency),
-					deltaTPS,
-					deltaP95,
-				))
-			}
-			builder.WriteString("\n")
+	builder.WriteString("\n### 8.2 Recommendation\n\n")
+	if r.Findings != nil {
+		builder.WriteString(fmt.Sprintf("**Suggested:** threads=%d\n\n", r.Findings.BestTPSThreads))
+
+		// Trade-off statement
+		bestGroup := getGroupByThreads(r.ConfigGroups, r.Findings.BestTPSThreads)
+		if bestGroup != nil && len(r.ConfigGroups) > 0 && r.ConfigGroups[0].Threads == 1 {
+			speedup := bestGroup.Statistics.TPS.Mean / r.ConfigGroups[0].Statistics.TPS.Mean
+			efficiency := speedup / float64(bestGroup.Threads)
+			builder.WriteString(fmt.Sprintf("**Trade-off:** %.2fx speedup with %.2f%% scaling efficiency at %.2fms p95 latency\n\n",
+				speedup, efficiency*100, bestGroup.Statistics.LatencyP95.Mean))
 		}
 
-		// Visuals
-		builder.WriteString(fmt.Sprintf("### 4.%d.7 Visuals (ASCII)\n\n", i+1))
-
-		// TPS Bar Chart
-		builder.WriteString("#### TPS vs Threads (run summary mean)\n")
-		builder.WriteString("```text\n")
-		maxTPS := 0.0
-		for _, g := range r.ConfigGroups {
-			if g.Statistics.TPS.Max > maxTPS {
-				maxTPS = g.Statistics.TPS.Max
-			}
-		}
-		for _, g := range r.ConfigGroups {
-			tps := g.Statistics.TPS.Mean
-			barWidth := 50
-			barLength := int((tps / maxTPS) * float64(barWidth))
-			if barLength < 1 {
-				barLength = 1
-			}
-			if barLength > barWidth {
-				barLength = barWidth
-			}
-			bar := strings.Repeat("█", barLength)
-			spaces := strings.Repeat(" ", barWidth-barLength)
-			builder.WriteString(fmt.Sprintf("threads=%-2d |%s%s %.2f\n",
-				g.Threads, bar, spaces, tps))
-		}
-		builder.WriteString("```\n\n")
-
-		// p95 Bar Chart
-		builder.WriteString("#### p95 Latency vs Threads (run summary mean)\n")
-		builder.WriteString("```text\n")
-		maxP95 := 0.0
-		for _, g := range r.ConfigGroups {
-			if g.Statistics.LatencyP95.Max > maxP95 {
-				maxP95 = g.Statistics.LatencyP95.Max
-			}
-		}
-		for _, g := range r.ConfigGroups {
-			p95 := g.Statistics.LatencyP95.Mean
-			barWidth := 50
-			barLength := int((p95 / maxP95) * float64(barWidth))
-			if barLength < 1 {
-				barLength = 1
-			}
-			if barLength > barWidth {
-				barLength = barWidth
-			}
-			bar := strings.Repeat("█", barLength)
-			spaces := strings.Repeat(" ", barWidth-barLength)
-			builder.WriteString(fmt.Sprintf("threads=%-2d |%s%s %.2fms\n",
-				g.Threads, bar, spaces, p95))
-		}
-		builder.WriteString("```\n\n")
-
-		// Findings
-		if r.Findings != nil {
-			builder.WriteString(fmt.Sprintf("### 4.%d.8 Findings & Recommendation\n\n", i+1))
-			builder.WriteString(fmt.Sprintf("* Best throughput threads: %d (TPS=%.2f)\n",
-				r.Findings.BestTPSThreads, r.Findings.BestTPSValue))
-			if r.Findings.BestLatencyThreads > 0 {
-				builder.WriteString(fmt.Sprintf("* Best latency threads: %d (p95=%.2fms)\n",
-					r.Findings.BestLatencyThreads, r.Findings.BestLatencyValue))
-			}
-			if r.Findings.ScalingKnee > 0 {
-				builder.WriteString(fmt.Sprintf("* Knee point: threads=%d\n",
-					r.Findings.ScalingKnee))
-			}
-			builder.WriteString(fmt.Sprintf("* Recommendation: %s\n",
-				r.Findings.Recommendation))
-			builder.WriteString("\n")
-		}
+		builder.WriteString("**Next experiment:** Repeat with N=5 runs per config for better statistics\n")
 	}
 
 	return builder.String()
 }
 
+// getLatencyForThreads returns p95 latency for the given thread count.
+func getLatencyForThreads(groups []*ThreadGroup, threads int) float64 {
+	for _, g := range groups {
+		if g.Threads == threads {
+			return g.Statistics.LatencyP95.Mean
+		}
+	}
+	return 0
+}
+
+// getGroupByThreads returns the thread group with the given thread count.
+func getGroupByThreads(groups []*ThreadGroup, threads int) *ThreadGroup {
+	for _, g := range groups {
+		if g.Threads == threads {
+			return g
+		}
+	}
+	return nil
+}
+
 // formatGroupMetric formats mean±stddev for a group metric.
+// If N=1 (indicated by StdDev=0 and Min=Max), returns "N/A" for stddev.
 func formatGroupMetric(stats GroupMetricStats) string {
-	if stats.StdDev == 0 {
+	if stats.StdDev == 0 && stats.Min == stats.Max {
+		// Single value (N=1)
 		return fmt.Sprintf("%.2f", stats.Mean)
 	}
 	return fmt.Sprintf("%.2f ± %.2f", stats.Mean, stats.StdDev)
 }
 
 // formatGroupMetricRange formats min..max for a group metric.
+// If N=1, returns the single value.
 func formatGroupMetricRange(stats GroupMetricStats) string {
 	if stats.Min == stats.Max {
 		return fmt.Sprintf("%.2f", stats.Min)
