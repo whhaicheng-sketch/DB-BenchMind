@@ -20,14 +20,15 @@ import (
 
 // ResultComparisonPage provides the result comparison GUI.
 type ResultComparisonPage struct {
-	win             fyne.Window
-	comparisonUC    *usecase.ComparisonUseCase
-	list            *widget.List
-	recordRefs      []*comparison.RecordRef
-	selectedMap     map[string]bool
-	ctx             context.Context
-	resultsText     *widget.Entry
-	toggleSelectBtn *widget.Button
+	win               fyne.Window
+	comparisonUC      *usecase.ComparisonUseCase
+	list              *widget.List
+	recordRefs        []*comparison.RecordRef
+	selectedMap       map[string]bool
+	ctx               context.Context
+	resultsText       *widget.Entry
+	toggleSelectBtn   *widget.Button
+	databaseTypeSelect *widget.Select
 }
 
 // NewResultComparisonPage creates a new comparison page.
@@ -41,6 +42,18 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 
 	// Load records from History
 	page.loadRecords()
+
+	// Create Database Type selector
+	page.databaseTypeSelect = widget.NewSelect([]string{
+		"All",
+		"MySQL",
+		"PostgreSQL",
+		"Oracle",
+		"SQL Server",
+	}, func(selected string) {
+		page.onDatabaseTypeChange(selected)
+	})
+	page.databaseTypeSelect.SetSelected("All")
 
 	// Create toolbar
 	btnCompare := widget.NewButton("📊 Compare Records", func() {
@@ -76,6 +89,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	filterForm := container.NewVBox(
 		widget.NewForm(
 			widget.NewFormItem("Search Records", searchEntry),
+			widget.NewFormItem("Database Type", page.databaseTypeSelect),
 		),
 		filterButtons,
 	)
@@ -311,6 +325,45 @@ func (p *ResultComparisonPage) filterRecords(searchText string) {
 func contains(text, search string) bool {
 	return fmt.Sprintf("%s", text) == search || // Poor man's contains - for simplicity
 		len(text) >= len(search) && (text == search || len(text) > 0 && (text[:len(search)] == search || text[len(text)-len(search):] == search))
+}
+
+// onDatabaseTypeChange handles database type filter change.
+func (p *ResultComparisonPage) onDatabaseTypeChange(selected string) {
+	if p.comparisonUC == nil {
+		return
+	}
+
+	// Get all refs
+	refs, err := p.comparisonUC.GetRecordRefs(p.ctx)
+	if err != nil {
+		slog.Error("Comparison: Failed to get records for filtering", "error", err)
+		return
+	}
+
+	// Filter by database type
+	if selected == "All" {
+		p.recordRefs = refs
+	} else {
+		var filtered []*comparison.RecordRef
+		for _, ref := range refs {
+			if ref.DatabaseType == selected {
+				filtered = append(filtered, ref)
+			}
+		}
+		p.recordRefs = filtered
+	}
+
+	// Clear selections when filter changes
+	p.selectedMap = make(map[string]bool)
+	if p.toggleSelectBtn != nil {
+		p.toggleSelectBtn.SetText("✓ Select All")
+	}
+
+	if p.list != nil {
+		p.list.Refresh()
+	}
+
+	slog.Info("Comparison: Database type filter changed", "database", selected, "count", len(p.recordRefs))
 }
 
 // toggleSelectAll toggles select all / deselect all.

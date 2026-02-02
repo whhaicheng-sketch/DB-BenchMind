@@ -207,10 +207,18 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		return
 	}
 
-	// Get selected record IDs
+	// Get selected record IDs and validate database type
 	var selectedIDs []string
+	var selectedRefs []*comparison.RecordRef
 	for id := range p.selectedMap {
 		selectedIDs = append(selectedIDs, id)
+		// Find the corresponding RecordRef
+		for _, ref := range p.recordRefs {
+			if ref.ID == id {
+				selectedRefs = append(selectedRefs, ref)
+				break
+			}
+		}
 	}
 
 	if len(selectedIDs) < 2 {
@@ -227,6 +235,20 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 				len(selectedIDs)),
 			p.win)
 		return
+	}
+
+	// Validate all selected records are from the same database type
+	if len(selectedRefs) > 0 {
+		firstDBType := selectedRefs[0].DatabaseType
+		for _, ref := range selectedRefs {
+			if ref.DatabaseType != firstDBType {
+				dialog.ShowInformation("Mixed Database Types",
+					fmt.Sprintf("All selected records must be from the same database type.\n\nFound types: %s\n\nPlease use the 'Database Type' filter to select records from a single database type.",
+						getDatabaseTypesSummary(selectedRefs)),
+					p.win)
+				return
+			}
+		}
 	}
 
 	ctx := context.Background()
@@ -366,4 +388,27 @@ func (p *ResultComparisonPage) AddSimplifiedReportButton(toolbar *fyne.Container
 		toolbar.Objects = append(objs, btnSimplified)
 		toolbar.Refresh()
 	}
+}
+
+// getDatabaseTypesSummary returns a summary of database types in the selected records.
+func getDatabaseTypesSummary(refs []*comparison.RecordRef) string {
+	typeSet := make(map[string]bool)
+	for _, ref := range refs {
+		typeSet[ref.DatabaseType] = true
+	}
+
+	var types []string
+	for dbType := range typeSet {
+		types = append(types, dbType)
+	}
+
+	// Simple join - could be improved with proper string joining
+	result := ""
+	for i, t := range types {
+		if i > 0 {
+			result += ", "
+		}
+		result += t
+	}
+	return result
 }
