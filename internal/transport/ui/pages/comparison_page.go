@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -56,10 +57,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	btnRefresh := widget.NewButton("🔄 Refresh", func() {
 		page.loadRecords()
 	})
-	btnCompare := widget.NewButton("📊 Compare Selected", func() {
-		page.onCompare()
-	})
-	btnSimpleReport := widget.NewButton("📋 Simple Report", func() {
+	btnReport := widget.NewButton("📊 Performance Report", func() {
 		page.GenerateSimplifiedReport()
 	})
 	btnExport := widget.NewButton("💾 Export Report", func() {
@@ -70,7 +68,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 		slog.Info("Comparison: Results cleared")
 	})
 
-	toolbar := container.NewHBox(btnRefresh, btnCompare, btnSimpleReport, btnExport, btnClear)
+	toolbar := container.NewHBox(btnRefresh, btnReport, btnExport, btnClear)
 
 	// Create search entry - using Form layout for better sizing
 	searchEntry := widget.NewEntry()
@@ -324,120 +322,62 @@ func (p *ResultComparisonPage) onGroupByChange(selected string) {
 	// Could auto-refresh comparison results here if already generated
 }
 
-// onCompare performs the comparison.
-func (p *ResultComparisonPage) onCompare() {
-	if p.comparisonUC == nil {
-		dialog.ShowError(fmt.Errorf("comparison functionality not available"), p.win)
-		return
-	}
-
-	// Get selected record IDs
-	var selectedIDs []string
-	for id, checked := range p.selectedMap {
-		if checked {
-			selectedIDs = append(selectedIDs, id)
-		}
-	}
-
-	if len(selectedIDs) < 2 {
-		dialog.ShowError(fmt.Errorf("please select at least 2 records to compare"), p.win)
-		return
-	}
-
-	if len(selectedIDs) > 5 {
-		dialog.ShowError(fmt.Errorf("too many records selected (maximum 5)"), p.win)
-		return
-	}
-
-	// Map group by selection to GroupByField
-	var groupBy comparison.GroupByField
-	switch p.groupBySelect.Selected {
-	case "Threads":
-		groupBy = comparison.GroupByThreads
-	case "Database Type":
-		groupBy = comparison.GroupByDatabaseType
-	case "Template Name":
-		groupBy = comparison.GroupByTemplate
-	case "Date":
-		groupBy = comparison.GroupByDate
-	default:
-		groupBy = comparison.GroupByThreads
-	}
-
-	// ⭐ 使用 channel + goroutine 避免阻塞 UI，并使用 fyne.Do 确保 UI 线程安全
-	resultChan := make(chan *comparison.MultiConfigComparison, 1)
-	errorChan := make(chan error, 1)
-
-	// 显示进度提示
-	progressDlg := dialog.NewInformation("Comparison", fmt.Sprintf("Comparing %d records...\n\nPlease wait.", len(selectedIDs)), p.win)
-	progressDlg.Show()
-
-	// 在 goroutine 中执行比较
-	go func() {
-		result, err := p.comparisonUC.CompareRecords(p.ctx, selectedIDs, groupBy)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		resultChan <- result
-	}()
-
-	// 在后台监听结果并更新 UI
-	go func() {
-		select {
-		case result := <-resultChan:
-			// ⭐ 关键修复：使用 fyne.DoAndWait 确保在主线程中更新 UI（消除 Fyne 警告）
-			fyne.DoAndWait(func() {
-				p.win.Canvas().Refresh(p.resultsText)
-				p.displayResults(result)
-				progressDlg.Hide()
-			})
-
-			// 显示完成反馈
-			dialog.ShowInformation("Comparison Completed",
-				fmt.Sprintf("Successfully compared %d records!\n\nGrouped by: %s\n\nResults are displayed below.",
-					len(result.Records),
-					p.groupBySelect.Selected),
-				p.win)
-
-			slog.Info("Comparison: Results displayed with user feedback", "records_compared", len(result.Records))
-
-		case err := <-errorChan:
-			slog.Error("Comparison: Failed to compare", "error", err)
-			fyne.DoAndWait(func() {
-				progressDlg.Hide()
-			})
-			dialog.ShowError(fmt.Errorf("comparison failed: %v", err), p.win)
-		}
-	}()
-}
-
-// displayResults formats and displays comparison results.
-func (p *ResultComparisonPage) displayResults(result *comparison.MultiConfigComparison) {
-	// Generate table view
-	table := result.FormatTable()
-
-	// Generate bar charts
-	tpsChart := result.FormatBarChart("TPS")
-	latencyChart := result.FormatBarChart("Latency")
-
-	// Combine all results
-	fullResults := table + "\n" + tpsChart + "\n" + latencyChart
-
-	// ⭐ 使用 fyne.Do 确保在主线程中更新 UI（修复 Fyne 线程错误）
-	p.resultsText.SetText(fullResults)
-
-	slog.Info("Comparison: Results displayed", "records_compared", len(result.Records))
-}
-
-// onExportReport exports the comparison report.
+// onExportReport exports the current performance report.
 func (p *ResultComparisonPage) onExportReport() {
 	resultsText := p.resultsText.Text
-	if resultsText == "" || resultsText == "Select 2 or more records and click 'Compare Selected' to see results.\n\n" {
-		dialog.ShowError(fmt.Errorf("no comparison results to export"), p.win)
+	if resultsText == "" {
+		dialog.ShowError(fmt.Errorf("no performance report to export"), p.win)
 		return
 	}
 
-	// Simple text export for now
-	dialog.ShowInformation("Export", "Report export will be implemented soon (TXT/Markdown/CSV formats).\n\nCurrent results are in the text area below - you can copy them manually.", p.win)
+	// Create export dialog content
+	formatSelect := widget.NewRadioGroup([]string{"Markdown", "TXT"}, func(selected string) {})
+	formatSelect.SetSelected("Markdown")
+
+	content := container.NewVBox(
+		widget.NewLabel("Export Performance Report"),
+		widget.NewSeparator(),
+		widget.NewLabel("Select export format:"),
+		formatSelect,
+		widget.NewSeparator(),
+	)
+
+	dialog.ShowCustomConfirm("Export Report", "Export", "Cancel", content, func(export bool) {
+		if !export {
+			return
+		}
+
+		var format, ext string
+		switch formatSelect.Selected {
+		case "Markdown":
+			format = "markdown"
+			ext = ".md"
+		case "TXT":
+			format = "txt"
+			ext = ".txt"
+		}
+
+		timestamp := time.Now().Format("20060102_150405")
+		filename := fmt.Sprintf("performance_report_%s%s", timestamp, ext)
+		filepath := fmt.Sprintf("./exports/%s", filename)
+
+		// Ensure exports directory exists
+		if err := os.MkdirAll("./exports", 0755); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to create exports directory: %v", err), p.win)
+			return
+		}
+
+		// Write file
+		err := os.WriteFile(filepath, []byte(resultsText), 0644)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to export report: %v", err), p.win)
+			return
+		}
+
+		dialog.ShowInformation("Export Successful",
+			fmt.Sprintf("Report exported to:\n%s\n\nFormat: %s", filepath, format),
+			p.win)
+
+		slog.Info("Comparison: Report exported", "filepath", filepath, "format", format)
+	}, p.win)
 }

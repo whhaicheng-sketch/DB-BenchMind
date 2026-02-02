@@ -1,5 +1,5 @@
-// Package pages provides GUI integration for comprehensive comparison reports.
-// This file extends the existing comparison page with new report generation capabilities.
+// Package pages provides GUI integration for performance reports.
+// This file extends the existing comparison page with report generation capabilities.
 package pages
 
 import (
@@ -16,7 +16,8 @@ import (
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/comparison"
 )
 
-// GenerateComprehensiveReport generates and displays a comprehensive comparison report.
+// GeneratePerformanceReport generates and displays a performance report
+// using all history records.
 // This is an extension method that can be called from the existing ComparisonPage.
 func (p *ResultComparisonPage) GenerateComprehensiveReport() {
 	if p.comparisonUC == nil {
@@ -208,8 +209,9 @@ func (p *ResultComparisonPage) AddComprehensiveReportButton(toolbar *fyne.Contai
 	}
 }
 
-// GenerateSimplifiedReport generates and displays a simplified comparison report.
-// This uses existing history_records data without requiring raw sysbench logs.
+// GeneratePerformanceReport generates and displays a performance report.
+// Automatically uses ALL history records from the database.
+// This is the main reporting feature for performance analysis.
 func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 	if p.comparisonUC == nil {
 		dialog.ShowError(fmt.Errorf("comparison use case not available"), p.win)
@@ -244,44 +246,41 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		"Analyzing benchmark data...\n\nPlease wait.", p.win)
 	progress.Show()
 
-	// Generate report in background
-	go func() {
-		// Determine group by field
-		groupBy := comparison.GroupByThreads
-		if p.groupBySelect != nil {
-			selected := p.groupBySelect.Selected
-			switch selected {
-			case "Threads":
-				groupBy = comparison.GroupByThreads
-			case "Database":
-				groupBy = comparison.GroupByDatabaseType
-			case "Template":
-				groupBy = comparison.GroupByTemplate
-			}
+	// Determine group by field
+	groupBy := comparison.GroupByThreads
+	if p.groupBySelect != nil {
+		selected := p.groupBySelect.Selected
+		switch selected {
+		case "Threads":
+			groupBy = comparison.GroupByThreads
+		case "Database":
+			groupBy = comparison.GroupByDatabaseType
+		case "Template":
+			groupBy = comparison.GroupByTemplate
 		}
+	}
 
-		// Generate simplified report
-		report, err := p.comparisonUC.GenerateSimplifiedReport(ctx, recordIDs, groupBy)
-		if err != nil {
-			slog.Error("Comparison: Failed to generate simplified report", "error", err)
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to generate simplified report: %v", err), p.win)
-			return
-		}
-
-		// Hide progress
+	// Generate simplified report (synchronous for simplicity)
+	report, err := p.comparisonUC.GenerateSimplifiedReport(ctx, recordIDs, groupBy)
+	if err != nil {
+		slog.Error("Comparison: Failed to generate simplified report", "error", err)
 		progress.Hide()
+		dialog.ShowError(fmt.Errorf("failed to generate simplified report: %v", err), p.win)
+		return
+	}
 
-		// Display results
-		p.displaySimplifiedReport(report)
+	// Hide progress
+	progress.Hide()
 
-		slog.Info("Comparison: Simplified report generated",
-			"report_id", report.ReportID,
-			"groups", len(report.ConfigGroups))
-	}()
+	// Display results
+	p.displaySimplifiedReport(report)
+
+	slog.Info("Comparison: Simplified report generated",
+		"report_id", report.ReportID,
+		"groups", len(report.ConfigGroups))
 }
 
-// displaySimplifiedReport formats and displays the simplified report.
+// displaySimplifiedReport formats and displays the performance report.
 func (p *ResultComparisonPage) displaySimplifiedReport(report *comparison.SimplifiedReport) {
 	// Generate Markdown format (primary format)
 	markdown := report.FormatMarkdown()
@@ -317,7 +316,7 @@ func (p *ResultComparisonPage) displaySimplifiedReport(report *comparison.Simpli
 	dialog.ShowInformation("Report Generated", summary, p.win)
 }
 
-// ExportSimplifiedReport exports the current simplified report.
+// ExportPerformanceReport exports the current performance report.
 func (p *ResultComparisonPage) ExportSimplifiedReport(report *comparison.SimplifiedReport) {
 	if report == nil {
 		dialog.ShowError(fmt.Errorf("no report to export"), p.win)
