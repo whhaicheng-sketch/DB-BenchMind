@@ -232,6 +232,14 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		return
 	}
 
+	if len(selectedIDs) > 10 {
+		dialog.ShowInformation("Too Many Records",
+			fmt.Sprintf("Maximum 10 records can be compared at once.\n\nCurrently selected: %d\n\nPlease deselect some records and try again.",
+				len(selectedIDs)),
+			p.win)
+		return
+	}
+
 	ctx := context.Background()
 
 	// Show progress
