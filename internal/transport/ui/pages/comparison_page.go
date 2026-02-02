@@ -28,6 +28,7 @@ type ResultComparisonPage struct {
 	ctx             context.Context
 	groupBySelect   *widget.Select
 	resultsText     *widget.Entry
+	toggleSelectBtn *widget.Button
 }
 
 // NewResultComparisonPage creates a new comparison page.
@@ -54,9 +55,6 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	page.groupBySelect.SetSelected("Threads")
 
 	// Create toolbar
-	btnRefresh := widget.NewButton("🔄 Refresh", func() {
-		page.loadRecords()
-	})
 	btnCompare := widget.NewButton("📊 Compare Records", func() {
 		page.GenerateSimplifiedReport()
 	})
@@ -68,16 +66,16 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 		slog.Info("Comparison: Results cleared")
 	})
 
-	toolbar := container.NewHBox(btnRefresh, btnCompare, btnExport, btnClear)
+	toolbar := container.NewHBox(btnCompare, btnExport, btnClear)
 
-	// Selection control buttons
-	btnSelectAll := widget.NewButton("✓ Select All", func() {
-		page.selectAllRecords(true)
+	// Filter control buttons
+	btnRefresh := widget.NewButton("🔄 Refresh List", func() {
+		page.loadRecords()
 	})
-	btnDeselectAll := widget.NewButton("✗ Deselect All", func() {
-		page.selectAllRecords(false)
+	page.toggleSelectBtn = widget.NewButton("✓ Select All", func() {
+		page.toggleSelectAll()
 	})
-	selectButtons := container.NewHBox(btnSelectAll, btnDeselectAll)
+	filterButtons := container.NewHBox(btnRefresh, page.toggleSelectBtn)
 
 	// Create search entry - using Form layout for better sizing
 	searchEntry := widget.NewEntry()
@@ -92,7 +90,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 			widget.NewFormItem("Search Records", searchEntry),
 			widget.NewFormItem("Group By", page.groupBySelect),
 		),
-		selectButtons,
+		filterButtons,
 	)
 
 	// Create record list with checkboxes
@@ -334,6 +332,14 @@ func (p *ResultComparisonPage) onGroupByChange(selected string) {
 	// Could auto-refresh comparison results here if already generated
 }
 
+// toggleSelectAll toggles select all / deselect all.
+func (p *ResultComparisonPage) toggleSelectAll() {
+	allSelected := len(p.selectedMap) == len(p.recordRefs) && len(p.recordRefs) > 0
+	selectAll := !allSelected
+
+	p.selectAllRecords(selectAll)
+}
+
 // selectAllRecords selects or deselects all records.
 func (p *ResultComparisonPage) selectAllRecords(selectAll bool) {
 	for _, ref := range p.recordRefs {
@@ -348,6 +354,16 @@ func (p *ResultComparisonPage) selectAllRecords(selectAll bool) {
 		p.list.Refresh()
 	}
 	selectedCount := len(p.selectedMap)
+
+	// Update button text
+	if p.toggleSelectBtn != nil {
+		if selectAll {
+			p.toggleSelectBtn.SetText("✗ Deselect All")
+		} else {
+			p.toggleSelectBtn.SetText("✓ Select All")
+		}
+	}
+
 	action := "deselected"
 	if selectAll {
 		action = "selected"
