@@ -26,7 +26,6 @@ type ResultComparisonPage struct {
 	recordRefs      []*comparison.RecordRef
 	selectedMap     map[string]bool
 	ctx             context.Context
-	groupBySelect   *widget.Select
 	resultsText     *widget.Entry
 	toggleSelectBtn *widget.Button
 }
@@ -42,17 +41,6 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 
 	// Load records from History
 	page.loadRecords()
-
-	// Create Group By selector
-	page.groupBySelect = widget.NewSelect([]string{
-		"Threads",
-		"Database Type",
-		"Template Name",
-		"Date",
-	}, func(selected string) {
-		page.onGroupByChange(selected)
-	})
-	page.groupBySelect.SetSelected("Threads")
 
 	// Create toolbar
 	btnCompare := widget.NewButton("📊 Compare Records", func() {
@@ -88,7 +76,6 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	filterForm := container.NewVBox(
 		widget.NewForm(
 			widget.NewFormItem("Search Records", searchEntry),
-			widget.NewFormItem("Group By", page.groupBySelect),
 		),
 		filterButtons,
 	)
@@ -324,12 +311,6 @@ func (p *ResultComparisonPage) filterRecords(searchText string) {
 func contains(text, search string) bool {
 	return fmt.Sprintf("%s", text) == search || // Poor man's contains - for simplicity
 		len(text) >= len(search) && (text == search || len(text) > 0 && (text[:len(search)] == search || text[len(text)-len(search):] == search))
-}
-
-// onGroupByChange handles group by selection change.
-func (p *ResultComparisonPage) onGroupByChange(selected string) {
-	slog.Info("Comparison: Group By changed", "selection", selected)
-	// Could auto-refresh comparison results here if already generated
 }
 
 // toggleSelectAll toggles select all / deselect all.

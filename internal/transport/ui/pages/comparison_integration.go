@@ -55,19 +55,8 @@ func (p *ResultComparisonPage) GenerateComprehensiveReport() {
 
 	// Generate report in background
 	go func() {
-		// Determine group by field
-		groupBy := comparison.GroupByThreads
-		if p.groupBySelect != nil {
-			selected := p.groupBySelect.Selected
-			switch selected {
-			case "Threads":
-				groupBy = comparison.GroupByThreads
-			case "Database":
-				groupBy = comparison.GroupByDatabaseType
-			case "Template":
-				groupBy = comparison.GroupByTemplate
-			}
-		}
+		// Always group by database type for comparison
+		groupBy := comparison.GroupByDatabaseType
 
 		// Use default similarity config
 		similarityConfig := comparison.DefaultSimilarityConfig()
@@ -247,21 +236,8 @@ func (p *ResultComparisonPage) GenerateSimplifiedReport() {
 		fmt.Sprintf("Analyzing %d selected records...\n\nPlease wait.", len(selectedIDs)), p.win)
 	progress.Show()
 
-	// Determine group by field
-	groupBy := comparison.GroupByThreads
-	if p.groupBySelect != nil {
-		selected := p.groupBySelect.Selected
-		switch selected {
-		case "Threads":
-			groupBy = comparison.GroupByThreads
-		case "Database Type":
-			groupBy = comparison.GroupByDatabaseType
-		case "Template Name":
-			groupBy = comparison.GroupByTemplate
-		case "Date":
-			groupBy = comparison.GroupByDate
-		}
-	}
+	// Always group by database type for comparison
+	groupBy := comparison.GroupByDatabaseType
 
 	// Generate simplified report (synchronous for simplicity)
 	report, err := p.comparisonUC.GenerateSimplifiedReport(ctx, selectedIDs, groupBy)
