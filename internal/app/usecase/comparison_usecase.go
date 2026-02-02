@@ -63,6 +63,9 @@ func (uc *ComparisonUseCase) GetRecordRefs(ctx context.Context) ([]*comparison.R
 			ReadQueries:   record.ReadQueries,
 			WriteQueries:  record.WriteQueries,
 			OtherQueries:  record.OtherQueries,
+			TotalQueries:  record.TotalQueries,
+			Reconnects:    record.Reconnects,
+			IgnoredErrors: record.IgnoredErrors,
 		}
 	}
 
@@ -315,6 +318,121 @@ func (uc *ComparisonUseCase) ExportReport(
 	}
 
 	slog.Info("Comparison: Report exported",
+		"format", format,
+		"filepath", filepath,
+		"report_id", report.ReportID)
+
+	return nil
+}
+
+// GenerateSimplifiedReport generates a simplified comparison report
+// using existing history_records data (without raw sysbench logs).
+//
+// This method provides a quick comparison view grouped by the specified field
+// (typically "threads" for scaling analysis). It calculates statistics across
+// N runs with the same configuration.
+//
+// Parameters:
+//   - ctx: Context
+//   - recordIDs: IDs of history records to include (or empty for all records)
+//   - groupBy: Grouping dimension (threads, database, template, etc.)
+//
+// Returns:
+//   - *comparison.SimplifiedReport: Simplified report with key findings
+//   - error: If report generation fails
+func (uc *ComparisonUseCase) GenerateSimplifiedReport(
+	ctx context.Context,
+	recordIDs []string,
+	groupBy comparison.GroupByField,
+) (*comparison.SimplifiedReport, error) {
+	slog.Info("Comparison: Generating simplified report",
+		"record_ids_count", len(recordIDs), "group_by", groupBy)
+
+	// Get record refs
+	var refs []*comparison.RecordRef
+	var err error
+
+	if len(recordIDs) > 0 {
+		// Get all refs, then filter by IDs
+		allRefs, err := uc.GetRecordRefs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get record refs: %w", err)
+		}
+
+		// Create ID set for filtering
+		idSet := make(map[string]bool)
+		for _, id := range recordIDs {
+			idSet[id] = true
+		}
+
+		// Filter refs
+		for _, ref := range allRefs {
+			if idSet[ref.ID] {
+				refs = append(refs, ref)
+			}
+		}
+
+		// Verify all requested records were found
+		if len(refs) != len(recordIDs) {
+			return nil, fmt.Errorf("some records not found: expected %d, found %d",
+				len(recordIDs), len(refs))
+		}
+	} else {
+		// Get all refs
+		refs, err = uc.GetRecordRefs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get record refs: %w", err)
+		}
+	}
+
+	if len(refs) < 2 {
+		return nil, fmt.Errorf("need at least 2 records for comparison, got %d", len(refs))
+	}
+
+	slog.Info("Comparison: Record refs loaded", "count", len(refs))
+
+	// Generate simplified report
+	report := comparison.GenerateSimplifiedReport(refs, groupBy)
+	if report == nil {
+		return nil, fmt.Errorf("failed to generate simplified report")
+	}
+
+	slog.Info("Comparison: Simplified report generated successfully",
+		"report_id", report.ReportID,
+		"groups", len(report.ConfigGroups))
+
+	return report, nil
+}
+
+// ExportSimplifiedReport exports a simplified report to file.
+// Supported formats: "markdown", "txt"
+func (uc *ComparisonUseCase) ExportSimplifiedReport(
+	ctx context.Context,
+	report *comparison.SimplifiedReport,
+	format string,
+	filepath string,
+) error {
+	if report == nil {
+		return fmt.Errorf("report is nil")
+	}
+
+	var content string
+	switch format {
+	case "markdown", "md":
+		content = report.FormatMarkdown()
+	case "txt":
+		content = report.FormatTXT()
+	default:
+		return fmt.Errorf("unsupported format: %s (supported: markdown, txt)", format)
+	}
+
+	// Write to file
+	err := os.WriteFile(filepath, []byte(content), 0644)
+	if err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	slog.Info("Comparison: Simplified report exported",
 		"format", format,
 		"filepath", filepath,
 		"report_id", report.ReportID)

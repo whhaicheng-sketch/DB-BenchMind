@@ -59,6 +59,9 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	btnCompare := widget.NewButton("📊 Compare Selected", func() {
 		page.onCompare()
 	})
+	btnSimpleReport := widget.NewButton("📋 Simple Report", func() {
+		page.GenerateSimplifiedReport()
+	})
 	btnExport := widget.NewButton("💾 Export Report", func() {
 		page.onExportReport()
 	})
@@ -67,7 +70,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 		slog.Info("Comparison: Results cleared")
 	})
 
-	toolbar := container.NewHBox(btnRefresh, btnCompare, btnExport, btnClear)
+	toolbar := container.NewHBox(btnRefresh, btnCompare, btnSimpleReport, btnExport, btnClear)
 
 	// Create search entry - using Form layout for better sizing
 	searchEntry := widget.NewEntry()

@@ -45,6 +45,9 @@ type RecordRef struct {
 	ReadQueries    int64         `json:"read_queries,omitempty"`
 	WriteQueries   int64         `json:"write_queries,omitempty"`
 	OtherQueries   int64         `json:"other_queries,omitempty"`
+	TotalQueries   int64         `json:"total_queries,omitempty"`
+	Reconnects     int64         `json:"reconnects,omitempty"`
+	IgnoredErrors  int64         `json:"ignored_errors,omitempty"`
 }
 
 // MetricStats contains statistical information about metrics.
