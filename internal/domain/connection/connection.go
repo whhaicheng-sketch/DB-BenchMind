@@ -58,10 +58,10 @@ type Connection interface {
 // TestResult represents the result of a connection test.
 // Implements: REQ-CONN-004, REQ-CONN-005
 type TestResult struct {
-	Success         bool   `json:"success"`           // Whether the test succeeded
-	LatencyMs       int64  `json:"latency_ms"`         // Connection latency in milliseconds
-	DatabaseVersion string `json:"database_version"`   // Database version information
-	Error           string `json:"error,omitempty"`    // Error message if failed
+	Success         bool   `json:"success"`          // Whether the test succeeded
+	LatencyMs       int64  `json:"latency_ms"`       // Connection latency in milliseconds
+	DatabaseVersion string `json:"database_version"` // Database version information
+	Error           string `json:"error,omitempty"`  // Error message if failed
 }
 
 // ValidatePort validates that a port number is in valid range (1-65535).

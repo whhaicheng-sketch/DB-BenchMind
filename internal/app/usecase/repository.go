@@ -6,8 +6,8 @@ package usecase
 import (
 	"context"
 
-	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/config"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 )
@@ -112,12 +112,12 @@ type RunRepository interface {
 
 // FindOptions defines options for finding runs.
 type FindOptions struct {
-	Limit       int                     // Maximum number of results
-	Offset      int                     // Number of results to skip
-	StateFilter *execution.RunState     // Filter by state
-	TaskID      string                  // Filter by task ID
-	SortBy      string                  // Sort field: created_at, started_at, duration
-	SortOrder   string                  // Sort order: ASC, DESC
+	Limit       int                 // Maximum number of results
+	Offset      int                 // Number of results to skip
+	StateFilter *execution.RunState // Filter by state
+	TaskID      string              // Filter by task ID
+	SortBy      string              // Sort field: created_at, started_at, duration
+	SortOrder   string              // Sort order: ASC, DESC
 }
 
 // LogEntry represents a log entry for a run.
@@ -163,4 +163,3 @@ type SettingsRepository interface {
 	// ResetToDefaults resets configuration to defaults.
 	ResetToDefaults(ctx context.Context) error
 }
-

@@ -208,14 +208,14 @@ func TestInvalidStateTransitionError(t *testing.T) {
 func TestMetricSample(t *testing.T) {
 	now := time.Now()
 	sample := MetricSample{
-		Timestamp:   now,
-		Phase:       "run",
-		TPS:         1000.5,
-		QPS:         5000.0,
-		LatencyAvg:  5.2,
-		LatencyP95:  10.5,
-		LatencyP99:  25.0,
-		ErrorRate:   0.1,
+		Timestamp:  now,
+		Phase:      "run",
+		TPS:        1000.5,
+		QPS:        5000.0,
+		LatencyAvg: 5.2,
+		LatencyP95: 10.5,
+		LatencyP99: 25.0,
+		ErrorRate:  0.1,
 	}
 
 	if sample.TPS != 1000.5 {

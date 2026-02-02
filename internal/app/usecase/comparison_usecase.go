@@ -16,12 +16,14 @@ import (
 // ComparisonUseCase provides comparison business logic.
 type ComparisonUseCase struct {
 	historyRepo repository.HistoryRepository
+	runRepo     RunRepository
 }
 
 // NewComparisonUseCase creates a new comparison use case.
-func NewComparisonUseCase(historyRepo repository.HistoryRepository) *ComparisonUseCase {
+func NewComparisonUseCase(historyRepo repository.HistoryRepository, runRepo RunRepository) *ComparisonUseCase {
 	return &ComparisonUseCase{
 		historyRepo: historyRepo,
+		runRepo:     runRepo,
 	}
 }
 
@@ -47,8 +49,8 @@ func (uc *ComparisonUseCase) GetRecordRefs(ctx context.Context) ([]*comparison.R
 
 		refs[i] = &comparison.RecordRef{
 			ID:             record.ID,
-			TemplateName:    record.TemplateName,
-			DatabaseType:    record.DatabaseType,
+			TemplateName:   record.TemplateName,
+			DatabaseType:   record.DatabaseType,
 			Threads:        record.Threads,
 			ConnectionName: record.ConnectionName,
 			StartTime:      record.StartTime,
@@ -60,12 +62,12 @@ func (uc *ComparisonUseCase) GetRecordRefs(ctx context.Context) ([]*comparison.R
 			LatencyP99:     record.LatencyP99,
 			Duration:       record.Duration,
 			QPS:            qps,
-			ReadQueries:   record.ReadQueries,
-			WriteQueries:  record.WriteQueries,
-			OtherQueries:  record.OtherQueries,
-			TotalQueries:  record.TotalQueries,
-			Reconnects:    record.Reconnects,
-			IgnoredErrors: record.IgnoredErrors,
+			ReadQueries:    record.ReadQueries,
+			WriteQueries:   record.WriteQueries,
+			OtherQueries:   record.OtherQueries,
+			TotalQueries:   record.TotalQueries,
+			Reconnects:     record.Reconnects,
+			IgnoredErrors:  record.IgnoredErrors,
 		}
 	}
 
@@ -147,8 +149,8 @@ func (uc *ComparisonUseCase) FilterRecords(ctx context.Context, refs []*comparis
 type ComparisonFilter struct {
 	DatabaseType string
 	TemplateName string
-	MinThreads    int
-	MaxThreads    int
+	MinThreads   int
+	MaxThreads   int
 }
 
 // GenerateComprehensiveReport generates a comprehensive comparison report
@@ -213,10 +215,10 @@ func (uc *ComparisonUseCase) GenerateComprehensiveReport(
 
 	// Create report
 	report := &comparison.ComparisonReport{
-		GeneratedAt:     time.Now(),
-		ReportID:        comparison.FormatReportID(),
-		GroupBy:         groupBy,
-		ConfigGroups:    configGroups,
+		GeneratedAt:      time.Now(),
+		ReportID:         comparison.FormatReportID(),
+		GroupBy:          groupBy,
+		ConfigGroups:     configGroups,
 		SimilarityConfig: similarityConfig,
 	}
 

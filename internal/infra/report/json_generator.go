@@ -48,65 +48,65 @@ func (g *JSONGenerator) Format() report.ReportFormat {
 
 // jsonReport represents the JSON report structure.
 type jsonReport struct {
-	Meta     jsonMeta        `json:"meta"`
-	Summary  jsonSummary     `json:"summary"`
-	Environment jsonEnvironment `json:"environment,omitempty"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
-	Metrics  jsonMetrics     `json:"metrics,omitempty"`
-	TimeSeries []jsonSample  `json:"time_series,omitempty"`
-	Logs     []jsonLogEntry  `json:"logs,omitempty"`
-	RawOutput string         `json:"raw_output,omitempty"`
+	Meta        jsonMeta               `json:"meta"`
+	Summary     jsonSummary            `json:"summary"`
+	Environment jsonEnvironment        `json:"environment,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	Metrics     jsonMetrics            `json:"metrics,omitempty"`
+	TimeSeries  []jsonSample           `json:"time_series,omitempty"`
+	Logs        []jsonLogEntry         `json:"logs,omitempty"`
+	RawOutput   string                 `json:"raw_output,omitempty"`
 }
 
 // jsonMeta represents report metadata.
 type jsonMeta struct {
-	RunID       string    `json:"run_id"`
-	Format      string    `json:"format"`
-	GeneratedAt string    `json:"generated_at"`
-	Version     string    `json:"version"`
+	RunID       string `json:"run_id"`
+	Format      string `json:"format"`
+	GeneratedAt string `json:"generated_at"`
+	Version     string `json:"version"`
 }
 
 // jsonSummary represents the summary section.
 type jsonSummary struct {
-	Status     string `json:"status"`
-	Tool       string `json:"tool"`
-	Template   string `json:"template"`
-	Connection string `json:"connection"`
-	DBType     string `json:"db_type"`
-	Duration   string `json:"duration"`
-	StartedAt  string `json:"started_at,omitempty"`
+	Status      string `json:"status"`
+	Tool        string `json:"tool"`
+	Template    string `json:"template"`
+	Connection  string `json:"connection"`
+	DBType      string `json:"db_type"`
+	Duration    string `json:"duration"`
+	StartedAt   string `json:"started_at,omitempty"`
 	CompletedAt string `json:"completed_at,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // jsonEnvironment represents environment information.
 type jsonEnvironment struct {
-	RunID    string `json:"run_id"`
-	TaskID   string `json:"task_id"`
-	State    string `json:"state"`
-	Created  string `json:"created_at"`
+	RunID   string `json:"run_id"`
+	TaskID  string `json:"task_id"`
+	State   string `json:"state"`
+	Created string `json:"created_at"`
 }
 
 // jsonMetrics represents metrics.
 type jsonMetrics struct {
-	TPS                float64 `json:"tps"`
-	LatencyAvg         float64 `json:"latency_avg_ms"`
-	LatencyP95         float64 `json:"latency_p95_ms,omitempty"`
-	LatencyP99         float64 `json:"latency_p99_ms,omitempty"`
-	TotalTransactions  int64   `json:"total_transactions"`
-	TotalQueries       int64   `json:"total_queries,omitempty"`
-	ErrorCount         int64   `json:"error_count"`
-	ErrorRate          float64 `json:"error_rate_percent"`
+	TPS               float64 `json:"tps"`
+	LatencyAvg        float64 `json:"latency_avg_ms"`
+	LatencyP95        float64 `json:"latency_p95_ms,omitempty"`
+	LatencyP99        float64 `json:"latency_p99_ms,omitempty"`
+	TotalTransactions int64   `json:"total_transactions"`
+	TotalQueries      int64   `json:"total_queries,omitempty"`
+	ErrorCount        int64   `json:"error_count"`
+	ErrorRate         float64 `json:"error_rate_percent"`
 }
 
 // jsonSample represents a time series sample.
 type jsonSample struct {
-	Timestamp   string  `json:"timestamp"`
-	TPS         float64 `json:"tps"`
-	LatencyAvg  float64 `json:"latency_avg_ms"`
-	LatencyP95  float64 `json:"latency_p95_ms,omitempty"`
-	LatencyP99  float64 `json:"latency_p99_ms,omitempty"`
-	ErrorRate   float64 `json:"error_rate_percent"`
+	Timestamp  string  `json:"timestamp"`
+	TPS        float64 `json:"tps"`
+	LatencyAvg float64 `json:"latency_avg_ms"`
+	LatencyP95 float64 `json:"latency_p95_ms,omitempty"`
+	LatencyP99 float64 `json:"latency_p99_ms,omitempty"`
+	ErrorRate  float64 `json:"error_rate_percent"`
 }
 
 // jsonLogEntry represents a log entry.
@@ -171,12 +171,12 @@ func (g *JSONGenerator) buildJSON(data *report.GenerateContext) *jsonReport {
 	timeSeries := make([]jsonSample, len(data.Samples))
 	for i, s := range data.Samples {
 		timeSeries[i] = jsonSample{
-			Timestamp:   s.Timestamp.Format(time.RFC3339),
-			TPS:         s.TPS,
-			LatencyAvg:  s.LatencyAvg,
-			LatencyP95:  s.LatencyP95,
-			LatencyP99:  s.LatencyP99,
-			ErrorRate:   s.ErrorRate,
+			Timestamp:  s.Timestamp.Format(time.RFC3339),
+			TPS:        s.TPS,
+			LatencyAvg: s.LatencyAvg,
+			LatencyP95: s.LatencyP95,
+			LatencyP99: s.LatencyP99,
+			ErrorRate:  s.ErrorRate,
 		}
 	}
 

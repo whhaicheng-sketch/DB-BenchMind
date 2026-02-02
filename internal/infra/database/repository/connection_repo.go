@@ -260,11 +260,11 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 
 	case connection.DatabaseTypeSQLServer:
 		conn := &connection.SQLServerConnection{
-			BaseConnection: base,
-			Host:           getString(data, "host"),
-			Port:           getInt(data, "port"),
-			Database:       getString(data, "database"),
-			Username:       getString(data, "username"),
+			BaseConnection:         base,
+			Host:                   getString(data, "host"),
+			Port:                   getInt(data, "port"),
+			Database:               getString(data, "database"),
+			Username:               getString(data, "username"),
 			TrustServerCertificate: getBool(data, "trust_server_certificate"),
 		}
 		if conn.Port == 0 {

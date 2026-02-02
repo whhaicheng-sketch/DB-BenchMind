@@ -12,13 +12,13 @@ import (
 
 // MockConnectionRepository is a mock repository for testing.
 type MockConnectionRepository struct {
-	connections map[string]connection.Connection
+	connections   map[string]connection.Connection
 	existingNames map[string]string // name -> id
 }
 
 func NewMockConnectionRepository() *MockConnectionRepository {
 	return &MockConnectionRepository{
-		connections: make(map[string]connection.Connection),
+		connections:   make(map[string]connection.Connection),
 		existingNames: make(map[string]string),
 	}
 }
@@ -157,7 +157,7 @@ func TestConnectionUseCase_CreateConnection(t *testing.T) {
 				Username: "root",
 			},
 			wantErr: true,
-			errType:  "validation",
+			errType: "validation",
 		},
 		{
 			name: "duplicate name",
@@ -172,7 +172,7 @@ func TestConnectionUseCase_CreateConnection(t *testing.T) {
 				Username: "root",
 			},
 			wantErr: true,
-			errType:  "already exists",
+			errType: "already exists",
 		},
 	}
 

@@ -760,9 +760,9 @@ func (a *SysbenchAdapter) buildEnvVars(conn connection.Connection) []string {
 
 // sysbenchOutputParser is a helper for parsing sysbench output.
 type sysbenchOutputParser struct {
-	tpsPattern    *regexp.Regexp
+	tpsPattern     *regexp.Regexp
 	latencyPattern *regexp.Regexp
-	once          sync.Once
+	once           sync.Once
 }
 
 func (p *sysbenchOutputParser) init() {

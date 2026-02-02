@@ -18,7 +18,7 @@ type TaskConfigurationPage struct {
 	win            fyne.Window
 	connSelect     *widget.Select
 	toolSelect     *widget.Select
-	templateSelect  *widget.Select
+	templateSelect *widget.Select
 	durationEntry  *widget.Entry
 	rateLimitEntry *widget.Entry
 }

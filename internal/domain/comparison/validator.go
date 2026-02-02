@@ -26,8 +26,8 @@ func ValidateReport(report *ComparisonReport) *SanityCheckResults {
 	// Check 1: Config groups exist
 	results.Checks = append(results.Checks,
 		SanityCheck{
-			Name:   "Config groups exist",
-			Passed: len(report.ConfigGroups) > 0,
+			Name:    "Config groups exist",
+			Passed:  len(report.ConfigGroups) > 0,
 			Details: fmt.Sprintf("Found %d config groups", len(report.ConfigGroups)),
 		},
 	)
@@ -58,8 +58,8 @@ func ValidateReport(report *ComparisonReport) *SanityCheckResults {
 		if group.Statistics.N == 1 {
 			results.Checks = append(results.Checks,
 				SanityCheck{
-					Name:   fmt.Sprintf("N=1 stddev check (Group %s)", group.GroupID),
-					Passed: group.Statistics.TPS.StdDev == 0,
+					Name:    fmt.Sprintf("N=1 stddev check (Group %s)", group.GroupID),
+					Passed:  group.Statistics.TPS.StdDev == 0,
 					Details: fmt.Sprintf("StdDev=%.2f (expected 0 for N=1)", group.Statistics.TPS.StdDev),
 				},
 			)
@@ -76,8 +76,8 @@ func ValidateReport(report *ComparisonReport) *SanityCheckResults {
 	}
 	results.Checks = append(results.Checks,
 		SanityCheck{
-			Name:   "Baseline exists",
-			Passed: hasBaseline,
+			Name:    "Baseline exists",
+			Passed:  hasBaseline,
 			Details: fmt.Sprintf("threads=1 group found: %v", hasBaseline),
 		},
 	)
@@ -141,8 +141,8 @@ func validateLatencyOrdering(group *ConfigGroup) []SanityCheck {
 func validateQPSConsistency(group *ConfigGroup) SanityCheck {
 	if len(group.Runs) == 0 {
 		return SanityCheck{
-			Name:   "QPS consistency (no runs)",
-			Passed: false,
+			Name:    "QPS consistency (no runs)",
+			Passed:  false,
 			Details: "No runs to validate",
 		}
 	}
@@ -169,8 +169,8 @@ func validateQPSConsistency(group *ConfigGroup) SanityCheck {
 func validateSQLTotal(group *ConfigGroup) SanityCheck {
 	if len(group.Runs) == 0 {
 		return SanityCheck{
-			Name:   "SQL total validation (no runs)",
-			Passed: false,
+			Name:    "SQL total validation (no runs)",
+			Passed:  false,
 			Details: "No runs to validate",
 		}
 	}
@@ -192,8 +192,8 @@ func validateSQLTotal(group *ConfigGroup) SanityCheck {
 	}
 
 	return SanityCheck{
-		Name:   fmt.Sprintf("SQL total = read + write + other (Group %s)", group.GroupID),
-		Passed: passed,
+		Name:    fmt.Sprintf("SQL total = read + write + other (Group %s)", group.GroupID),
+		Passed:  passed,
 		Details: details,
 	}
 }
@@ -215,8 +215,8 @@ func ValidateMetricRange(value, min, max float64, metricName string) SanityCheck
 	inRange := value >= min && value <= max
 
 	return SanityCheck{
-		Name:   fmt.Sprintf("%s in range [%.2f, %.2f]", metricName, min, max),
-		Passed: inRange,
+		Name:    fmt.Sprintf("%s in range [%.2f, %.2f]", metricName, min, max),
+		Passed:  inRange,
 		Details: fmt.Sprintf("Value=%.2f", value),
 	}
 }
@@ -224,8 +224,8 @@ func ValidateMetricRange(value, min, max float64, metricName string) SanityCheck
 // ValidatePositive checks if a metric value is positive.
 func ValidatePositive(value float64, metricName string) SanityCheck {
 	return SanityCheck{
-		Name:   fmt.Sprintf("%s > 0", metricName),
-		Passed: value > 0,
+		Name:    fmt.Sprintf("%s > 0", metricName),
+		Passed:  value > 0,
 		Details: fmt.Sprintf("Value=%.2f", value),
 	}
 }
@@ -234,8 +234,8 @@ func ValidatePositive(value float64, metricName string) SanityCheck {
 func ValidateMonotonicIncrease(values []float64, metricName string) SanityCheck {
 	if len(values) <= 1 {
 		return SanityCheck{
-			Name:   fmt.Sprintf("%s monotonic increase", metricName),
-			Passed: true,
+			Name:    fmt.Sprintf("%s monotonic increase", metricName),
+			Passed:  true,
 			Details: "Insufficient data points",
 		}
 	}
@@ -249,8 +249,8 @@ func ValidateMonotonicIncrease(values []float64, metricName string) SanityCheck 
 	}
 
 	return SanityCheck{
-		Name:   fmt.Sprintf("%s monotonic increase", metricName),
-		Passed: increasing,
+		Name:    fmt.Sprintf("%s monotonic increase", metricName),
+		Passed:  increasing,
 		Details: fmt.Sprintf("Checked %d values", len(values)),
 	}
 }
@@ -260,8 +260,8 @@ func ValidateMonotonicIncrease(values []float64, metricName string) SanityCheck 
 func ValidateStdDevReasonable(mean, stddev float64, metricName string) SanityCheck {
 	if mean == 0 {
 		return SanityCheck{
-			Name:   fmt.Sprintf("%s reasonable stddev", metricName),
-			Passed: false,
+			Name:    fmt.Sprintf("%s reasonable stddev", metricName),
+			Passed:  false,
 			Details: "Mean is zero, cannot calculate CV",
 		}
 	}
@@ -285,8 +285,8 @@ func ValidateStdDevReasonable(mean, stddev float64, metricName string) SanityChe
 	}
 
 	return SanityCheck{
-		Name:   fmt.Sprintf("%s reasonable stddev", metricName),
-		Passed: passed,
+		Name:    fmt.Sprintf("%s reasonable stddev", metricName),
+		Passed:  passed,
 		Details: fmt.Sprintf("CV=%.2f%% (%s)", cv, rating),
 	}
 }

@@ -52,9 +52,9 @@ func TestReportFormat_Validate(t *testing.T) {
 // TestReportFormat_FileExtension tests file extension.
 func TestReportFormat_FileExtension(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		format ReportFormat
-		want string
+		want   string
 	}{
 		{"markdown", FormatMarkdown, ".md"},
 		{"html", FormatHTML, ".html"},
@@ -155,14 +155,14 @@ func TestGenerateContext_Helpers(t *testing.T) {
 	duration := 5 * time.Minute
 
 	ctx := &GenerateContext{
-		RunID:      "run-1",
-		Config:     DefaultConfig(FormatMarkdown),
-		TPS:        1000.5,
-		LatencyAvg: 5.25,
+		RunID:        "run-1",
+		Config:       DefaultConfig(FormatMarkdown),
+		TPS:          1000.5,
+		LatencyAvg:   5.25,
 		ErrorMessage: "test error",
-		Duration:   &duration,
-		Samples:    []MetricSample{{TPS: 100}},
-		Logs:       []LogEntry{{Content: "test"}},
+		Duration:     &duration,
+		Samples:      []MetricSample{{TPS: 100}},
+		Logs:         []LogEntry{{Content: "test"}},
 	}
 
 	// Test HasMetrics

@@ -20,12 +20,12 @@ func TestTemplateRepository_Save_FindByID(t *testing.T) {
 
 	// Create test template
 	tmpl := &template.Template{
-		ID:           "test-template",
-		Name:         "Test Template",
-		Description:  "A test template",
-		Tool:         "sysbench",
+		ID:            "test-template",
+		Name:          "Test Template",
+		Description:   "A test template",
+		Tool:          "sysbench",
 		DatabaseTypes: []string{"mysql", "postgresql"},
-		Version:      "1.0.0",
+		Version:       "1.0.0",
 		Parameters: map[string]template.Parameter{
 			"threads": {
 				Type:    template.ParameterTypeInteger,
@@ -86,9 +86,9 @@ func TestTemplateRepository_Save_Update(t *testing.T) {
 
 	// Save original template
 	tmpl := &template.Template{
-		ID:           "test-template",
-		Name:         "Original Name",
-		Tool:         "sysbench",
+		ID:            "test-template",
+		Name:          "Original Name",
+		Tool:          "sysbench",
 		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: template.CommandTemplate{
 			Run: "run command",
@@ -135,9 +135,9 @@ func TestTemplateRepository_FindAll(t *testing.T) {
 	// Save multiple templates
 	templates := []*template.Template{
 		{
-			ID:           "template-2",
-			Name:         "B Template",
-			Tool:         "sysbench",
+			ID:            "template-2",
+			Name:          "B Template",
+			Tool:          "sysbench",
 			DatabaseTypes: []string{"mysql"},
 			CommandTemplate: template.CommandTemplate{
 				Run: "run",
@@ -147,9 +147,9 @@ func TestTemplateRepository_FindAll(t *testing.T) {
 			},
 		},
 		{
-			ID:           "template-1",
-			Name:         "A Template",
-			Tool:         "hammerdb",
+			ID:            "template-1",
+			Name:          "A Template",
+			Tool:          "hammerdb",
 			DatabaseTypes: []string{"postgresql"},
 			CommandTemplate: template.CommandTemplate{
 				Run: "run",
@@ -196,9 +196,9 @@ func TestTemplateRepository_FindBuiltin(t *testing.T) {
 	// Load builtin templates
 	builtin := []*template.Template{
 		{
-			ID:           "builtin-1",
-			Name:         "Builtin 1",
-			Tool:         "sysbench",
+			ID:            "builtin-1",
+			Name:          "Builtin 1",
+			Tool:          "sysbench",
 			DatabaseTypes: []string{"mysql"},
 			CommandTemplate: template.CommandTemplate{
 				Run: "run",
@@ -216,9 +216,9 @@ func TestTemplateRepository_FindBuiltin(t *testing.T) {
 
 	// Save a custom template
 	custom := &template.Template{
-		ID:           "custom-1",
-		Name:         "Custom 1",
-		Tool:         "sysbench",
+		ID:            "custom-1",
+		Name:          "Custom 1",
+		Tool:          "sysbench",
 		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: template.CommandTemplate{
 			Run: "run",
@@ -256,9 +256,9 @@ func TestTemplateRepository_FindCustom(t *testing.T) {
 	// Load builtin templates
 	builtin := []*template.Template{
 		{
-			ID:           "builtin-1",
-			Name:         "Builtin 1",
-			Tool:         "sysbench",
+			ID:            "builtin-1",
+			Name:          "Builtin 1",
+			Tool:          "sysbench",
 			DatabaseTypes: []string{"mysql"},
 			CommandTemplate: template.CommandTemplate{
 				Run: "run",
@@ -275,9 +275,9 @@ func TestTemplateRepository_FindCustom(t *testing.T) {
 
 	// Save a custom template
 	custom := &template.Template{
-		ID:           "custom-1",
-		Name:         "Custom 1",
-		Tool:         "sysbench",
+		ID:            "custom-1",
+		Name:          "Custom 1",
+		Tool:          "sysbench",
 		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: template.CommandTemplate{
 			Run: "run",
@@ -314,9 +314,9 @@ func TestTemplateRepository_Delete(t *testing.T) {
 
 	// Save a custom template
 	tmpl := &template.Template{
-		ID:           "test-template",
-		Name:         "Test",
-		Tool:         "sysbench",
+		ID:            "test-template",
+		Name:          "Test",
+		Tool:          "sysbench",
 		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: template.CommandTemplate{
 			Run: "run",
@@ -353,9 +353,9 @@ func TestTemplateRepository_Delete_Builtin(t *testing.T) {
 	// Load builtin template
 	builtin := []*template.Template{
 		{
-			ID:           "builtin-1",
-			Name:         "Builtin",
-			Tool:         "sysbench",
+			ID:            "builtin-1",
+			Name:          "Builtin",
+			Tool:          "sysbench",
 			DatabaseTypes: []string{"mysql"},
 			CommandTemplate: template.CommandTemplate{
 				Run: "run",

@@ -27,16 +27,16 @@ var (
 // Template represents a benchmark template with all configuration needed to execute it.
 // Implements: REQ-TMPL-002 (display template details)
 type Template struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	Tool           string                 `json:"tool"`
-	DatabaseTypes  []string               `json:"database_types"`
-	Version        string                 `json:"version"`
-	Parameters     map[string]Parameter   `json:"parameters"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	Tool            string                 `json:"tool"`
+	DatabaseTypes   []string               `json:"database_types"`
+	Version         string                 `json:"version"`
+	Parameters      map[string]Parameter   `json:"parameters"`
 	CommandTemplate CommandTemplate        `json:"command_template"`
-	OutputParser   OutputParser           `json:"output_parser"`
-	CustomData     map[string]interface{} `json:"custom_data,omitempty"`
+	OutputParser    OutputParser           `json:"output_parser"`
+	CustomData      map[string]interface{} `json:"custom_data,omitempty"`
 }
 
 // Parameter defines a configurable parameter for a template.

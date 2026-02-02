@@ -15,8 +15,8 @@ func main() {
 	// Create a test history record with all fields
 	now := time.Now()
 	record := &history.Record{
-		ID:        "test-run-001",
-		CreatedAt: now,
+		ID:             "test-run-001",
+		CreatedAt:      now,
 		ConnectionName: "TestConnection",
 		TemplateName:   "Sysbench OLTP Read-Write",
 		DatabaseType:   "MySQL",
@@ -62,8 +62,8 @@ func main() {
 				TPS:        341.28,
 				QPS:        6871.52,
 				LatencyAvg: 11.23,
-				LatencyP95:  13.46,
-				LatencyP99:  18.12,
+				LatencyP95: 13.46,
+				LatencyP99: 18.12,
 				ErrorRate:  0.0,
 			},
 			{
@@ -72,8 +72,8 @@ func main() {
 				TPS:        348.11,
 				QPS:        6934.23,
 				LatencyAvg: 11.45,
-				LatencyP95:  13.22,
-				LatencyP99:  17.89,
+				LatencyP95: 13.22,
+				LatencyP99: 17.89,
 				ErrorRate:  0.0,
 			},
 			{
@@ -82,8 +82,8 @@ func main() {
 				TPS:        348.00,
 				QPS:        6998.92,
 				LatencyAvg: 11.48,
-				LatencyP95:  13.22,
-				LatencyP99:  18.01,
+				LatencyP95: 13.22,
+				LatencyP99: 18.01,
 				ErrorRate:  0.0,
 			},
 			{
@@ -92,8 +92,8 @@ func main() {
 				TPS:        351.00,
 				QPS:        7023.09,
 				LatencyAvg: 11.38,
-				LatencyP95:  13.22,
-				LatencyP99:  17.95,
+				LatencyP95: 13.22,
+				LatencyP99: 17.95,
 				ErrorRate:  0.0,
 			},
 			{
@@ -102,8 +102,8 @@ func main() {
 				TPS:        338.96,
 				QPS:        6762.19,
 				LatencyAvg: 11.78,
-				LatencyP95:  13.95,
-				LatencyP99:  18.45,
+				LatencyP95: 13.95,
+				LatencyP99: 18.45,
 				ErrorRate:  0.0,
 			},
 		},
@@ -113,7 +113,8 @@ func main() {
 	exportUC := usecase.NewExportUseCase("./exports")
 	ctx := context.Background()
 
-	fmt.Println("=== Testing Export Functionality ===\n")
+	fmt.Println("=== Testing Export Functionality ===")
+	fmt.Println()
 
 	// Test 1: Export to TXT
 	fmt.Println("Test 1: Exporting to TXT format...")
@@ -144,28 +145,28 @@ func main() {
 	if txtPath != "" {
 		content, _ := os.ReadFile(txtPath)
 		contentStr := string(content)
-		
+
 		fmt.Println("\n=== Verification ===")
-		
+
 		checks := map[string]string{
-			"sysbench header":                   "sysbench 1.0.20",
-			"threads info":                      "Number of threads: 4",
-			"time series data":                  "[ 1s ]",
-			"SQL statistics":                    "SQL statistics:",
-			"read queries":                      "read:",
-			"transactions with per sec":         "transactions:",
-			"general statistics":                "General statistics:",
-			"latency section":                   "Latency (ms):",
-			"latency min":                       "min:",
-			"latency avg":                       "avg:",
-			"latency max":                       "max:",
-			"latency 95th percentile":           "95th percentile:",
-			"latency sum":                       "sum:",
-			"threads fairness":                  "Threads fairness:",
-			"events avg/stddev":                 "events (avg/stddev):",
-			"execution time avg/stddev":         "execution time (avg/stddev):",
+			"sysbench header":           "sysbench 1.0.20",
+			"threads info":              "Number of threads: 4",
+			"time series data":          "[ 1s ]",
+			"SQL statistics":            "SQL statistics:",
+			"read queries":              "read:",
+			"transactions with per sec": "transactions:",
+			"general statistics":        "General statistics:",
+			"latency section":           "Latency (ms):",
+			"latency min":               "min:",
+			"latency avg":               "avg:",
+			"latency max":               "max:",
+			"latency 95th percentile":   "95th percentile:",
+			"latency sum":               "sum:",
+			"threads fairness":          "Threads fairness:",
+			"events avg/stddev":         "events (avg/stddev):",
+			"execution time avg/stddev": "execution time (avg/stddev):",
 		}
-		
+
 		allPassed := true
 		for checkName, checkStr := range checks {
 			if strings.Contains(contentStr, checkStr) {
@@ -175,7 +176,7 @@ func main() {
 				allPassed = false
 			}
 		}
-		
+
 		if allPassed {
 			fmt.Println("\n✓✓✓ All TXT export checks passed!")
 		}

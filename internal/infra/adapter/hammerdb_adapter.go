@@ -225,8 +225,8 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 		defer close(errChan)
 
 		scanner := bufio.NewScanner(stdout)
-	currentTPM := 0.0
-	currentUsers := 1
+		currentTPM := 0.0
+		currentUsers := 1
 
 		for scanner.Scan() {
 			line := scanner.Text()

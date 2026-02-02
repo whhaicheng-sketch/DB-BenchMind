@@ -15,8 +15,8 @@ type MetricSample struct {
 	TPS        float64   `json:"tps"`
 	QPS        float64   `json:"qps,omitempty"`
 	LatencyAvg float64   `json:"latency_avg_ms"`
-	LatencyP95  float64  `json:"latency_p95_ms"`
-	LatencyP99  float64  `json:"latency_p99_ms"`
+	LatencyP95 float64   `json:"latency_p95_ms"`
+	LatencyP99 float64   `json:"latency_p99_ms"`
 	ErrorRate  float64   `json:"error_rate_percent"`
 	RawLine    string    `json:"raw_line,omitempty"`
 }
@@ -25,14 +25,14 @@ type MetricSample struct {
 // Only successful runs are saved to history.
 type Record struct {
 	// Basic information
-	ID        string    `json:"id"`        // Run ID (UUID)
+	ID        string    `json:"id"`         // Run ID (UUID)
 	CreatedAt time.Time `json:"created_at"` // When the record was created
 
 	// Connection and Template Info
 	ConnectionName string `json:"connection_name"` // Connection name
 	TemplateName   string `json:"template_name"`   // Template name
-	DatabaseType    string `json:"database_type"`    // Database type (MySQL/PostgreSQL)
-	Threads        int    `json:"threads"`           // Thread count
+	DatabaseType   string `json:"database_type"`   // Database type (MySQL/PostgreSQL)
+	Threads        int    `json:"threads"`         // Thread count
 
 	// Timing
 	StartTime time.Time     `json:"start_time"` // Benchmark start time
@@ -52,24 +52,24 @@ type Record struct {
 	// SQL Statistics
 	ReadQueries  int64 `json:"read_queries"`  // Read queries
 	WriteQueries int64 `json:"write_queries"` // Write queries
-	OtherQueries  int64 `json:"other_queries"` // Other queries
-	TotalQueries  int64 `json:"total_queries"`  // Total queries
+	OtherQueries int64 `json:"other_queries"` // Other queries
+	TotalQueries int64 `json:"total_queries"` // Total queries
 
 	// Transactions
 	TotalTransactions int64 `json:"total_transactions"` // Total transactions
 
 	// Errors and Reconnects
 	IgnoredErrors int64 `json:"ignored_errors"` // Ignored errors
-	Reconnects    int64 `json:"reconnects"`    // Reconnects
+	Reconnects    int64 `json:"reconnects"`     // Reconnects
 
 	// General Statistics
-	TotalTime   float64 `json:"total_time_seconds"`   // Total time in seconds
-	TotalEvents int64   `json:"total_events"`      // Total number of events
+	TotalTime   float64 `json:"total_time_seconds"` // Total time in seconds
+	TotalEvents int64   `json:"total_events"`       // Total number of events
 
 	// Threads Fairness
-	EventsAvg      float64 `json:"events_avg"`      // Events average
-	EventsStddev   float64 `json:"events_stddev"`   // Events stddev
-	ExecTimeAvg    float64 `json:"exec_time_avg"`   // Execution time average
+	EventsAvg      float64 `json:"events_avg"`       // Events average
+	EventsStddev   float64 `json:"events_stddev"`    // Events stddev
+	ExecTimeAvg    float64 `json:"exec_time_avg"`    // Execution time average
 	ExecTimeStddev float64 `json:"exec_time_stddev"` // Execution time stddev
 
 	// Time Series Data (realtime metrics during benchmark)

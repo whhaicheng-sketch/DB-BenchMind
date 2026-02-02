@@ -23,42 +23,42 @@ type SimplifiedReportFindings struct {
 
 // SimplifiedReport represents a simplified comparison report.
 type SimplifiedReport struct {
-	GeneratedAt      time.Time
-	ReportID         string
-	SelectedRecords  int
-	GroupBy          GroupByField
-	Records          []*RecordRef
-	ConfigGroups     []*ThreadGroup
-	SanityChecks     []SanityCheckResult
-	Findings         *SimplifiedReportFindings
-	Notes            string
+	GeneratedAt     time.Time
+	ReportID        string
+	SelectedRecords int
+	GroupBy         GroupByField
+	Records         []*RecordRef
+	ConfigGroups    []*ThreadGroup
+	SanityChecks    []SanityCheckResult
+	Findings        *SimplifiedReportFindings
+	Notes           string
 }
 
 // ThreadGroup groups records by thread count for analysis.
 type ThreadGroup struct {
-	Threads      int
-	Records     []*RecordRef
-	Statistics  ThreadGroupStats
+	Threads    int
+	Records    []*RecordRef
+	Statistics ThreadGroupStats
 }
 
 // ThreadGroupStats contains statistics for a thread group.
 type ThreadGroupStats struct {
-	N           int
-	TPS         GroupMetricStats
-	QPS         GroupMetricStats
-	LatencyAvg  GroupMetricStats
-	LatencyP95  GroupMetricStats
-	LatencyMax  GroupMetricStats
-	Errors      int64
-	Reconnects  int64
+	N          int
+	TPS        GroupMetricStats
+	QPS        GroupMetricStats
+	LatencyAvg GroupMetricStats
+	LatencyP95 GroupMetricStats
+	LatencyMax GroupMetricStats
+	Errors     int64
+	Reconnects int64
 }
 
 // GroupMetricStats contains statistics across N runs.
 type GroupMetricStats struct {
-	Mean     float64
-	StdDev   float64
-	Min      float64
-	Max      float64
+	Mean   float64
+	StdDev float64
+	Min    float64
+	Max    float64
 }
 
 // SanityCheckResult represents a single sanity check result.
@@ -103,7 +103,7 @@ func groupByThreads(records []*RecordRef) []*ThreadGroup {
 		threads := record.Threads
 		if groups[threads] == nil {
 			groups[threads] = &ThreadGroup{
-				Threads:  threads,
+				Threads: threads,
 				Records: []*RecordRef{},
 			}
 		}
@@ -221,7 +221,7 @@ func performSimplifiedChecks(groups []*ThreadGroup) []SanityCheckResult {
 	checks = append(checks, SanityCheckResult{
 		Name:    "SQL total = read + write + other",
 		Passed:  sqlPassed,
-			Details: sqlDetails,
+		Details: sqlDetails,
 	})
 
 	// Check 2: QPS ≈ TPS × 20

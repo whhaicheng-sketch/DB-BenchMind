@@ -24,7 +24,7 @@ var (
 type ToolType string
 
 const (
-	ToolTypeSysbench  ToolType = "sysbench"
+	ToolTypeSysbench   ToolType = "sysbench"
 	ToolTypeSwingbench ToolType = "swingbench"
 	ToolTypeHammerDB   ToolType = "hammerdb"
 )
@@ -379,12 +379,12 @@ func DefaultConfig() *Config {
 			RefreshInterval: 5,
 		},
 		Advanced: AdvancedConfig{
-			LogLevel:       "info",
-			MaxLogFiles:    10,
+			LogLevel:        "info",
+			MaxLogFiles:     10,
 			EnableTelemetry: false,
-			CheckUpdates:   true,
-			WorkDir:        defaultWorkDir,
-			Timeout:        60, // 1 hour
+			CheckUpdates:    true,
+			WorkDir:         defaultWorkDir,
+			Timeout:         60, // 1 hour
 		},
 	}
 }

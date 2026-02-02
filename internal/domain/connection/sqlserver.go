@@ -4,8 +4,11 @@ package connection
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	_ "github.com/microsoft/go-mssqldb" // SQL Server driver
 )
 
 // SQLServerConnection represents a SQL Server database connection configuration.
@@ -15,11 +18,11 @@ type SQLServerConnection struct {
 	BaseConnection
 
 	// Connection parameters
-	Host                   string `json:"host"`                      // Host address
-	Port                   int    `json:"port"`                      // Port (default 1433)
-	Database               string `json:"database"`                  // Database name
-	Username               string `json:"username"`                  // Username
-	Password               string `json:"-"`                         // Password (stored in keyring)
+	Host                   string `json:"host"`                     // Host address
+	Port                   int    `json:"port"`                     // Port (default 1433)
+	Database               string `json:"database"`                 // Database name
+	Username               string `json:"username"`                 // Username
+	Password               string `json:"-"`                        // Password (stored in keyring)
 	TrustServerCertificate bool   `json:"trust_server_certificate"` // Trust server certificate
 }
 
@@ -88,23 +91,56 @@ func (c *SQLServerConnection) Validate() error {
 
 // Test tests the SQL Server connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
 //
-// Note: SQL Server driver is not imported yet.
-// When ready, need to import: _ "github.com/microsoft/go-mssqldb"
+// It attempts to connect to the SQL Server database and returns:
+// - Success: Whether the connection succeeded
+// - LatencyMs: Time taken to establish connection
+// - DatabaseVersion: SQL Server version string (on success)
+// - Error: Error message (on failure)
+//
+// The context supports cancellation and timeout.
 func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Placeholder - SQL Server driver not yet imported
-	// When ready, uncomment and implement:
-	// dsn := c.GetDSNWithPassword()
-	// db, err := sql.Open("sqlserver", dsn)
-	// ...
+	dsn := c.GetDSNWithPassword()
 
+	// Try to open connection
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			Error:     fmt.Sprintf("failed to open connection: %v", err),
+			LatencyMs: 0,
+		}, nil
+	}
+	defer db.Close()
+
+	// Set timeout for connection test
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Attempt to ping the database
+	err = db.PingContext(testCtx)
 	latency := time.Since(start).Milliseconds()
 
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: latency,
+			Error:     fmt.Sprintf("connection failed: %v", err),
+		}, nil
+	}
+
+	// Get database version (REQ-CONN-004)
+	var version string
+	err = db.QueryRowContext(testCtx, "SELECT @@VERSION").Scan(&version)
+	if err != nil {
+		version = "unknown"
+	}
+
 	return &TestResult{
-		Success:   false,
-		LatencyMs: latency,
-		Error:     "SQL Server driver not available - requires github.com/microsoft/go-mssqldb",
+		Success:         true,
+		LatencyMs:       latency,
+		DatabaseVersion: version,
 	}, nil
 }
 

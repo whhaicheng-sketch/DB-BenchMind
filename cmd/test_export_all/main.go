@@ -16,8 +16,8 @@ func main() {
 
 	for i := 1; i <= 3; i++ {
 		record := &history.Record{
-			ID:        fmt.Sprintf("test-run-%03d", i),
-			CreatedAt: now.Add(time.Duration(-i) * time.Minute),
+			ID:             fmt.Sprintf("test-run-%03d", i),
+			CreatedAt:      now.Add(time.Duration(-i) * time.Minute),
 			ConnectionName: "TestConnection",
 			TemplateName:   "Sysbench OLTP Read-Write",
 			DatabaseType:   "MySQL",
@@ -57,7 +57,7 @@ func main() {
 					TPS:        341.28,
 					QPS:        6871.52,
 					LatencyAvg: 11.23,
-					LatencyP95:  13.46,
+					LatencyP95: 13.46,
 					ErrorRate:  0.0,
 				},
 				{
@@ -66,7 +66,7 @@ func main() {
 					TPS:        338.96,
 					QPS:        6762.19,
 					LatencyAvg: 11.78,
-					LatencyP95:  13.95,
+					LatencyP95: 13.95,
 					ErrorRate:  0.0,
 				},
 			},
@@ -78,7 +78,8 @@ func main() {
 	exportUC := usecase.NewExportUseCase("./exports")
 	ctx := context.Background()
 
-	fmt.Println("=== Testing Export All Functionality ===\n")
+	fmt.Println("=== Testing Export All Functionality ===")
+	fmt.Println()
 	fmt.Printf("Total records to export: %d\n\n", len(records))
 
 	// Test 1: Export all to TXT

@@ -110,7 +110,7 @@ func main() {
 	exportUC := usecase.NewExportUseCase("./exports")
 
 	// Create comparison use case
-	comparisonUC := usecase.NewComparisonUseCase(historyRepo)
+	comparisonUC := usecase.NewComparisonUseCase(historyRepo, runRepo)
 
 	slog.Info("Use cases initialized")
 

@@ -15,24 +15,24 @@ import (
 
 // Application represents the Fyne GUI application.
 type Application struct {
-	app         fyne.App
-	connUC      *usecase.ConnectionUseCase
-	benchmarkUC *usecase.BenchmarkUseCase
-	templateUC  *usecase.TemplateUseCase
-	historyUC   *usecase.HistoryUseCase
-	exportUC    *usecase.ExportUseCase
+	app          fyne.App
+	connUC       *usecase.ConnectionUseCase
+	benchmarkUC  *usecase.BenchmarkUseCase
+	templateUC   *usecase.TemplateUseCase
+	historyUC    *usecase.HistoryUseCase
+	exportUC     *usecase.ExportUseCase
 	comparisonUC *usecase.ComparisonUseCase
 }
 
 // NewApplication creates a new Fyne application.
 func NewApplication(connUC *usecase.ConnectionUseCase, benchmarkUC *usecase.BenchmarkUseCase, templateUC *usecase.TemplateUseCase, historyUC *usecase.HistoryUseCase, exportUC *usecase.ExportUseCase, comparisonUC *usecase.ComparisonUseCase) *Application {
 	return &Application{
-		app:         app.NewWithID("com.db-benchmind.app"),
-		connUC:      connUC,
-		benchmarkUC: benchmarkUC,
-		templateUC:  templateUC,
-		historyUC:   historyUC,
-		exportUC:    exportUC,
+		app:          app.NewWithID("com.db-benchmind.app"),
+		connUC:       connUC,
+		benchmarkUC:  benchmarkUC,
+		templateUC:   templateUC,
+		historyUC:    historyUC,
+		exportUC:     exportUC,
 		comparisonUC: comparisonUC,
 	}
 }

@@ -205,12 +205,12 @@ type GenerateContext struct {
 
 // MetricSample represents a time series metric sample.
 type MetricSample struct {
-	Timestamp   time.Time
-	TPS         float64
-	LatencyAvg  float64
-	LatencyP95  float64
-	LatencyP99  float64
-	ErrorRate   float64
+	Timestamp  time.Time
+	TPS        float64
+	LatencyAvg float64
+	LatencyP95 float64
+	LatencyP99 float64
+	ErrorRate  float64
 }
 
 // LogEntry represents a log entry.
@@ -223,8 +223,8 @@ type LogEntry struct {
 // NewGenerateContext creates a new generate context with minimal required fields.
 func NewGenerateContext(runID string, config *ReportConfig) *GenerateContext {
 	return &GenerateContext{
-		RunID:  runID,
-		Config: config,
+		RunID:   runID,
+		Config:  config,
 		Samples: []MetricSample{},
 		Logs:    []LogEntry{},
 	}

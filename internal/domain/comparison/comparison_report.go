@@ -20,9 +20,9 @@ const (
 // Two runs with matching ConfigSpec are considered the same configuration.
 type ConfigSpec struct {
 	// Core dimensions (must match for same config)
-	Threads        int    `json:"threads"`
-	DatabaseType   string `json:"database_type"`
-	TemplateName   string `json:"template_name"`
+	Threads      int    `json:"threads"`
+	DatabaseType string `json:"database_type"`
+	TemplateName string `json:"template_name"`
 
 	// Optional dimensions (user can choose whether to consider)
 	ConnectionName string `json:"connection_name,omitempty"`
@@ -59,13 +59,13 @@ func (c *ConfigSpec) String() string {
 // This is extracted from a history.Record for statistical analysis.
 type Run struct {
 	// Identification
-	RunID      string    `json:"run_id"`
-	StartTime  time.Time `json:"start_time"`
-	Duration   time.Duration `json:"duration"`
+	RunID     string        `json:"run_id"`
+	StartTime time.Time     `json:"start_time"`
+	Duration  time.Duration `json:"duration"`
 
 	// Throughput metrics
-	TPS        float64 `json:"tps"`         // Transactions per second
-	QPS        float64 `json:"qps"`         // Queries per second
+	TPS float64 `json:"tps"` // Transactions per second
+	QPS float64 `json:"qps"` // Queries per second
 
 	// Latency metrics (milliseconds)
 	LatencyAvg float64 `json:"latency_avg_ms"`
@@ -84,12 +84,12 @@ type Run struct {
 	TotalTransactions int64 `json:"total_transactions"`
 
 	// Reliability metrics
-	Errors      int64 `json:"errors"`
-	Reconnects  int64 `json:"reconnects"`
+	Errors     int64 `json:"errors"`
+	Reconnects int64 `json:"reconnects"`
 
 	// Other metrics
 	TotalTime   float64 `json:"total_time_seconds"`
-	TotalEvents int64  `json:"total_events"`
+	TotalEvents int64   `json:"total_events"`
 
 	// Query mix
 	QueriesPerTransaction float64 `json:"queries_per_transaction"`
@@ -98,12 +98,12 @@ type Run struct {
 // RunMetricStats represents statistical analysis of a single metric across N runs.
 // This is used for grouped runs where we calculate statistics across multiple executions.
 type RunMetricStats struct {
-	N         int      `json:"n"`          // Number of runs
-	Mean      float64  `json:"mean"`       // Mean (average)
-	StdDev    float64  `json:"std_dev"`    // Standard deviation
-	Min       float64  `json:"min"`        // Minimum value
-	Max       float64  `json:"max"`        // Maximum value
-	Values    []float64 `json:"values,omitempty"` // Individual values (for debugging)
+	N      int       `json:"n"`                // Number of runs
+	Mean   float64   `json:"mean"`             // Mean (average)
+	StdDev float64   `json:"std_dev"`          // Standard deviation
+	Min    float64   `json:"min"`              // Minimum value
+	Max    float64   `json:"max"`              // Maximum value
+	Values []float64 `json:"values,omitempty"` // Individual values (for debugging)
 }
 
 // IsValid checks if the stats are valid (N > 0).
@@ -146,13 +146,13 @@ type RunStats struct {
 	LatencyAvg RunMetricStats `json:"latency_avg_ms"`
 	LatencyP95 RunMetricStats `json:"latency_p95_ms"`
 	LatencyP99 RunMetricStats `json:"latency_p99_ms"`
-	LatencyMax float64      `json:"latency_max_ms"` // Max-of-max across all runs
+	LatencyMax float64        `json:"latency_max_ms"` // Max-of-max across all runs
 
 	// Reliability statistics
-	TotalErrors    int64 `json:"total_errors"`
+	TotalErrors     int64 `json:"total_errors"`
 	TotalReconnects int64 `json:"total_reconnects"`
-	HasErrors      bool  `json:"has_errors"`
-	AnyNonZero     bool  `json:"any_non_zero"` // Any run has errors or reconnects
+	HasErrors       bool  `json:"has_errors"`
+	AnyNonZero      bool  `json:"any_non_zero"` // Any run has errors or reconnects
 
 	// Query mix (averaged across runs)
 	ReadPct      float64 `json:"read_pct"`
@@ -165,17 +165,17 @@ type RunStats struct {
 // This is used for analyzing N runs of a configuration (e.g., threads=4).
 type ConfigGroup struct {
 	// Group identification
-	GroupID   string    `json:"group_id"` // e.g., "C1", "C2", "C3"
-	Config    ConfigSpec `json:"config"`
+	GroupID string     `json:"group_id"` // e.g., "C1", "C2", "C3"
+	Config  ConfigSpec `json:"config"`
 
 	// Runs in this group
-	Runs      []*Run    `json:"runs"`
+	Runs []*Run `json:"runs"`
 
 	// Aggregated statistics across all runs
-	Statistics RunStats  `json:"statistics"`
+	Statistics RunStats `json:"statistics"`
 
 	// Additional metadata
-	Tags      []string  `json:"tags,omitempty"` // e.g., "baseline", "best"
+	Tags []string `json:"tags,omitempty"` // e.g., "baseline", "best"
 }
 
 // GetThreadCount returns the thread count for this config group.
@@ -192,17 +192,17 @@ func (g *ConfigGroup) GetDatabaseType() string {
 // This is the main structure for professional-grade benchmark analysis.
 type ComparisonReport struct {
 	// Metadata
-	GeneratedAt    time.Time     `json:"generated_at"`
-	ReportID       string        `json:"report_id"`
-	GroupBy        GroupByField  `json:"group_by"`
+	GeneratedAt time.Time    `json:"generated_at"`
+	ReportID    string       `json:"report_id"`
+	GroupBy     GroupByField `json:"group_by"`
 
 	// Experiment data
-	ConfigGroups   []*ConfigGroup `json:"config_groups"`
+	ConfigGroups []*ConfigGroup `json:"config_groups"`
 
 	// Analysis results
-	ScalingAnalysis *ScalingAnalysis `json:"scaling_analysis,omitempty"`
+	ScalingAnalysis *ScalingAnalysis    `json:"scaling_analysis,omitempty"`
 	SanityChecks    *SanityCheckResults `json:"sanity_checks,omitempty"`
-	Findings        *ReportFindings `json:"findings,omitempty"`
+	Findings        *ReportFindings     `json:"findings,omitempty"`
 
 	// Report settings
 	SimilarityConfig *SimilarityConfig `json:"similarity_config,omitempty"`
@@ -236,33 +236,33 @@ func DefaultSimilarityConfig() *SimilarityConfig {
 // ScalingAnalysis contains scaling efficiency analysis.
 type ScalingAnalysis struct {
 	// Baseline
-	BaselineTPS      float64 `json:"baseline_tps"`       // TPS for threads=1
-	BaselineGroup    *ConfigGroup `json:"baseline_group"` // Reference to baseline group
+	BaselineTPS   float64      `json:"baseline_tps"`   // TPS for threads=1
+	BaselineGroup *ConfigGroup `json:"baseline_group"` // Reference to baseline group
 
 	// Speedup and efficiency for each config group
-	ByGroup         map[string]*ScalingMetrics `json:"by_group"` // group_id -> metrics
+	ByGroup map[string]*ScalingMetrics `json:"by_group"` // group_id -> metrics
 
 	// Key findings
-	BestTPSConfig   *ConfigGroup `json:"best_tps_config"`   // Config with highest TPS
+	BestTPSConfig      *ConfigGroup `json:"best_tps_config"`      // Config with highest TPS
 	WorstLatencyConfig *ConfigGroup `json:"worst_latency_config"` // Config with worst p95
 
 	// Scaling knee (diminishing returns point)
-	ScalingKnee     *ConfigGroup `json:"scaling_knee,omitempty"` // Where efficiency drops
-	ScalingKneeThread int       `json:"scaling_knee_thread,omitempty"` // Thread count
+	ScalingKnee       *ConfigGroup `json:"scaling_knee,omitempty"`        // Where efficiency drops
+	ScalingKneeThread int          `json:"scaling_knee_thread,omitempty"` // Thread count
 }
 
 // ScalingMetrics represents scaling metrics for a single config.
 type ScalingMetrics struct {
-	Speedup     float64 `json:"speedup"`     // Speedup vs baseline (TPS / baselineTPS)
-	Efficiency  float64 `json:"efficiency"`  // Efficiency = Speedup / threads
-	DeltaTPS    float64 `json:"delta_tps"`   // TPS change vs previous config
-	DeltaP95    float64 `json:"delta_p95"`   // p95 latency change vs previous
+	Speedup    float64 `json:"speedup"`    // Speedup vs baseline (TPS / baselineTPS)
+	Efficiency float64 `json:"efficiency"` // Efficiency = Speedup / threads
+	DeltaTPS   float64 `json:"delta_tps"`  // TPS change vs previous config
+	DeltaP95   float64 `json:"delta_p95"`  // p95 latency change vs previous
 }
 
 // SanityCheckResults contains validation check results.
 type SanityCheckResults struct {
-	AllPassed bool           `json:"all_passed"`
-	Checks    []SanityCheck  `json:"checks"`
+	AllPassed bool          `json:"all_passed"`
+	Checks    []SanityCheck `json:"checks"`
 }
 
 // SanityCheck represents a single validation check.
@@ -274,13 +274,13 @@ type SanityCheck struct {
 
 // ReportFindings contains auto-generated findings and recommendations.
 type ReportFindings struct {
-	BestThroughput     string `json:"best_throughput"`
-	ScalingKnee        string `json:"scaling_knee"`
-	LatencyRisk        string `json:"latency_risk"`
-	StabilityConcerns  string `json:"stability_concerns"`
-	Recommendation     string `json:"recommendation"`
-	TradeoffStatement  string `json:"tradeoff_statement"`
-	NextExperiment     string `json:"next_experiment"`
+	BestThroughput    string `json:"best_throughput"`
+	ScalingKnee       string `json:"scaling_knee"`
+	LatencyRisk       string `json:"latency_risk"`
+	StabilityConcerns string `json:"stability_concerns"`
+	Recommendation    string `json:"recommendation"`
+	TradeoffStatement string `json:"tradeoff_statement"`
+	NextExperiment    string `json:"next_experiment"`
 }
 
 // FormatReportID generates a unique report ID.

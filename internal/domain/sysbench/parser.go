@@ -16,11 +16,11 @@ import (
 
 // ParsedRun represents a fully parsed sysbench run.
 type ParsedRun struct {
-	RunID       string
-	Timestamp   time.Time
+	RunID     string
+	Timestamp time.Time
 
 	// Raw output
-	RawOutput   string
+	RawOutput string
 
 	// Summary statistics
 	TPS         float64
@@ -30,44 +30,44 @@ type ParsedRun struct {
 	Reliability ReliabilityMetrics
 
 	// Time series data (per-second samples)
-	TimeSeries  []TimeSeriesSample
+	TimeSeries []TimeSeriesSample
 
 	// Metadata
-	Threads     int
-	Duration    float64 // seconds
+	Threads  int
+	Duration float64 // seconds
 }
 
 // TimeSeriesSample represents per-second metrics.
 type TimeSeriesSample struct {
-	Second      int
-	TPS         float64
-	QPS         float64
-	LatencyP95  float64
-	ErrorRate   float64
+	Second     int
+	TPS        float64
+	QPS        float64
+	LatencyP95 float64
+	ErrorRate  float64
 }
 
 // SQLStatistics contains SQL statistics from summary.
 type SQLStatistics struct {
-	ReadQueries    int64
-	WriteQueries   int64
-	OtherQueries   int64
-	TotalQueries   int64
+	ReadQueries       int64
+	WriteQueries      int64
+	OtherQueries      int64
+	TotalQueries      int64
 	TotalTransactions int64
 }
 
 // LatencyStats contains latency statistics.
 type LatencyStats struct {
-	Avg  float64
-	Min  float64
-	Max  float64
-	P95  float64
-	P99  float64
+	Avg float64
+	Min float64
+	Max float64
+	P95 float64
+	P99 float64
 }
 
 // ReliabilityMetrics contains reliability metrics.
 type ReliabilityMetrics struct {
-	Errors      int64
-	Reconnects  int64
+	Errors     int64
+	Reconnects int64
 }
 
 // ParseSysbenchOutput parses raw sysbench output.
@@ -113,9 +113,9 @@ func extractTimeSeries(rawOutput string) []TimeSeriesSample {
 		qps, _ := strconv.ParseFloat(matches[4], 64)
 
 		sample := TimeSeriesSample{
-			Second:    second,
-			TPS:       tps,
-			QPS:       qps,
+			Second: second,
+			TPS:    tps,
+			QPS:    qps,
 		}
 
 		samples = append(samples, sample)

@@ -106,33 +106,13 @@ func TestTemplateInfo_DefaultPerDBType(t *testing.T) {
 // TestTemplateInfo_OLTPParameters tests OLTP parameter validation.
 func TestTemplateInfo_OLTPParameters(t *testing.T) {
 	params := &OLTPParameters{
-		Tables:              10,
-		TableSize:           10000,
-		DBPSMode:            "disable",
-		OLTPTestMode:        "complex",
-		OLTPPointSelects:    10,
-		OLTPSimpleRanges:    1,
-		OLTPSumRanges:       1,
-		OLTPOrderRanges:     1,
-		OLTPDistinctRanges:  1,
-		OLTPIndexUpdates:    1,
-		OLTPNonIndexUpdates: 1,
-		OLTPDeleteInserts:   1,
+		Tables:    10,
+		TableSize: 10000,
 	}
 
-	// Test that all 12 parameters are set
+	// Test that all parameters are set
 	assert.Equal(t, 10, params.Tables, "Tables should be 10")
 	assert.Equal(t, 10000, params.TableSize, "TableSize should be 10000")
-	assert.Equal(t, "disable", params.DBPSMode, "DBPSMode should be disable")
-	assert.Equal(t, "complex", params.OLTPTestMode, "OLTPTestMode should be complex")
-	assert.Equal(t, 10, params.OLTPPointSelects, "OLTPPointSelects should be 10")
-	assert.Equal(t, 1, params.OLTPSimpleRanges, "OLTPSimpleRanges should be 1")
-	assert.Equal(t, 1, params.OLTPSumRanges, "OLTPSumRanges should be 1")
-	assert.Equal(t, 1, params.OLTPOrderRanges, "OLTPOrderRanges should be 1")
-	assert.Equal(t, 1, params.OLTPDistinctRanges, "OLTPDistinctRanges should be 1")
-	assert.Equal(t, 1, params.OLTPIndexUpdates, "OLTPIndexUpdates should be 1")
-	assert.Equal(t, 1, params.OLTPNonIndexUpdates, "OLTPNonIndexUpdates should be 1")
-	assert.Equal(t, 1, params.OLTPDeleteInserts, "OLTPDeleteInserts should be 1")
 }
 
 // TestTemplateInfo_Grouping tests that templates are grouped correctly by DB type.

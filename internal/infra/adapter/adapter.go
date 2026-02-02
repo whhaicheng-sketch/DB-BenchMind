@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
-	"github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 )
 
 // AdapterType represents the type of benchmark adapter.
@@ -56,18 +56,18 @@ type Command struct {
 // Implements: spec.md 3.5.1
 type Result struct {
 	// Core metrics
-	TPS            float64       `json:"tps"`              // Transactions per second
-	LatencyAvg     float64       `json:"latency_avg_ms"`   // Average latency (ms)
-	LatencyMin     float64       `json:"latency_min_ms"`   // Minimum latency (ms)
-	LatencyMax     float64       `json:"latency_max_ms"`   // Maximum latency (ms)
-	LatencyP95     float64       `json:"latency_p95_ms"`   // 95th percentile latency (ms)
-	LatencyP99     float64       `json:"latency_p99_ms"`   // 99th percentile latency (ms)
-	TotalQueries   int64         `json:"total_queries"`     // Total queries executed
-	TotalErrors    int64         `json:"total_errors"`     // Total errors
-	ErrorRate      float64       `json:"error_rate"`       // Error rate (%)
+	TPS          float64 `json:"tps"`            // Transactions per second
+	LatencyAvg   float64 `json:"latency_avg_ms"` // Average latency (ms)
+	LatencyMin   float64 `json:"latency_min_ms"` // Minimum latency (ms)
+	LatencyMax   float64 `json:"latency_max_ms"` // Maximum latency (ms)
+	LatencyP95   float64 `json:"latency_p95_ms"` // 95th percentile latency (ms)
+	LatencyP99   float64 `json:"latency_p99_ms"` // 99th percentile latency (ms)
+	TotalQueries int64   `json:"total_queries"`  // Total queries executed
+	TotalErrors  int64   `json:"total_errors"`   // Total errors
+	ErrorRate    float64 `json:"error_rate"`     // Error rate (%)
 
 	// Statistics
-	Duration          time.Duration `json:"duration"`            // Actual run duration
+	Duration          time.Duration `json:"duration"`           // Actual run duration
 	TotalTransactions int64         `json:"total_transactions"` // Total transactions
 
 	// Raw output for debugging
@@ -92,40 +92,40 @@ type Sample struct {
 // Implements: REQ-EXEC-005 (result collection)
 type FinalResult struct {
 	// SQL Statistics
-	TotalTransactions int64
+	TotalTransactions  int64
 	TransactionsPerSec float64
-	TotalQueries      int64
-	QueriesPerSec     float64
-	ReadQueries       int64
-	WriteQueries      int64
-	OtherQueries      int64
-	IgnoredErrors     int64
-	Reconnects        int64
+	TotalQueries       int64
+	QueriesPerSec      float64
+	ReadQueries        int64
+	WriteQueries       int64
+	OtherQueries       int64
+	IgnoredErrors      int64
+	Reconnects         int64
 
 	// Latency (ms)
-	LatencyMin        float64
-	LatencyAvg        float64
-	LatencyMax        float64
-	LatencyP95        float64
-	LatencyP99        float64
-	LatencySum        float64
+	LatencyMin float64
+	LatencyAvg float64
+	LatencyMax float64
+	LatencyP95 float64
+	LatencyP99 float64
+	LatencySum float64
 
 	// General Statistics
-	TotalTime         float64
-	TotalEvents       int64
+	TotalTime   float64
+	TotalEvents int64
 
 	// Threads Fairness
-	EventsAvg         float64
-	EventsStddev      float64
-	ExecTimeAvg       float64
-	ExecTimeStddev    float64
+	EventsAvg      float64
+	EventsStddev   float64
+	ExecTimeAvg    float64
+	ExecTimeStddev float64
 }
 
 // ProgressUpdate represents a progress update during execution.
 type ProgressUpdate struct {
-	Phase      string    `json:"phase"`       // prepare, warmup, run, cleanup
+	Phase      string    `json:"phase"` // prepare, warmup, run, cleanup
 	Timestamp  time.Time `json:"timestamp"`
-	Percentage float64   `json:"percentage"`  // 0-100
+	Percentage float64   `json:"percentage"` // 0-100
 	Message    string    `json:"message"`
 }
 

@@ -16,8 +16,8 @@ import (
 
 // ReportUseCase provides report generation business operations.
 type ReportUseCase struct {
-	runRepo       RunRepository
-	connUseCase   *ConnectionUseCase
+	runRepo         RunRepository
+	connUseCase     *ConnectionUseCase
 	templateUseCase *TemplateUseCase
 
 	// Registered generators
@@ -160,12 +160,12 @@ func (uc *ReportUseCase) buildGenerateContext(ctx context.Context, run *executio
 	genCtx.Samples = make([]report.MetricSample, len(run.Result.TimeSeries))
 	for i, s := range run.Result.TimeSeries {
 		genCtx.Samples[i] = report.MetricSample{
-			Timestamp:   s.Timestamp,
-			TPS:         s.TPS,
-			LatencyAvg:  s.LatencyAvg,
-			LatencyP95:  s.LatencyP95,
-			LatencyP99:  s.LatencyP99,
-			ErrorRate:   s.ErrorRate,
+			Timestamp:  s.Timestamp,
+			TPS:        s.TPS,
+			LatencyAvg: s.LatencyAvg,
+			LatencyP95: s.LatencyP95,
+			LatencyP99: s.LatencyP99,
+			ErrorRate:  s.ErrorRate,
 		}
 	}
 

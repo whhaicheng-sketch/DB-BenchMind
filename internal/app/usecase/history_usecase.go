@@ -44,8 +44,8 @@ func (uc *HistoryUseCase) SaveRunToHistory(ctx context.Context, run *execution.R
 			TPS:        sample.TPS,
 			QPS:        sample.QPS,
 			LatencyAvg: sample.LatencyAvg,
-			LatencyP95:  sample.LatencyP95,
-			LatencyP99:  sample.LatencyP99,
+			LatencyP95: sample.LatencyP95,
+			LatencyP99: sample.LatencyP99,
 			ErrorRate:  sample.ErrorRate,
 			RawLine:    sample.RawLine,
 		}
@@ -140,8 +140,8 @@ func (uc *HistoryUseCase) sampleTimeSeries(series []history.MetricSample, maxSiz
 
 	// Sample: keep first 20% and last 80%
 	n := len(series)
-	headSize := n / 5             // First 20%
-	tailSize := (n * 4) / 5       // Last 80%
+	headSize := n / 5       // First 20%
+	tailSize := (n * 4) / 5 // Last 80%
 	sampled := make([]history.MetricSample, 0, headSize+tailSize)
 
 	// Add head

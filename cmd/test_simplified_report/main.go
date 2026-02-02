@@ -34,10 +34,11 @@ func main() {
 
 	// Initialize repositories
 	historyRepo := repository.NewSQLiteHistoryRepository(db)
+	runRepo := repository.NewSQLiteRunRepository(db)
 	slog.Info("Repositories initialized")
 
 	// Initialize use case
-	comparisonUC := usecase.NewComparisonUseCase(historyRepo)
+	comparisonUC := usecase.NewComparisonUseCase(historyRepo, runRepo)
 	slog.Info("Use case initialized")
 
 	// Get all records

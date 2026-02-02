@@ -20,9 +20,9 @@ import (
 
 // ConnectionPage provides the connection management GUI.
 type ConnectionPage struct {
-	connUC        *usecase.ConnectionUseCase
-	win           fyne.Window
-	conns         []connection.Connection
+	connUC *usecase.ConnectionUseCase
+	win    fyne.Window
+	conns  []connection.Connection
 	// Group containers
 	groupContainers map[string]*fyne.Container // DB type -> container
 	listContainer   *fyne.Container
@@ -56,10 +56,10 @@ func NewConnectionPage(connUC *usecase.ConnectionUseCase, win fyne.Window) fyne.
 	)
 
 	content := container.NewBorder(
-		topArea,                          // top - toolbar
-		nil,                               // bottom
-		nil,                               // left
-		nil,                               // right
+		topArea,                                 // top - toolbar
+		nil,                                     // bottom
+		nil,                                     // left
+		nil,                                     // right
 		container.NewScroll(page.listContainer), // center - fills available space
 	)
 
@@ -278,11 +278,11 @@ func (p *ConnectionPage) onTestConnection(conn connection.Connection) {
 // showConnectionDialog shows the connection add/edit dialog.
 func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, conn connection.Connection, onSuccess func()) {
 	d := &connectionDialog{
-		connUC:    connUC,
-		onSuccess: onSuccess,
-		conn:     conn,
+		connUC:     connUC,
+		onSuccess:  onSuccess,
+		conn:       conn,
 		isEditMode: conn != nil,
-		win:      win,
+		win:        win,
 	}
 	// Create form fields
 	d.nameEntry = widget.NewEntry()
@@ -293,10 +293,15 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	d.dbEntry = widget.NewEntry()
 	d.userEntry = widget.NewEntry()
 	d.passEntry = widget.NewPasswordEntry()
-	d.sslSelect = widget.NewSelect([]string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}, func(selected string) {
+	d.sslSelect = widget.NewSelect([]string{"disable", "require", "verify-ca", "verify-full"}, func(selected string) {
 		// Update form preview if needed
 	})
-	d.sslSelect.SetSelected("prefer")
+	d.sslSelect.SetSelected("disable")
+	d.trustServerCertCheck = widget.NewCheck("Trust Server Certificate", func(checked bool) {
+		// Handle trust server certificate change
+	})
+	d.trustServerCertCheck.SetChecked(false)
+	d.trustServerCertCheck.Hide() // Initially hidden, only show for SQL Server
 	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, func(s string) {
 		// Set default port based on database type
 		switch s {
@@ -308,6 +313,15 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.portEntry.SetText("1521")
 		case "SQL Server":
 			d.portEntry.SetText("1433")
+		}
+
+		// Show/hide SSL and Trust Server Certificate based on database type
+		if s == "SQL Server" {
+			d.sslSelect.Hide()
+			d.trustServerCertCheck.Show()
+		} else {
+			d.sslSelect.Show()
+			d.trustServerCertCheck.Hide()
 		}
 
 		// Load default configuration for this database type (only in add mode)
@@ -372,6 +386,7 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 						}
 						d.dbEntry.SetText(defaultConfig.SQLServer.Database)
 						d.userEntry.SetText(defaultConfig.SQLServer.Username)
+						d.trustServerCertCheck.SetChecked(defaultConfig.SQLServer.TrustServerCertificate)
 						slog.Info("Connections: Loaded default config for SQL Server")
 					}
 				}
@@ -424,6 +439,7 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
+			d.trustServerCertCheck.SetChecked(c.TrustServerCertificate)
 		}
 	} else {
 		// New connection - load default config if available
@@ -445,6 +461,7 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		}
 	}
 
+	// Create form items with dynamic SSL/Trust Server Certificate field
 	formItems := []*widget.FormItem{
 		widget.NewFormItem("Database Type", d.dbTypeSelect),
 		widget.NewFormItem("Name", d.nameEntry),
@@ -454,7 +471,11 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		widget.NewFormItem("Username", d.userEntry),
 		widget.NewFormItem("Password", d.passEntry),
 		widget.NewFormItem("SSL", d.sslSelect),
+		widget.NewFormItem("Encryption", d.trustServerCertCheck),
 	}
+
+	// Initially hide Trust Server Certificate (only show for SQL Server)
+	d.trustServerCertCheck.Hide()
 
 	// Determine dialog title
 	title := "Add Connection"
@@ -464,15 +485,18 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 
 	// Create buttons first (before dialog)
 	btnTest := widget.NewButton("Test", func() {
+		slog.Info("Connections: Dialog Test button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected)
 		d.onTestInDialog()
 		// Note: dialog remains open after Test
 	})
 	btnSave := widget.NewButton("Save", func() {
+		slog.Info("Connections: Dialog Save button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected, "mode", map[bool]string{true: "edit", false: "add"}[d.isEditMode])
 		d.onSave(win)
 		d.dialog.Hide() // Close dialog after save
 	})
 	btnSave.Importance = widget.HighImportance
 	btnCancel := widget.NewButton("Cancel", func() {
+		slog.Info("Connections: Dialog Cancel button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected)
 		// Will be set to close dialog after dialog is created
 	})
 
@@ -502,6 +526,32 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 	ctx := context.Background()
 	now := time.Now()
 
+	dbType := d.dbTypeSelect.Selected
+	name := strings.TrimSpace(d.nameEntry.Text)
+	host := strings.TrimSpace(d.hostEntry.Text)
+	port, _ := strconv.Atoi(d.portEntry.Text)
+	database := strings.TrimSpace(d.dbEntry.Text)
+	username := strings.TrimSpace(d.userEntry.Text)
+	password := d.passEntry.Text
+	sslMode := d.sslSelect.Selected
+	trustServerCert := d.trustServerCertCheck.Checked
+
+	mode := "add"
+	if d.isEditMode {
+		mode = "edit"
+	}
+
+	slog.Info("Connections: Saving connection",
+		"mode", mode,
+		"name", name,
+		"type", dbType,
+		"host", host,
+		"port", port,
+		"database", database,
+		"username", username,
+		"ssl_mode", sslMode,
+		"trust_server_cert", trustServerCert)
+
 	// In edit mode, use the existing connection's ID to avoid duplicate name error
 	// In add mode, generate a new ID
 	var id string
@@ -517,15 +567,8 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 		createdAt = now
 	}
 
-	dbType := d.dbTypeSelect.Selected
-	name := strings.TrimSpace(d.nameEntry.Text)
-	host := strings.TrimSpace(d.hostEntry.Text)
-	port, _ := strconv.Atoi(d.portEntry.Text)
-	database := strings.TrimSpace(d.dbEntry.Text)
-	username := strings.TrimSpace(d.userEntry.Text)
-	password := d.passEntry.Text
-	sslMode := d.sslSelect.Selected
 	if name == "" {
+		slog.Warn("Connections: Save validation failed", "error", "name required")
 		dialog.ShowError(fmt.Errorf("name required"), win)
 		return
 	}
@@ -593,11 +636,12 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 				CreatedAt: createdAt,
 				UpdatedAt: time.Now(),
 			},
-			Host:     host,
-			Port:     port,
-			Database: database,
-			Username: username,
-			Password: password,
+			Host:                   host,
+			Port:                   port,
+			Database:               database,
+			Username:               username,
+			Password:               password,
+			TrustServerCertificate: trustServerCert,
 		}
 	default:
 		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), win)
@@ -605,14 +649,22 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 	}
 	// Validate
 	if err := conn.Validate(); err != nil {
+		slog.Warn("Connections: Save validation failed", "name", name, "error", err)
 		dialog.ShowError(fmt.Errorf("validation: %w", err), win)
 		return
 	}
 	// Save
 	if err := d.connUC.CreateConnection(ctx, conn); err != nil {
+		slog.Error("Connections: Failed to save", "name", name, "error", err)
 		dialog.ShowError(fmt.Errorf("save: %w", err), win)
 		return
 	}
+
+	slog.Info("Connections: Connection saved successfully",
+		"id", id,
+		"name", name,
+		"type", dbType,
+		"mode", mode)
 
 	// Save as default configuration (automatic, no prompt)
 	if err := connection.SaveConnectionAsDefault(conn); err != nil {
@@ -640,9 +692,21 @@ func (d *connectionDialog) onTestInDialog() {
 	username := strings.TrimSpace(d.userEntry.Text)
 	password := d.passEntry.Text
 	sslMode := d.sslSelect.Selected
+	trustServerCert := d.trustServerCertCheck.Checked
 	dbType := d.dbTypeSelect.Selected
 
+	slog.Info("Connections: Testing in dialog",
+		"name", name,
+		"type", dbType,
+		"host", host,
+		"port", port,
+		"database", database,
+		"username", username,
+		"ssl_mode", sslMode,
+		"trust_server_cert", trustServerCert)
+
 	if name == "" {
+		slog.Warn("Connections: Dialog test validation failed", "error", "name required")
 		dialog.ShowError(fmt.Errorf("name required"), d.win)
 		return
 	}
@@ -703,11 +767,12 @@ func (d *connectionDialog) onTestInDialog() {
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
-			Host:     host,
-			Port:     port,
-			Database: database,
-			Username: username,
-			Password: password,
+			Host:                   host,
+			Port:                   port,
+			Database:               database,
+			Username:               username,
+			Password:               password,
+			TrustServerCertificate: trustServerCert,
 		}
 	default:
 		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), d.win)
@@ -716,6 +781,7 @@ func (d *connectionDialog) onTestInDialog() {
 
 	// Validate connection
 	if err := conn.Validate(); err != nil {
+		slog.Warn("Connections: Dialog test validation failed", "name", name, "type", dbType, "error", err)
 		dialog.ShowError(fmt.Errorf("validation: %w", err), d.win)
 		return
 	}
@@ -723,35 +789,46 @@ func (d *connectionDialog) onTestInDialog() {
 	// Test connection
 	result, err := conn.Test(ctx)
 	if err != nil {
+		slog.Error("Connections: Dialog test error", "name", name, "type", dbType, "error", err)
 		dialog.ShowError(err, d.win)
 		return
 	}
 
 	if result.Success {
+		slog.Info("Connections: Dialog test successful",
+			"name", name,
+			"type", dbType,
+			"latency_ms", result.LatencyMs,
+			"version", result.DatabaseVersion)
 		msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
 			result.LatencyMs, result.DatabaseVersion)
 		dialog.ShowInformation("Connection Test", msg, d.win)
 	} else {
+		slog.Warn("Connections: Dialog test failed",
+			"name", name,
+			"type", dbType,
+			"error", result.Error)
 		dialog.ShowError(fmt.Errorf("failed: %s", result.Error), d.win)
 	}
 }
 
 // connectionDialog represents the connection dialog.
 type connectionDialog struct {
-	connUC       *usecase.ConnectionUseCase
-	onSuccess    func()
-	conn         connection.Connection // For editing
-	isEditMode   bool
-	win          fyne.Window
-	dialog       *dialog.CustomDialog // Reference to dialog for closing
-	nameEntry    *widget.Entry
-	hostEntry    *widget.Entry
-	portEntry    *widget.Entry
-	dbEntry      *widget.Entry
-	userEntry    *widget.Entry
-	passEntry    *widget.Entry
-	sslSelect    *widget.Select
-	dbTypeSelect *widget.Select
+	connUC               *usecase.ConnectionUseCase
+	onSuccess            func()
+	conn                 connection.Connection // For editing
+	isEditMode           bool
+	win                  fyne.Window
+	dialog               *dialog.CustomDialog // Reference to dialog for closing
+	nameEntry            *widget.Entry
+	hostEntry            *widget.Entry
+	portEntry            *widget.Entry
+	dbEntry              *widget.Entry
+	userEntry            *widget.Entry
+	passEntry            *widget.Entry
+	sslSelect            *widget.Select
+	trustServerCertCheck *widget.Check // For SQL Server
+	dbTypeSelect         *widget.Select
 }
 
 // =============================================================================

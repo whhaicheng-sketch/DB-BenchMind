@@ -52,9 +52,9 @@ func TestTemplate_Validate_ValidTemplate(t *testing.T) {
 // TestTemplate_Validate_MissingID tests validation fails when ID is missing.
 func TestTemplate_Validate_MissingID(t *testing.T) {
 	tmpl := &Template{
-		Name:           "Test Template",
-		Tool:           "sysbench",
-		DatabaseTypes:  []string{"mysql"},
+		Name:          "Test Template",
+		Tool:          "sysbench",
+		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: CommandTemplate{
 			Run: "run command",
 		},
@@ -68,9 +68,9 @@ func TestTemplate_Validate_MissingID(t *testing.T) {
 // TestTemplate_Validate_MissingName tests validation fails when Name is missing.
 func TestTemplate_Validate_MissingName(t *testing.T) {
 	tmpl := &Template{
-		ID:             "test",
-		Tool:           "sysbench",
-		DatabaseTypes:  []string{"mysql"},
+		ID:            "test",
+		Tool:          "sysbench",
+		DatabaseTypes: []string{"mysql"},
 		CommandTemplate: CommandTemplate{
 			Run: "run command",
 		},
@@ -149,10 +149,10 @@ func TestTemplate_Validate_InvalidParameter(t *testing.T) {
 		{
 			name: "integer min > max",
 			param: Parameter{
-				Type:    ParameterTypeInteger,
-				Label:   "Test",
-				Min:     intPtr(100),
-				Max:     intPtr(50),
+				Type:  ParameterTypeInteger,
+				Label: "Test",
+				Min:   intPtr(100),
+				Max:   intPtr(50),
 			},
 			wantErr: true,
 		},
@@ -233,9 +233,9 @@ func TestTemplate_SupportsDatabase(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		dbType  string
-		want    bool
+		name   string
+		dbType string
+		want   bool
 	}{
 		{"mysql supported", "mysql", true},
 		{"MySQL supported (case insensitive)", "MySQL", true},

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/sysbench"
 )
 
@@ -121,20 +122,41 @@ func (uc *ComparisonUseCase) ImportSysbenchOutputs(ctx context.Context) (*Import
 
 // storeRunLog stores raw output in run_logs table.
 func (uc *ComparisonUseCase) storeRunLog(ctx context.Context, runID, content string) error {
-	// This would need database access
-	// For now, we'll implement a simple version
-	// TODO: Implement actual database insert
+	// Store the entire raw output as a log entry
+	// Use current timestamp and "stdout" stream
+	entry := LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Stream:    "stdout",
+		Content:   content,
+	}
 
-	// Get database connection from historyRepo
-	// We need to access the underlying DB connection
-	// This is a placeholder - actual implementation would use db.ExecContext
-
-	return nil
+	return uc.runRepo.SaveLogEntry(ctx, runID, entry)
 }
 
 // storeMetricSamples stores time series data in metric_samples table.
 func (uc *ComparisonUseCase) storeMetricSamples(ctx context.Context, runID string, samples []sysbench.TimeSeriesSample) error {
-	// TODO: Implement actual database insert
+	for _, sample := range samples {
+		// Convert sysbench.TimeSeriesSample to execution.MetricSample
+		// Timestamp is based on second offset from base time
+		timestamp := time.Now().Add(time.Duration(sample.Second) * time.Second)
+
+		metric := execution.MetricSample{
+			Timestamp:  timestamp,
+			Phase:      "run",
+			TPS:        sample.TPS,
+			QPS:        sample.QPS,
+			LatencyAvg: 0, // Not available in per-second output
+			LatencyP95: sample.LatencyP95,
+			LatencyP99: 0, // Not available in per-second output
+			ErrorRate:  sample.ErrorRate,
+			RawLine:    "", // Could store the raw line if needed
+		}
+
+		if err := uc.runRepo.SaveMetricSample(ctx, runID, metric); err != nil {
+			return fmt.Errorf("save metric sample at second %d: %w", sample.Second, err)
+		}
+	}
+
 	return nil
 }
 

@@ -13,15 +13,15 @@ import (
 // MemoryTemplateRepository provides an in-memory implementation of TemplateRepository.
 // This is a temporary implementation for development.
 type MemoryTemplateRepository struct {
-	templates       map[string]*domaintemplate.Template
+	templates          map[string]*domaintemplate.Template
 	builtinTemplateIDs map[string]bool // Track which templates are builtin
-	mu              sync.RWMutex
+	mu                 sync.RWMutex
 }
 
 // NewMemoryTemplateRepository creates a new in-memory template repository.
 func NewMemoryTemplateRepository() *MemoryTemplateRepository {
 	return &MemoryTemplateRepository{
-		templates:       make(map[string]*domaintemplate.Template),
+		templates:          make(map[string]*domaintemplate.Template),
 		builtinTemplateIDs: make(map[string]bool),
 	}
 }

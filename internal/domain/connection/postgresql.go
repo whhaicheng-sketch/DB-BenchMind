@@ -32,19 +32,19 @@ func (c *PostgreSQLConnection) GetType() DatabaseType {
 }
 
 // GetDSN generates a connection string without password (for logging).
-// Format: host=host port=port database=database user=username
+// Format: host=host port=port dbname=database user=username
 func (c *PostgreSQLConnection) GetDSN() string {
-	return fmt.Sprintf("host=%s port=%d database=%s user=%s", c.Host, c.Port, c.Database, c.Username)
+	return fmt.Sprintf("host=%s port=%d dbname=%s user=%s", c.Host, c.Port, c.Database, c.Username)
 }
 
 // GetDSNWithPassword generates a complete connection string with password.
-// Format: host=host port=port database=database user=username password=password sslmode=ssl_mode
+// Format: host=host port=port dbname=database user=username password=password sslmode=ssl_mode
 func (c *PostgreSQLConnection) GetDSNWithPassword() string {
 	sslMode := c.SSLMode
 	if sslMode == "" {
-		sslMode = "prefer"
+		sslMode = "disable"
 	}
-	return fmt.Sprintf("host=%s port=%d database=%s user=%s password=%s sslmode=%s",
+	return fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
 		c.Host, c.Port, c.Database, c.Username, c.Password, sslMode)
 }
 
@@ -82,20 +82,18 @@ func (c *PostgreSQLConnection) Validate() error {
 		errs = append(errs, err)
 	}
 
-	// Validate SSL mode
+	// Validate SSL mode (only modes supported by most PostgreSQL servers)
 	validSSLMode := map[string]bool{
-		"disable":      true,
-		"allow":        true,
-		"prefer":       true,
-		"require":      true,
-		"verify-ca":    true,
-		"verify-full":  true,
-		"":             true, // empty is allowed (will use default)
+		"disable":     true,
+		"require":     true,
+		"verify-ca":   true,
+		"verify-full": true,
+		"":            true, // empty is allowed (will use default)
 	}
 	if c.SSLMode != "" && !validSSLMode[c.SSLMode] {
 		errs = append(errs, &ValidationError{
 			Field:   "ssl_mode",
-			Message: "ssl_mode must be one of: disable, allow, prefer, require, verify-ca, verify-full",
+			Message: "ssl_mode must be one of: disable, require, verify-ca, verify-full",
 			Value:   c.SSLMode,
 		})
 	}

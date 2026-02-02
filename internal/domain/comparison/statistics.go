@@ -20,23 +20,23 @@ func CalculateRunStats(runs []*Run) RunStats {
 	stats := RunStats{
 		N: n,
 		TPS: RunMetricStats{
-			N:     n,
+			N:      n,
 			Values: make([]float64, n),
 		},
 		QPS: RunMetricStats{
-			N:     n,
+			N:      n,
 			Values: make([]float64, n),
 		},
 		LatencyAvg: RunMetricStats{
-			N:     n,
+			N:      n,
 			Values: make([]float64, n),
 		},
 		LatencyP95: RunMetricStats{
-			N:     n,
+			N:      n,
 			Values: make([]float64, n),
 		},
 		LatencyP99: RunMetricStats{
-			N:     n,
+			N:      n,
 			Values: make([]float64, n),
 		},
 	}

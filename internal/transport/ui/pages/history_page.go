@@ -20,26 +20,26 @@ import (
 
 // HistoryRecordPage provides the history records GUI.
 type HistoryRecordPage struct {
-	win         fyne.Window
-	historyUC   *usecase.HistoryUseCase
-	exportUC    *usecase.ExportUseCase
-	list        *widget.List
-	records     []*history.Record
-	selected    int
-	ctx         context.Context
-	summaryLabel *widget.Label  // Need to keep reference to update
+	win          fyne.Window
+	historyUC    *usecase.HistoryUseCase
+	exportUC     *usecase.ExportUseCase
+	list         *widget.List
+	records      []*history.Record
+	selected     int
+	ctx          context.Context
+	summaryLabel *widget.Label // Need to keep reference to update
 }
 
 // historyRecordListItem represents a list item for display.
 type historyRecordListItem struct {
-	ID            string
-	Connection    string
-	Template      string
-	DatabaseType  string
-	Threads       int
-	Duration      time.Duration
-	TPS           float64
-	StartTime     time.Time
+	ID           string
+	Connection   string
+	Template     string
+	DatabaseType string
+	Threads      int
+	Duration     time.Duration
+	TPS          float64
+	StartTime    time.Time
 }
 
 // NewHistoryRecordPage creates a new history page.
@@ -157,9 +157,9 @@ func NewHistoryRecordPage(win fyne.Window, historyUC *usecase.HistoryUseCase, ex
 	page.summaryLabel = widget.NewLabel(fmt.Sprintf("Total Runs: %d", len(page.records)))
 	content := container.NewBorder(
 		container.NewVBox(toolbar, widget.NewSeparator(), page.summaryLabel, widget.NewSeparator()), // top
-		nil, // bottom
-		nil, // left
-		nil, // right
+		nil,       // bottom
+		nil,       // left
+		nil,       // right
 		page.list, // center - will expand to fill available space
 	)
 	return page, content
@@ -203,26 +203,26 @@ func (p *HistoryRecordPage) loadMockHistory() {
 	now := time.Now()
 	p.records = []*history.Record{
 		{
-			ID:            "run-001",
-			CreatedAt:     now.Add(-2 * time.Hour),
+			ID:             "run-001",
+			CreatedAt:      now.Add(-2 * time.Hour),
 			ConnectionName: "MySQL Test",
-			TemplateName:  "Sysbench OLTP Read-Write",
-			DatabaseType:  "MySQL",
-			Threads:       8,
-			StartTime:     now.Add(-2 * time.Hour),
-			Duration:      5 * time.Minute,
-			TPSCalculated: 1250.5,
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "MySQL",
+			Threads:        8,
+			StartTime:      now.Add(-2 * time.Hour),
+			Duration:       5 * time.Minute,
+			TPSCalculated:  1250.5,
 		},
 		{
-			ID:            "run-002",
-			CreatedAt:     now.Add(-24 * time.Hour),
+			ID:             "run-002",
+			CreatedAt:      now.Add(-24 * time.Hour),
 			ConnectionName: "PostgreSQL Test",
-			TemplateName:  "Sysbench OLTP Read-Write",
-			DatabaseType:  "PostgreSQL",
-			Threads:       16,
-			StartTime:     now.Add(-24 * time.Hour),
-			Duration:      10 * time.Minute,
-			TPSCalculated: 980.2,
+			TemplateName:   "Sysbench OLTP Read-Write",
+			DatabaseType:   "PostgreSQL",
+			Threads:        16,
+			StartTime:      now.Add(-24 * time.Hour),
+			Duration:       10 * time.Minute,
+			TPSCalculated:  980.2,
 		},
 	}
 	if p.list != nil {
@@ -256,33 +256,33 @@ func (p *HistoryRecordPage) onViewDetails() {
 	// Build detailed statistics message in sysbench format
 	details := fmt.Sprintf(
 		"Connection: %s\n"+
-		"Template: %s\n"+
-		"Database Type: %s\n"+
-		"Threads: %d\n"+
-		"Start Time: %s\n"+
-		"Duration: %v\n\n"+
-		"SQL statistics:\n"+
-		"    queries performed:\n"+
-		"        read:                            %d\n"+
-		"        write:                           %d\n"+
-		"        other:                           %d\n"+
-		"        total:                           %d\n"+
-		"    transactions:                        %d  (%.2f per sec.)\n"+
-		"    queries:                             %d (%.2f per sec.)\n"+
-		"    ignored errors:                      %d      (%.2f per sec.)\n"+
-		"    reconnects:                          %d      (%.2f per sec.)\n\n"+
-		"General statistics:\n"+
-		"    total time:                          %.4fs\n"+
-		"    total number of events:              %d\n\n"+
-		"Latency (ms):\n"+
-		"         min:                                    %.2f\n"+
-		"         avg:                                   %.2f\n"+
-		"         max:                                   %.2f\n"+
-		"         95th percentile:                       %.2f\n"+
-		"         99th percentile:                       %.2f\n\n"+
-		"Threads fairness:\n"+
-		"    events (avg/stddev):           %.4f/%.2f\n"+
-		"    execution time (avg/stddev):   %.4f/%.2f",
+			"Template: %s\n"+
+			"Database Type: %s\n"+
+			"Threads: %d\n"+
+			"Start Time: %s\n"+
+			"Duration: %v\n\n"+
+			"SQL statistics:\n"+
+			"    queries performed:\n"+
+			"        read:                            %d\n"+
+			"        write:                           %d\n"+
+			"        other:                           %d\n"+
+			"        total:                           %d\n"+
+			"    transactions:                        %d  (%.2f per sec.)\n"+
+			"    queries:                             %d (%.2f per sec.)\n"+
+			"    ignored errors:                      %d      (%.2f per sec.)\n"+
+			"    reconnects:                          %d      (%.2f per sec.)\n\n"+
+			"General statistics:\n"+
+			"    total time:                          %.4fs\n"+
+			"    total number of events:              %d\n\n"+
+			"Latency (ms):\n"+
+			"         min:                                    %.2f\n"+
+			"         avg:                                   %.2f\n"+
+			"         max:                                   %.2f\n"+
+			"         95th percentile:                       %.2f\n"+
+			"         99th percentile:                       %.2f\n\n"+
+			"Threads fairness:\n"+
+			"    events (avg/stddev):           %.4f/%.2f\n"+
+			"    execution time (avg/stddev):   %.4f/%.2f",
 		record.ConnectionName,
 		record.TemplateName,
 		record.DatabaseType,

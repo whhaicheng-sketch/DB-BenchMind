@@ -23,9 +23,9 @@ func TestSysbenchAdapter_SupportsDatabase(t *testing.T) {
 	adapter := NewSysbenchAdapter()
 
 	tests := []struct {
-		name    string
-		dbType  connection.DatabaseType
-		want    bool
+		name   string
+		dbType connection.DatabaseType
+		want   bool
 	}{
 		{"MySQL supported", connection.DatabaseTypeMySQL, true},
 		{"PostgreSQL supported", connection.DatabaseTypePostgreSQL, true},

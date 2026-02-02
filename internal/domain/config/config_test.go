@@ -47,8 +47,8 @@ func TestToolConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with path",
 			config: ToolConfig{
-				Type: ToolTypeSysbench,
-				Path: "/usr/bin/sysbench",
+				Type:    ToolTypeSysbench,
+				Path:    "/usr/bin/sysbench",
 				Enabled: true,
 			},
 			wantErr: false,
@@ -91,8 +91,8 @@ func TestToolConfig_Validate_WithRealFile(t *testing.T) {
 	}
 
 	config := ToolConfig{
-		Type: ToolTypeSysbench,
-		Path: tmpFile,
+		Type:    ToolTypeSysbench,
+		Path:    tmpFile,
 		Enabled: true,
 	}
 
@@ -288,10 +288,10 @@ func TestAdvancedConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: AdvancedConfig{
-				LogLevel:     "info",
-				MaxLogFiles:  10,
-				WorkDir:      "/tmp/work",
-				Timeout:      60,
+				LogLevel:    "info",
+				MaxLogFiles: 10,
+				WorkDir:     "/tmp/work",
+				Timeout:     60,
 			},
 			wantErr: false,
 		},

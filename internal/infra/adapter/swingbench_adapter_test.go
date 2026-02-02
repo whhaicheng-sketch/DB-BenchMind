@@ -67,9 +67,9 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Username:    "testuser",
 			},
 			params: map[string]interface{}{
-				"users":       10,
-				"cycles":      100,
-				"think_time":  1000,
+				"users":      10,
+				"cycles":     100,
+				"think_time": 1000,
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.NoError(t, err)
@@ -195,9 +195,9 @@ func TestSwingbenchAdapter_ParseRunOutput(t *testing.T) {
 	adapter := NewSwingbenchAdapter()
 
 	tests := []struct {
-		name      string
-		stdout    string
-		validate  func(t *testing.T, result *Result)
+		name     string
+		stdout   string
+		validate func(t *testing.T, result *Result)
 	}{
 		{
 			name: "parse standard output",
@@ -236,7 +236,7 @@ Errors: 0
 			},
 		},
 		{
-			name: "empty output",
+			name:   "empty output",
 			stdout: "",
 			validate: func(t *testing.T, result *Result) {
 				assert.NotNil(t, result)
@@ -334,9 +334,9 @@ func TestSwingbenchAdapter_SupportsDatabase(t *testing.T) {
 	adapter := NewSwingbenchAdapter()
 
 	tests := []struct {
-		name    string
-		dbType  connection.DatabaseType
-		want    bool
+		name   string
+		dbType connection.DatabaseType
+		want   bool
 	}{
 		{
 			name:   "Oracle",

@@ -288,8 +288,8 @@ func (r *SQLiteRunRepository) UpdateState(ctx context.Context, id string, state 
 func (r *SQLiteRunRepository) SaveMetricSample(ctx context.Context, runID string, sample execution.MetricSample) error {
 	query := `
 		INSERT INTO metric_samples (
-			run_id, timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate, raw_line
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			run_id, timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
@@ -302,7 +302,6 @@ func (r *SQLiteRunRepository) SaveMetricSample(ctx context.Context, runID string
 		sample.LatencyP95,
 		sample.LatencyP99,
 		sample.ErrorRate,
-		sample.RawLine,
 	)
 	if err != nil {
 		return fmt.Errorf("save metric sample: %w", err)
@@ -314,7 +313,7 @@ func (r *SQLiteRunRepository) SaveMetricSample(ctx context.Context, runID string
 // GetMetricSamples retrieves all metric samples for a run.
 func (r *SQLiteRunRepository) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
 	query := `
-		SELECT timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate, raw_line
+		SELECT timestamp, phase, tps, qps, latency_avg, latency_p95, latency_p99, error_rate
 		FROM metric_samples
 		WHERE run_id = ?
 		ORDER BY timestamp ASC
@@ -340,7 +339,6 @@ func (r *SQLiteRunRepository) GetMetricSamples(ctx context.Context, runID string
 			&sample.LatencyP95,
 			&sample.LatencyP99,
 			&sample.ErrorRate,
-			&sample.RawLine,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan metric sample: %w", err)

@@ -66,18 +66,18 @@ type MetricStats struct {
 // MultiConfigComparison represents a comparison of multiple configurations.
 // This is the main structure for horizontal comparison across different configurations.
 type MultiConfigComparison struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	CreatedAt     time.Time       `json:"created_at"`
-	Records       []*RecordRef    `json:"records"`
-	GroupBy       GroupByField    `json:"group_by"`
-	GeneratedAt   time.Time       `json:"generated_at"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	CreatedAt   time.Time    `json:"created_at"`
+	Records     []*RecordRef `json:"records"`
+	GroupBy     GroupByField `json:"group_by"`
+	GeneratedAt time.Time    `json:"generated_at"`
 
 	// Comparison results
-	TPSComparison   *MetricStats   `json:"tps_comparison"`
-	LatencyCompare  *LatencyStats  `json:"latency_comparison"`
-	QPSComparison   *MetricStats   `json:"qps_comparison"`
-	ReadWriteRatio  *ReadWriteRatio `json:"read_write_ratio"`
+	TPSComparison  *MetricStats    `json:"tps_comparison"`
+	LatencyCompare *LatencyStats   `json:"latency_comparison"`
+	QPSComparison  *MetricStats    `json:"qps_comparison"`
+	ReadWriteRatio *ReadWriteRatio `json:"read_write_ratio"`
 }
 
 // LatencyStats contains detailed latency statistics.
@@ -192,16 +192,16 @@ func CompareMultiConfig(records []*history.Record, groupBy GroupByField) (*Multi
 	}
 
 	return &MultiConfigComparison{
-		ID:              generateComparisonID(),
-		Name:            fmt.Sprintf("Comparison - %d records", len(records)),
-		CreatedAt:       time.Now(),
-		Records:         refs,
-		GroupBy:         groupBy,
-		GeneratedAt:     time.Now(),
-		TPSComparison:   tpsStats,
-		LatencyCompare:  latencyStats,
-		QPSComparison:   qpsStats,
-		ReadWriteRatio:  rwRatio,
+		ID:             generateComparisonID(),
+		Name:           fmt.Sprintf("Comparison - %d records", len(records)),
+		CreatedAt:      time.Now(),
+		Records:        refs,
+		GroupBy:        groupBy,
+		GeneratedAt:    time.Now(),
+		TPSComparison:  tpsStats,
+		LatencyCompare: latencyStats,
+		QPSComparison:  qpsStats,
+		ReadWriteRatio: rwRatio,
 	}, nil
 }
 
@@ -238,12 +238,12 @@ func calculateMetricStats(records []*RecordRef, extractor func(*RecordRef) float
 	stdDev := math.Sqrt(varianceSum / float64(len(values)))
 
 	return &MetricStats{
-		Min:     min,
-		Max:     max,
-		Avg:     avg,
-		StdDev:  stdDev,
-		Values:  values,
-		Labels:  labels,
+		Min:    min,
+		Max:    max,
+		Avg:    avg,
+		StdDev: stdDev,
+		Values: values,
+		Labels: labels,
 	}
 }
 

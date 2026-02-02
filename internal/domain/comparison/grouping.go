@@ -89,9 +89,9 @@ func GroupRecordsByConfig(
 // convertRecordToRun converts a single history record to a Run object.
 func convertRecordToRun(record *history.Record) *Run {
 	run := &Run{
-		RunID:      record.ID,
-		StartTime:  record.StartTime,
-		Duration:   record.Duration,
+		RunID:     record.ID,
+		StartTime: record.StartTime,
+		Duration:  record.Duration,
 
 		TPS:        record.TPSCalculated,
 		LatencyAvg: record.LatencyAvg,
@@ -100,14 +100,14 @@ func convertRecordToRun(record *history.Record) *Run {
 		LatencyP95: record.LatencyP95,
 		LatencyP99: record.LatencyP99,
 
-		ReadQueries:        record.ReadQueries,
-		WriteQueries:       record.WriteQueries,
-		OtherQueries:       record.OtherQueries,
-		TotalQueries:       record.TotalQueries,
-		TotalTransactions:  record.TotalTransactions,
+		ReadQueries:       record.ReadQueries,
+		WriteQueries:      record.WriteQueries,
+		OtherQueries:      record.OtherQueries,
+		TotalQueries:      record.TotalQueries,
+		TotalTransactions: record.TotalTransactions,
 
-		Errors:      record.IgnoredErrors,
-		Reconnects:  record.Reconnects,
+		Errors:     record.IgnoredErrors,
+		Reconnects: record.Reconnects,
 
 		TotalTime:   record.TotalTime,
 		TotalEvents: record.TotalEvents,
@@ -195,4 +195,3 @@ func convertRecordsToRuns(records []*history.Record) []*Run {
 
 	return runs
 }
-

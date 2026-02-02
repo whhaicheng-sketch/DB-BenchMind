@@ -37,7 +37,7 @@ func (m *mockBenchmarkAdapter) ParseRunOutput(ctx context.Context, stdout string
 	return &Result{TPS: 1000.0}, nil
 }
 
-func (m *mockBenchmarkAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
+func (m *mockBenchmarkAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
 	sampleCh := make(chan Sample, 1)
 	errCh := make(chan error, 1)
 	var buf strings.Builder
@@ -57,7 +57,7 @@ func (m *mockBenchmarkAdapter) SupportsDatabase(dbType connection.DatabaseType) 
 func (m *mockBenchmarkAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
 	return &FinalResult{
 		TransactionsPerSec: 1000.0,
-		TotalTransactions: 1000,
+		TotalTransactions:  1000,
 	}, nil
 }
 
@@ -241,15 +241,15 @@ func TestCommand(t *testing.T) {
 // TestResult tests Result structure.
 func TestResult(t *testing.T) {
 	result := Result{
-		TPS:            1000.5,
-		LatencyAvg:     5.2,
-		LatencyP95:     10.5,
-		LatencyP99:     25.0,
-		TotalQueries:   50000,
-		TotalErrors:    10,
-		ErrorRate:      0.02,
-		Duration:       60 * time.Second,
-		RawOutput:      "test output",
+		TPS:          1000.5,
+		LatencyAvg:   5.2,
+		LatencyP95:   10.5,
+		LatencyP99:   25.0,
+		TotalQueries: 50000,
+		TotalErrors:  10,
+		ErrorRate:    0.02,
+		Duration:     60 * time.Second,
+		RawOutput:    "test output",
 	}
 
 	if result.TPS != 1000.5 {

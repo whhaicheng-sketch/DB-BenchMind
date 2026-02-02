@@ -429,7 +429,7 @@ func TestSettingsUseCase_UpdateDatabaseConfig_Invalid(t *testing.T) {
 
 	invalidCfg := config.DatabaseConfig{
 		Path:         "", // Missing path
-		MaxOpenConns: 0, // Invalid
+		MaxOpenConns: 0,  // Invalid
 	}
 
 	if err := uc.UpdateDatabaseConfig(ctx, invalidCfg); err == nil {
@@ -546,10 +546,10 @@ func TestSettingsUseCase_UpdateAdvancedConfig(t *testing.T) {
 	uc := setupSettingsTest(t)
 
 	newCfg := config.AdvancedConfig{
-		LogLevel:     "debug",
-		MaxLogFiles:  20,
-		WorkDir:      "/tmp/dbbench",
-		Timeout:      120,
+		LogLevel:    "debug",
+		MaxLogFiles: 20,
+		WorkDir:     "/tmp/dbbench",
+		Timeout:     120,
 	}
 
 	if err := uc.UpdateAdvancedConfig(ctx, newCfg); err != nil {

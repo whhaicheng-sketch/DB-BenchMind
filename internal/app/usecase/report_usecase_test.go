@@ -23,30 +23,30 @@ func TestReportUseCase_GenerateReport(t *testing.T) {
 	duration := 5 * time.Minute
 
 	testRun := &execution.Run{
-		ID:        "test-run-1",
-		TaskID:    "task-1",
-		State:     execution.StateCompleted,
-		CreatedAt: now,
-		StartedAt: &now,
+		ID:          "test-run-1",
+		TaskID:      "task-1",
+		State:       execution.StateCompleted,
+		CreatedAt:   now,
+		StartedAt:   &now,
 		CompletedAt: &now,
-		Duration:   &duration,
+		Duration:    &duration,
 		Result: &execution.BenchmarkResult{
-			TPSCalculated:      1234.56,
-			LatencyAvg:         5.25,
-			LatencyP95:         12.34,
-			LatencyP99:         23.45,
-			TotalTransactions:  10000,
-			TotalQueries:       50000,
-			ErrorCount:         0,
-			ErrorRate:          0.0,
+			TPSCalculated:     1234.56,
+			LatencyAvg:        5.25,
+			LatencyP95:        12.34,
+			LatencyP99:        23.45,
+			TotalTransactions: 10000,
+			TotalQueries:      50000,
+			ErrorCount:        0,
+			ErrorRate:         0.0,
 			TimeSeries: []execution.MetricSample{
 				{
-					Timestamp:   now,
-					TPS:         1000,
-					LatencyAvg:  5.0,
-					LatencyP95:  10.0,
-					LatencyP99:  20.0,
-					ErrorRate:   0.0,
+					Timestamp:  now,
+					TPS:        1000,
+					LatencyAvg: 5.0,
+					LatencyP95: 10.0,
+					LatencyP99: 20.0,
+					ErrorRate:  0.0,
 				},
 			},
 		},
@@ -212,6 +212,10 @@ func (m *mockRunRepositoryForReport) UpdateState(ctx context.Context, id string,
 
 func (m *mockRunRepositoryForReport) SaveMetricSample(ctx context.Context, runID string, sample execution.MetricSample) error {
 	return nil
+}
+
+func (m *mockRunRepositoryForReport) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
+	return []execution.MetricSample{}, nil
 }
 
 func (m *mockRunRepositoryForReport) SaveLogEntry(ctx context.Context, runID string, entry LogEntry) error {

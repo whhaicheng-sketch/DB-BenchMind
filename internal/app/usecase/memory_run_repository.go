@@ -13,18 +13,18 @@ import (
 // MemoryRunRepository provides an in-memory implementation of RunRepository.
 // This is a temporary implementation for development. Production should use a persistent repository.
 type MemoryRunRepository struct {
-	runs   map[string]*execution.Run
+	runs    map[string]*execution.Run
 	samples map[string][]execution.MetricSample
-	logs   map[string][]LogEntry
-	mu     sync.RWMutex
+	logs    map[string][]LogEntry
+	mu      sync.RWMutex
 }
 
 // NewMemoryRunRepository creates a new in-memory run repository.
 func NewMemoryRunRepository() *MemoryRunRepository {
 	return &MemoryRunRepository{
-		runs:   make(map[string]*execution.Run),
+		runs:    make(map[string]*execution.Run),
 		samples: make(map[string][]execution.MetricSample),
-		logs:   make(map[string][]LogEntry),
+		logs:    make(map[string][]LogEntry),
 	}
 }
 

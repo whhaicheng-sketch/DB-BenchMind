@@ -21,15 +21,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
-	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 )
 
 // minSizeWidget is a custom widget that wraps a child and enforces a minimum size.
 type minSizeWidget struct {
 	widget.BaseWidget
-	child    fyne.CanvasObject
-	minSize  fyne.Size
+	child   fyne.CanvasObject
+	minSize fyne.Size
 }
 
 func newMinSizeWidget(child fyne.CanvasObject, minHeight float32) *minSizeWidget {
@@ -83,21 +83,21 @@ func (r *minSizeWidgetRenderer) Destroy() {}
 
 // TaskMonitorPage provides combined task configuration and real-time monitoring GUI.
 type TaskMonitorPage struct {
-	win            fyne.Window
-	isRunning      bool
-	currentRunID   string // Current benchmark run ID
+	win          fyne.Window
+	isRunning    bool
+	currentRunID string // Current benchmark run ID
 	// Use cases
-	connUC         *usecase.ConnectionUseCase
-	benchmarkUC    *usecase.BenchmarkUseCase
-	templateUC     *usecase.TemplateUseCase
-	historyUC      *usecase.HistoryUseCase
+	connUC      *usecase.ConnectionUseCase
+	benchmarkUC *usecase.BenchmarkUseCase
+	templateUC  *usecase.TemplateUseCase
+	historyUC   *usecase.HistoryUseCase
 	// Task configuration widgets
-	connSelect      *widget.Select
-	templateSelect  *widget.Select
+	connSelect     *widget.Select
+	templateSelect *widget.Select
 	// General parameters
-	threadsEntry    *widget.Entry
-	durationEntry   *widget.Entry
-	dbNameEntry    *widget.Entry
+	threadsEntry  *widget.Entry
+	durationEntry *widget.Entry
+	dbNameEntry   *widget.Entry
 	// Monitor widgets
 	statusLabel     *widget.Label
 	tpsLabel        *widget.Label
@@ -107,19 +107,19 @@ type TaskMonitorPage struct {
 	threadsLabel    *widget.Label
 	progressBar     *widget.ProgressBar
 	// Real-time log for sysbench output
-	logEntry        *widget.Entry
-	maxLogLines     int
-	lastLogCount    int            // Track number of samples already added to log
-	addedSeconds    map[string]bool // Track which seconds have been added to prevent duplicates
+	logEntry     *widget.Entry
+	maxLogLines  int
+	lastLogCount int             // Track number of samples already added to log
+	addedSeconds map[string]bool // Track which seconds have been added to prevent duplicates
 	// Control buttons
-	btnPrepare      *widget.Button
-	btnRun          *widget.Button
-	btnCleanup      *widget.Button
-	btnStop         *widget.Button
+	btnPrepare *widget.Button
+	btnRun     *widget.Button
+	btnCleanup *widget.Button
+	btnStop    *widget.Button
 	// Template data
-	templates      []templateInfo
+	templates []templateInfo
 	// Connection data by ID
-	connections    map[string]connection.Connection // ID -> Connection
+	connections map[string]connection.Connection // ID -> Connection
 }
 
 // NewTaskMonitorPage creates a new combined task configuration and monitor page.
@@ -131,14 +131,14 @@ func NewTaskMonitorPage(win fyne.Window) fyne.CanvasObject {
 func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase, benchmarkUC *usecase.BenchmarkUseCase, templateUC *usecase.TemplateUseCase, historyUC *usecase.HistoryUseCase) fyne.CanvasObject {
 	slog.Info("Tasks: NewTaskMonitorPageWithUC called", "has_connUC", connUC != nil, "has_benchmarkUC", benchmarkUC != nil, "has_templateUC", templateUC != nil, "has_historyUC", historyUC != nil)
 	page := &TaskMonitorPage{
-		win:         win,
-		isRunning:   false,
+		win:          win,
+		isRunning:    false,
 		currentRunID: "",
-		connUC:      connUC,
-		benchmarkUC: benchmarkUC,
-		templateUC:  templateUC,
-		historyUC:   historyUC,
-		connections: make(map[string]connection.Connection),
+		connUC:       connUC,
+		benchmarkUC:  benchmarkUC,
+		templateUC:   templateUC,
+		historyUC:    historyUC,
+		connections:  make(map[string]connection.Connection),
 	}
 
 	// Create connection selector
@@ -154,7 +154,13 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	}
 
 	// Initialize template selector (will be populated when connection is selected)
-	page.templateSelect = widget.NewSelect([]string{}, nil)
+	page.templateSelect = widget.NewSelect([]string{}, func(selected string) {
+		if selected != "" {
+			slog.Info("Tasks: Template changed", "template", selected)
+		} else {
+			slog.Info("Tasks: Template cleared")
+		}
+	})
 
 	// Create general parameter entries
 	page.threadsEntry = widget.NewEntry()
@@ -198,7 +204,8 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	})
 
 	// Template selector with refresh button
-	templateRow := container.NewBorder(nil, nil, page.templateSelect, btnRefreshTemplate)
+	// Use Border layout to stretch templateSelect to fill available space before the button
+	templateRow := container.NewBorder(nil, nil, nil, btnRefreshTemplate, page.templateSelect)
 
 	// Create simplified form with general parameters
 	form := &widget.Form{
@@ -421,18 +428,8 @@ func (p *TaskMonitorPage) loadTemplatesForDBType(dbType string) {
 func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 	// Built-in templates with default parameters
 	defaultParams := &OLTPParameters{
-		Tables:              10,
-		TableSize:           10000,
-		DBPSMode:            "disable",
-		OLTPTestMode:        "complex",
-		OLTPPointSelects:    10,
-		OLTPSimpleRanges:    1,
-		OLTPSumRanges:       1,
-		OLTPOrderRanges:     1,
-		OLTPDistinctRanges:  1,
-		OLTPIndexUpdates:    1,
-		OLTPNonIndexUpdates: 1,
-		OLTPDeleteInserts:   1,
+		Tables:    10,
+		TableSize: 10000,
 	}
 
 	builtinTemplates := []templateInfo{
@@ -467,7 +464,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  defaultParams,
 		},
 		{
-			ID:          "sysbench-oltp-sqlserver",
+			ID:          "sysbench-oltp-read-write",
 			Name:        "OLTP Read-Write (Sysbench)",
 			Description: "OLTP read-write mixed workload for SQL Server",
 			Tool:        "sysbench",
@@ -552,10 +549,10 @@ func (p *TaskMonitorPage) syncCustomTemplatesToRepository(customTemplates []temp
 			OutputParser: domaintemplate.OutputParser{
 				Type: domaintemplate.ParserTypeRegex,
 				Patterns: map[string]string{
-					"tps":         `transactions:\s*\(\s*(\d+\.?\d*)\s*per sec\.`,
-					"latency_avg": `latency:\s*\(ms\).*?avg=\s*(\d+\.?\d*)`,
-					"latency_min": `latency:\s*\(ms\).*?min=\s*(\d+\.?\d*)`,
-					"latency_max": `latency:\s*\(ms\).*?max=\s*(\d+\.?\d*)`,
+					"tps":             `transactions:\s*\(\s*(\d+\.?\d*)\s*per sec\.`,
+					"latency_avg":     `latency:\s*\(ms\).*?avg=\s*(\d+\.?\d*)`,
+					"latency_min":     `latency:\s*\(ms\).*?min=\s*(\d+\.?\d*)`,
+					"latency_max":     `latency:\s*\(ms\).*?max=\s*(\d+\.?\d*)`,
 					"95th_percentile": `latency:\s*\(ms\).*?95th percentile=\s*(\d+\.?\d*)`,
 				},
 			},
@@ -849,7 +846,7 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 		SkipCleanup:    false,
 		WarmupTime:     0,
 		SampleInterval: 10 * time.Second, // Default 10 seconds
-		DryRun:         false, // Set to true for testing without actually running
+		DryRun:         false,            // Set to true for testing without actually running
 		PrepareTimeout: 30 * time.Minute,
 		// Set timeout to 2x duration as a safety net to prevent hangs
 		// Sysbench will control its own execution time via --time parameter
@@ -891,7 +888,7 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 		task.Options.WarmupTime = 0
 		// Set a very short run time to avoid running
 		duration, _ := task.Parameters["time"].(int)
-		task.Parameters["time"] = 0 // Don't run
+		task.Parameters["time"] = 0                  // Don't run
 		task.Parameters["_original_time"] = duration // Save original
 
 	case "run":
@@ -1239,7 +1236,7 @@ func (p *TaskMonitorPage) handleBenchmarkStopped(ctx context.Context, run *execu
 
 		// Check if there's a user-friendly message to display
 		if run.Message != "" {
-			dialog.ShowError(fmt.Errorf(run.Message), p.win)
+			dialog.ShowError(fmt.Errorf("%s", run.Message), p.win)
 		}
 
 		// Re-enable all phase buttons, disable stop

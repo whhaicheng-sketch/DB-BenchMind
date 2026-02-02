@@ -20,6 +20,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
@@ -46,14 +47,14 @@ type RealtimeSampleCallback func(runID string, sample execution.MetricSample)
 // BenchmarkUseCase provides benchmark execution business operations.
 // Implements: REQ-EXEC-001 ~ REQ-EXEC-010
 type BenchmarkUseCase struct {
-	runRepo             RunRepository
-	adapterReg          *adapter.AdapterRegistry
-	connUseCase         *ConnectionUseCase
-	templateUseCase     *TemplateUseCase
-	realtimeCallback    RealtimeSampleCallback // Optional callback for realtime samples
-	realtimeCallbackMu  sync.RWMutex            // Protects realtimeCallback
-	runningProcesses    map[string]*exec.Cmd     // Track running processes by run ID
-	runningProcessesMu  sync.RWMutex            // Protects runningProcesses
+	runRepo            RunRepository
+	adapterReg         *adapter.AdapterRegistry
+	connUseCase        *ConnectionUseCase
+	templateUseCase    *TemplateUseCase
+	realtimeCallback   RealtimeSampleCallback // Optional callback for realtime samples
+	realtimeCallbackMu sync.RWMutex           // Protects realtimeCallback
+	runningProcesses   map[string]*exec.Cmd   // Track running processes by run ID
+	runningProcessesMu sync.RWMutex           // Protects runningProcesses
 }
 
 // NewBenchmarkUseCase creates a new benchmark use case.
@@ -219,8 +220,8 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			slog.Info("Benchmark: Prepare command failed, checking error type", "run_id", run.ID, "error", errMsg)
 
 			if strings.Contains(errMsg, "1050") || strings.Contains(errMsg, "already exists") ||
-			   strings.Contains(errMsg, "Duplicate key") || strings.Contains(errMsg, "Table.*already exists") ||
-			   strings.Contains(errMsg, "Table '") && strings.Contains(errMsg, "already exists") {
+				strings.Contains(errMsg, "Duplicate key") || strings.Contains(errMsg, "Table.*already exists") ||
+				strings.Contains(errMsg, "Table '") && strings.Contains(errMsg, "already exists") {
 				slog.Info("Benchmark: Prepare phase - data already exists, treating as success",
 					"error", err, "run_id", run.ID)
 
@@ -677,22 +678,22 @@ func (uc *BenchmarkUseCase) executeRun(
 					// Convert finalResult to BenchmarkResult and save to run
 					slog.Info("Benchmark: Creating BenchmarkResult", "run_id", run.ID)
 					result := &execution.BenchmarkResult{
-						RunID:              run.ID,
-						TPSCalculated:      finalResult.TransactionsPerSec,
-						LatencyAvg:         finalResult.LatencyAvg,
-						LatencyMin:         finalResult.LatencyMin,
-						LatencyMax:         finalResult.LatencyMax,
-						LatencyP95:         finalResult.LatencyP95,
-						LatencyP99:         finalResult.LatencyP99,
-						LatencySum:         finalResult.LatencySum,
+						RunID:             run.ID,
+						TPSCalculated:     finalResult.TransactionsPerSec,
+						LatencyAvg:        finalResult.LatencyAvg,
+						LatencyMin:        finalResult.LatencyMin,
+						LatencyMax:        finalResult.LatencyMax,
+						LatencyP95:        finalResult.LatencyP95,
+						LatencyP99:        finalResult.LatencyP99,
+						LatencySum:        finalResult.LatencySum,
 						TotalTransactions: finalResult.TotalTransactions,
-						TotalQueries:       finalResult.TotalQueries,
-						Duration:           time.Duration(finalResult.TotalTime) * time.Second,
+						TotalQueries:      finalResult.TotalQueries,
+						Duration:          time.Duration(finalResult.TotalTime) * time.Second,
 
 						// SQL Statistics
-						ReadQueries:  finalResult.ReadQueries,
-						WriteQueries: finalResult.WriteQueries,
-						OtherQueries: finalResult.OtherQueries,
+						ReadQueries:   finalResult.ReadQueries,
+						WriteQueries:  finalResult.WriteQueries,
+						OtherQueries:  finalResult.OtherQueries,
 						IgnoredErrors: finalResult.IgnoredErrors,
 						Reconnects:    finalResult.Reconnects,
 
@@ -733,15 +734,15 @@ func (uc *BenchmarkUseCase) executeRun(
 					}
 				}()
 				metricSample := execution.MetricSample{
-					Timestamp:   sample.Timestamp,
-					Phase:       "run",
-					TPS:         sample.TPS,
-					QPS:         sample.QPS,
-					LatencyAvg:  sample.LatencyAvg,
-					LatencyP95:  sample.LatencyP95,
-					LatencyP99:  sample.LatencyP99,
-					ErrorRate:   sample.ErrorRate,
-					RawLine:     sample.RawLine,
+					Timestamp:  sample.Timestamp,
+					Phase:      "run",
+					TPS:        sample.TPS,
+					QPS:        sample.QPS,
+					LatencyAvg: sample.LatencyAvg,
+					LatencyP95: sample.LatencyP95,
+					LatencyP99: sample.LatencyP99,
+					ErrorRate:  sample.ErrorRate,
+					RawLine:    sample.RawLine,
 				}
 				if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
 					slog.Error("Benchmark: Failed to save metric sample", "run_id", run.ID, "error", err)
@@ -791,9 +792,9 @@ func (uc *BenchmarkUseCase) executeRun(
 				slog.Info("Benchmark: Run command failed, checking error type", "run_id", run.ID, "error", errMsg)
 
 				if strings.Contains(errMsg, "1146") || // Table doesn't exist
-				   strings.Contains(errMsg, "Table.*doesn't exist") ||
-				   strings.Contains(errMsg, "Table.*not exist") ||
-				   strings.Contains(errMsg, "no such table") {
+					strings.Contains(errMsg, "Table.*doesn't exist") ||
+					strings.Contains(errMsg, "Table.*not exist") ||
+					strings.Contains(errMsg, "no such table") {
 					// Table does not exist - set user-friendly message
 					slog.Info("Benchmark: Run phase - tables do not exist", "run_id", run.ID)
 					run.Message = "✗ Error: Benchmark tables do not exist\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button."
@@ -930,9 +931,9 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 		stream := "stdout"
 		lineLower := strings.ToLower(line)
 		if strings.Contains(lineLower, "error") ||
-		   strings.Contains(lineLower, "failed") ||
-		   strings.Contains(lineLower, "fatal") ||
-		   strings.Contains(lineLower, "warning") {
+			strings.Contains(lineLower, "failed") ||
+			strings.Contains(lineLower, "fatal") ||
+			strings.Contains(lineLower, "warning") {
 			stream = "stderr"
 		}
 
@@ -1209,24 +1210,32 @@ func (uc *BenchmarkUseCase) checkTablesExist(ctx context.Context, conn connectio
 		dbName = db
 	}
 
-	// For MySQL connection, check if sbtest1 table exists
-	mysqlConn, ok := conn.(*connection.MySQLConnection)
-	if !ok {
-		return true // Assume tables exist for non-MySQL
+	// Check based on connection type
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		return uc.checkMySQLTablesExist(ctx, c, dbName)
+	case *connection.PostgreSQLConnection:
+		return uc.checkPostgreSQLTablesExist(ctx, c, dbName)
+	default:
+		// Assume tables exist for other database types
+		return true
 	}
+}
 
+// checkMySQLTablesExist checks if sbtest tables exist in MySQL
+func (uc *BenchmarkUseCase) checkMySQLTablesExist(ctx context.Context, conn *connection.MySQLConnection, dbName string) bool {
 	// Build connection string
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
-		mysqlConn.Username,
-		mysqlConn.Password,
-		mysqlConn.Host,
-		mysqlConn.Port,
+		conn.Username,
+		conn.Password,
+		conn.Host,
+		conn.Port,
 		dbName)
 
 	// Open database connection
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		slog.Warn("checkTablesExist: Failed to open database", "error", err)
+		slog.Warn("checkMySQLTablesExist: Failed to open database", "error", err)
 		return true // Assume tables exist if we can't check
 	}
 	defer db.Close()
@@ -1235,12 +1244,56 @@ func (uc *BenchmarkUseCase) checkTablesExist(ctx context.Context, conn connectio
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'sbtest1'", dbName).Scan(&count)
 	if err != nil {
-		slog.Warn("checkTablesExist: Failed to query table", "error", err)
+		slog.Warn("checkMySQLTablesExist: Failed to query table", "error", err)
 		return true // Assume tables exist if query fails
 	}
 
 	return count > 0
 }
+
+// checkPostgreSQLTablesExist checks if sbtest tables exist in PostgreSQL
+func (uc *BenchmarkUseCase) checkPostgreSQLTablesExist(ctx context.Context, conn *connection.PostgreSQLConnection, dbName string) bool {
+	// Build connection string
+	dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+		conn.Host,
+		conn.Port,
+		dbName,
+		conn.Username,
+		conn.Password,
+		conn.SSLMode)
+
+	// Open database connection
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		slog.Warn("checkPostgreSQLTablesExist: Failed to open database", "error", err)
+		return false // Cannot connect - assume tables don't exist
+	}
+	defer db.Close()
+
+	// Ping to verify connection works
+	err = db.Ping()
+	if err != nil {
+		slog.Warn("checkPostgreSQLTablesExist: Database ping failed", "error", err)
+		// Check if error is "database does not exist"
+		if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "3D000") {
+			slog.Info("checkPostgreSQLTablesExist: Database does not exist", "database", dbName)
+			return false // Database doesn't exist, so tables don't exist
+		}
+		return false // Connection failed for other reasons - assume tables don't exist
+	}
+
+	// Check if first benchmark table exists (PostgreSQL uses pg_tables)
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'sbtest1'").Scan(&count)
+	if err != nil {
+		slog.Warn("checkPostgreSQLTablesExist: Failed to query table", "error", err)
+		return false // Query failed - assume tables don't exist
+	}
+
+	slog.Info("checkPostgreSQLTablesExist: Table check result", "database", dbName, "sbtest1_exists", count > 0)
+	return count > 0
+}
+
 // parseCommandLine parses a command line string into parts.
 // Handles quoted strings (both single and double quotes) and backticks.
 func parseCommandLine(cmdLine string) ([]string, error) {

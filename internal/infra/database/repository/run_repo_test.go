@@ -288,14 +288,14 @@ func TestSQLiteRunRepository_SaveMetricSample(t *testing.T) {
 
 	// Save a metric sample
 	sample := execution.MetricSample{
-		Timestamp:   time.Now(),
-		Phase:       "run",
-		TPS:         1000.0,
-		QPS:         5000.0,
-		LatencyAvg:  5.0,
-		LatencyP95:  10.0,
-		LatencyP99:  20.0,
-		ErrorRate:   0.1,
+		Timestamp:  time.Now(),
+		Phase:      "run",
+		TPS:        1000.0,
+		QPS:        5000.0,
+		LatencyAvg: 5.0,
+		LatencyP95: 10.0,
+		LatencyP99: 20.0,
+		ErrorRate:  0.1,
 	}
 
 	err := repo.SaveMetricSample(ctx, runID, sample)

@@ -16,7 +16,7 @@ import (
 type ExportFormat string
 
 const (
-	FormatTXT     ExportFormat = "txt"
+	FormatTXT      ExportFormat = "txt"
 	FormatMarkdown ExportFormat = "markdown"
 )
 

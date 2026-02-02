@@ -120,7 +120,7 @@ func (g *ChartGenerator) generateSparkline(values []float64, width, height int, 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("%s\n", label))
 	for i, line := range lines {
-		labelVal := max - (float64(i) / float64(height-1)) * (max - min)
+		labelVal := max - (float64(i)/float64(height-1))*(max-min)
 		prefix := fmt.Sprintf("%8.2f │", labelVal)
 		sb.WriteString(prefix)
 		sb.WriteString(line)

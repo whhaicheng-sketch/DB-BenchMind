@@ -65,6 +65,10 @@ func (m *mockRunRepository) SaveMetricSample(ctx context.Context, runID string, 
 	return nil // Ignore for mock
 }
 
+func (m *mockRunRepository) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
+	return []execution.MetricSample{}, nil // Return empty slice for mock
+}
+
 func (m *mockRunRepository) SaveLogEntry(ctx context.Context, runID string, entry LogEntry) error {
 	return nil // Ignore for mock
 }
@@ -93,7 +97,7 @@ func TestBenchmarkUseCase_StartBenchmark(t *testing.T) {
 		},
 		Host:     "localhost",
 		Port:     3306,
-			Database: "testdb",
+		Database: "testdb",
 		Username: "root",
 	}
 	connRepo.Save(ctx, testConn)
@@ -312,10 +316,10 @@ func TestBenchmarkExecutor_Stop(t *testing.T) {
 // TestParseCommandLine tests command line parsing.
 func TestParseCommandLine(t *testing.T) {
 	tests := []struct {
-		name     string
-		cmdLine  string
-		wantLen  int
-		wantErr  bool
+		name    string
+		cmdLine string
+		wantLen int
+		wantErr bool
 	}{
 		{
 			name:    "simple command",

@@ -25,8 +25,8 @@ var (
 type TemplateManagementPage struct {
 	win             fyne.Window
 	templates       []templateInfo
-	defaultIndex    int    // Index of default template
-	listContainer   *fyne.Container // Use VBox for dynamic list (like Connections)
+	defaultIndex    int                        // Index of default template
+	listContainer   *fyne.Container            // Use VBox for dynamic list (like Connections)
 	groupContainers map[string]*fyne.Container // DB type -> container
 }
 
@@ -43,19 +43,10 @@ type templateInfo struct {
 }
 
 // OLTPParameters represents sysbench OLTP test parameters.
+// Only includes parameters that are actually used by the sysbench adapter.
 type OLTPParameters struct {
-	Tables              int    `json:"tables"`
-	TableSize           int    `json:"table_size"`
-	DBPSMode            string `json:"db_ps_mode"`
-	OLTPTestMode        string `json:"oltp_test_mode"`
-	OLTPPointSelects    int    `json:"oltp_point_selects"`
-	OLTPSimpleRanges    int    `json:"oltp_simple_ranges"`
-	OLTPSumRanges       int    `json:"oltp_sum_ranges"`
-	OLTPOrderRanges     int    `json:"oltp_order_ranges"`
-	OLTPDistinctRanges  int    `json:"oltp_distinct_ranges"`
-	OLTPIndexUpdates    int    `json:"oltp_index_updates"`
-	OLTPNonIndexUpdates int    `json:"oltp_non_index_updates"`
-	OLTPDeleteInserts   int    `json:"oltp_delete_inserts"`
+	Tables    int `json:"tables"`     // Number of tables to create
+	TableSize int `json:"table_size"` // Number of rows per table
 }
 
 // NewTemplateManagementPage creates a new template management page.
@@ -91,10 +82,10 @@ func NewTemplateManagementPage(win fyne.Window) fyne.CanvasObject {
 
 	// Use Border layout
 	content := container.NewBorder(
-		topArea,                              // top - toolbar
-		nil,                                   // bottom
-		nil,                                   // left
-		nil,                                   // right
+		topArea,                                 // top - toolbar
+		nil,                                     // bottom
+		nil,                                     // left
+		nil,                                     // right
 		container.NewScroll(page.listContainer), // center - fills available space
 	)
 
@@ -106,23 +97,13 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 	// Built-in templates (cannot be deleted)
 	// Default template with user-specified parameters
 	defaultParams := &OLTPParameters{
-		Tables:              10,
-		TableSize:           10000,
-		DBPSMode:            "disable",
-		OLTPTestMode:        "complex",
-		OLTPPointSelects:    10,
-		OLTPSimpleRanges:    1,
-		OLTPSumRanges:       1,
-		OLTPOrderRanges:     1,
-		OLTPDistinctRanges:  1,
-		OLTPIndexUpdates:    1,
-		OLTPNonIndexUpdates: 1,
-		OLTPDeleteInserts:   1,
+		Tables:    10,
+		TableSize: 10000,
 	}
 
 	builtinTemplates := []templateInfo{
 		{
-			ID:          "sysbench-oltp-mysql",
+			ID:          "sysbench-oltp-read-write",
 			Name:        "OLTP Read-Write (Sysbench)",
 			Description: "OLTP read-write mixed workload for MySQL",
 			Tool:        "sysbench",
@@ -132,7 +113,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  defaultParams,
 		},
 		{
-			ID:          "sysbench-oltp-postgresql",
+			ID:          "sysbench-oltp-read-write",
 			Name:        "OLTP Read-Write (Sysbench)",
 			Description: "OLTP read-write mixed workload for PostgreSQL",
 			Tool:        "sysbench",
@@ -142,7 +123,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  defaultParams,
 		},
 		{
-			ID:          "sysbench-oltp-oracle",
+			ID:          "sysbench-oltp-read-write",
 			Name:        "OLTP Read-Write (Sysbench)",
 			Description: "OLTP read-write mixed workload for Oracle",
 			Tool:        "sysbench",
@@ -152,7 +133,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  defaultParams,
 		},
 		{
-			ID:          "sysbench-oltp-sqlserver",
+			ID:          "sysbench-oltp-read-write",
 			Name:        "OLTP Read-Write (Sysbench)",
 			Description: "OLTP read-write mixed workload for SQL Server",
 			Tool:        "sysbench",
@@ -276,38 +257,45 @@ func (p *TemplateManagementPage) createTemplateGroup(dbType string, templates []
 		// Buttons for this template
 		var buttons []fyne.CanvasObject
 
-		// Edit button (only for custom templates)
-		if !tmpl.IsBuiltin {
-			btnEdit := widget.NewButton("✏️ Edit", func() {
-				slog.Info("Templates: Edit button clicked", "template", tmpl.Name)
-				p.onEditTemplate(tmpl)
-			})
-			buttons = append(buttons, btnEdit)
-		}
-
-		// Delete button (only for custom templates)
-		if !tmpl.IsBuiltin {
-			btnDelete := widget.NewButton("🗑️ Delete", func() {
-				slog.Info("Templates: Delete button clicked", "template", tmpl.Name)
-				p.onDeleteTemplate(tmpl)
-			})
-			buttons = append(buttons, btnDelete)
-		}
-
-		// Set Default button (for all templates)
-		btnSetDefault := widget.NewButton("⭐ Set Default", func() {
-			slog.Info("Templates: Set Default button clicked", "template", tmpl.Name, "db_type", tmpl.DBType)
-			p.onSetDefault(tmpl, dbType)
-		})
-		buttons = append(buttons, btnSetDefault)
-
-		// Details button (for built-in templates) - always last
+		// Built-in templates: Details, Set Default
 		if tmpl.IsBuiltin {
+			// Details button (first for built-in templates)
 			btnDetails := widget.NewButton("📋 Details", func() {
 				slog.Info("Templates: Details button clicked", "template", tmpl.Name)
 				p.showTemplateDetails(tmpl)
 			})
 			buttons = append(buttons, btnDetails)
+
+			// Set Default button (second for built-in templates)
+			btnSetDefault := widget.NewButton("⭐ Set Default", func() {
+				slog.Info("Templates: Set Default button clicked", "template", tmpl.Name, "db_type", tmpl.DBType)
+				p.onSetDefault(tmpl, dbType)
+			})
+			buttons = append(buttons, btnSetDefault)
+		} else {
+			// Custom templates: Edit, Delete, Set Default
+			// Edit button (first for custom templates)
+			btnEdit := widget.NewButton("✏️ Edit", func() {
+				slog.Info("Templates: Edit button clicked", "template", tmpl.Name)
+				p.onEditTemplate(tmpl)
+			})
+			buttons = append(buttons, btnEdit)
+
+			// Delete button (second for custom templates) - RED WARNING to stand out
+			btnDelete := widget.NewButton("⚠️ 🗑️ Delete", func() {
+				slog.Info("Templates: Delete button clicked", "template", tmpl.Name)
+				p.onDeleteTemplate(tmpl)
+			})
+			// High importance makes it more prominent (usually red/orange in most themes)
+			btnDelete.Importance = widget.HighImportance
+			buttons = append(buttons, btnDelete)
+
+			// Set Default button (third for custom templates)
+			btnSetDefault := widget.NewButton("⭐ Set Default", func() {
+				slog.Info("Templates: Set Default button clicked", "template", tmpl.Name, "db_type", tmpl.DBType)
+				p.onSetDefault(tmpl, dbType)
+			})
+			buttons = append(buttons, btnSetDefault)
 		}
 
 		// Use Border layout to align info left, buttons right
@@ -499,18 +487,22 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		sb.WriteString("**General Parameters:**\n\n")
 		sb.WriteString(fmt.Sprintf("- `--tables=%d` - Number of tables\n", tmpl.Parameters.Tables))
 		sb.WriteString(fmt.Sprintf("- `--table-size=%d` - Rows per table\n", tmpl.Parameters.TableSize))
-		sb.WriteString(fmt.Sprintf("- `--db-ps-mode=%s` - Prepared statement mode\n", tmpl.Parameters.DBPSMode))
 
-		sb.WriteString("\n**OLTP Test Parameters:**\n\n")
-		sb.WriteString(fmt.Sprintf("- `--oltp-test-mode=%s` - Test mode (complex/simple/nontrx/specific)\n", tmpl.Parameters.OLTPTestMode))
-		sb.WriteString(fmt.Sprintf("- `--oltp-point-selects=%d` - Point select ratio\n", tmpl.Parameters.OLTPPointSelects))
-		sb.WriteString(fmt.Sprintf("- `--oltp-simple-ranges=%d` - Simple range ratio\n", tmpl.Parameters.OLTPSimpleRanges))
-		sb.WriteString(fmt.Sprintf("- `--oltp-sum-ranges=%d` - Sum range ratio\n", tmpl.Parameters.OLTPSumRanges))
-		sb.WriteString(fmt.Sprintf("- `--oltp-order-ranges=%d` - Order range ratio\n", tmpl.Parameters.OLTPOrderRanges))
-		sb.WriteString(fmt.Sprintf("- `--oltp-distinct-ranges=%d` - Distinct range ratio\n", tmpl.Parameters.OLTPDistinctRanges))
-		sb.WriteString(fmt.Sprintf("- `--oltp-index-updates=%d` - Index update ratio\n", tmpl.Parameters.OLTPIndexUpdates))
-		sb.WriteString(fmt.Sprintf("- `--oltp-non-index-updates=%d` - Non-index update ratio\n", tmpl.Parameters.OLTPNonIndexUpdates))
-		sb.WriteString(fmt.Sprintf("- `--oltp-delete-inserts=%d` - Delete-insert ratio\n", tmpl.Parameters.OLTPDeleteInserts))
+		sb.WriteString("\n**OLTP Test Parameters** (for reference, currently not used in execution):\n\n")
+		sb.WriteString("The following OLTP parameters can be configured in the Add/Edit dialog,\n")
+		sb.WriteString("but are currently not passed to sysbench. The benchmark uses sysbench defaults.\n\n")
+		sb.WriteString("- `--db-ps-mode` - Prepared statement mode (disable/auto/no_ps)\n")
+		sb.WriteString("- `--oltp-test-mode` - Test mode (complex/simple/nontrx/specific)\n")
+		sb.WriteString("- `--oltp-point-selects` - Point select ratio\n")
+		sb.WriteString("- `--oltp-simple-ranges` - Simple range ratio\n")
+		sb.WriteString("- `--oltp-sum-ranges` - Sum range ratio\n")
+		sb.WriteString("- `--oltp-order-ranges` - Order range ratio\n")
+		sb.WriteString("- `--oltp-distinct-ranges` - Distinct range ratio\n")
+		sb.WriteString("- `--oltp-index-updates` - Index update ratio\n")
+		sb.WriteString("- `--oltp-non-index-updates` - Non-index update ratio\n")
+		sb.WriteString("- `--oltp-delete-inserts` - Delete-insert ratio\n")
+
+		sb.WriteString("\n**Note:** Additional parameters (threads, time, rate) are configured in the Tasks page when running the benchmark.\n")
 	}
 
 	content := widget.NewRichTextFromMarkdown(sb.String())
@@ -580,23 +572,25 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 
 	// Default values
 	defaultParams := &OLTPParameters{
-		Tables:              10,
-		TableSize:           10000,
-		DBPSMode:            "disable",
-		OLTPTestMode:        "complex",
-		OLTPPointSelects:    10,
-		OLTPSimpleRanges:    1,
-		OLTPSumRanges:       1,
-		OLTPOrderRanges:     1,
-		OLTPDistinctRanges:  1,
-		OLTPIndexUpdates:    1,
-		OLTPNonIndexUpdates: 1,
-		OLTPDeleteInserts:   1,
+		Tables:    10,
+		TableSize: 10000,
 	}
 
 	if existingParams != nil {
 		defaultParams = existingParams
 	}
+
+	// Default OLTP parameters (for display only - not currently used in execution)
+	defaultDBPSMode := "disable"
+	defaultOLTPTestMode := "complex"
+	defaultOLTPPointSelects := 10
+	defaultOLTPSimpleRanges := 1
+	defaultOLTPSumRanges := 1
+	defaultOLTPOrderRanges := 1
+	defaultOLTPDistinctRanges := 1
+	defaultOLTPIndexUpdates := 1
+	defaultOLTPNonIndexUpdates := 1
+	defaultOLTPDeleteInserts := 1
 
 	// Create form fields
 	d.nameEntry = widget.NewEntry()
@@ -616,34 +610,34 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	d.tableSizeEntry.SetText(fmt.Sprintf("%d", defaultParams.TableSize))
 
 	d.dbPSModeEntry = widget.NewSelect([]string{"disable", "auto", "no_ps"}, nil)
-	d.dbPSModeEntry.SetSelected(defaultParams.DBPSMode)
+	d.dbPSModeEntry.SetSelected(defaultDBPSMode)
 
 	d.oltpTestModeEntry = widget.NewSelect([]string{"complex", "simple", "nontrx", "specific"}, nil)
-	d.oltpTestModeEntry.SetSelected(defaultParams.OLTPTestMode)
+	d.oltpTestModeEntry.SetSelected(defaultOLTPTestMode)
 
 	d.oltpPointSelects = widget.NewEntry()
-	d.oltpPointSelects.SetText(fmt.Sprintf("%d", defaultParams.OLTPPointSelects))
+	d.oltpPointSelects.SetText(fmt.Sprintf("%d", defaultOLTPPointSelects))
 
 	d.oltpSimpleRanges = widget.NewEntry()
-	d.oltpSimpleRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPSimpleRanges))
+	d.oltpSimpleRanges.SetText(fmt.Sprintf("%d", defaultOLTPSimpleRanges))
 
 	d.oltpSumRanges = widget.NewEntry()
-	d.oltpSumRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPSumRanges))
+	d.oltpSumRanges.SetText(fmt.Sprintf("%d", defaultOLTPSumRanges))
 
 	d.oltpOrderRanges = widget.NewEntry()
-	d.oltpOrderRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPOrderRanges))
+	d.oltpOrderRanges.SetText(fmt.Sprintf("%d", defaultOLTPOrderRanges))
 
 	d.oltpDistinctRanges = widget.NewEntry()
-	d.oltpDistinctRanges.SetText(fmt.Sprintf("%d", defaultParams.OLTPDistinctRanges))
+	d.oltpDistinctRanges.SetText(fmt.Sprintf("%d", defaultOLTPDistinctRanges))
 
 	d.oltpIndexUpdates = widget.NewEntry()
-	d.oltpIndexUpdates.SetText(fmt.Sprintf("%d", defaultParams.OLTPIndexUpdates))
+	d.oltpIndexUpdates.SetText(fmt.Sprintf("%d", defaultOLTPIndexUpdates))
 
 	d.oltpNonIndexUpdates = widget.NewEntry()
-	d.oltpNonIndexUpdates.SetText(fmt.Sprintf("%d", defaultParams.OLTPNonIndexUpdates))
+	d.oltpNonIndexUpdates.SetText(fmt.Sprintf("%d", defaultOLTPNonIndexUpdates))
 
 	d.oltpDeleteInserts = widget.NewEntry()
-	d.oltpDeleteInserts.SetText(fmt.Sprintf("%d", defaultParams.OLTPDeleteInserts))
+	d.oltpDeleteInserts.SetText(fmt.Sprintf("%d", defaultOLTPDeleteInserts))
 
 	// Create form with visible parameters
 	formItems := []*widget.FormItem{
@@ -738,28 +732,10 @@ func (d *templateDialog) onSave() bool {
 	// Parse numeric values (simplified - no strict validation)
 	tables := parseIntOrDefault(d.tablesEntry.Text, 10)
 	tableSize := parseIntOrDefault(d.tableSizeEntry.Text, 10000)
-	pointSelects := parseIntOrDefault(d.oltpPointSelects.Text, 10)
-	simpleRanges := parseIntOrDefault(d.oltpSimpleRanges.Text, 1)
-	sumRanges := parseIntOrDefault(d.oltpSumRanges.Text, 1)
-	orderRanges := parseIntOrDefault(d.oltpOrderRanges.Text, 1)
-	distinctRanges := parseIntOrDefault(d.oltpDistinctRanges.Text, 1)
-	indexUpdates := parseIntOrDefault(d.oltpIndexUpdates.Text, 1)
-	nonIndexUpdates := parseIntOrDefault(d.oltpNonIndexUpdates.Text, 1)
-	deleteInserts := parseIntOrDefault(d.oltpDeleteInserts.Text, 1)
 
 	params := &OLTPParameters{
-		Tables:              tables,
-		TableSize:           tableSize,
-		DBPSMode:            d.dbPSModeEntry.Selected,
-		OLTPTestMode:        d.oltpTestModeEntry.Selected,
-		OLTPPointSelects:    pointSelects,
-		OLTPSimpleRanges:    simpleRanges,
-		OLTPSumRanges:       sumRanges,
-		OLTPOrderRanges:     orderRanges,
-		OLTPDistinctRanges:  distinctRanges,
-		OLTPIndexUpdates:    indexUpdates,
-		OLTPNonIndexUpdates: nonIndexUpdates,
-		OLTPDeleteInserts:   deleteInserts,
+		Tables:    tables,
+		TableSize: tableSize,
 	}
 
 	dbType := d.dbTypeSelect.Selected

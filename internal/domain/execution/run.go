@@ -12,7 +12,7 @@ import (
 // Implements: spec.md 3.6.1
 type Run struct {
 	// Basic information
-	ID    string `json:"id"`    // UUID
+	ID     string `json:"id"`      // UUID
 	TaskID string `json:"task_id"` // Associated task ID
 
 	// State (spec.md 3.4.2)
@@ -40,43 +40,43 @@ type BenchmarkResult struct {
 	RunID string `json:"run_id"`
 
 	// Core metrics (spec.md 3.5.2)
-	TPSCalculated float64 `json:"tps_calculated"` // Calculated TPS
-	LatencyAvg    float64 `json:"latency_avg_ms"` // Average latency (ms)
-	LatencyMin    float64 `json:"latency_min_ms"` // Minimum latency (ms)
-	LatencyMax    float64 `json:"latency_max_ms"` // Maximum latency (ms)
-	LatencyP95    float64 `json:"latency_p95_ms"` // 95th percentile latency (ms)
-	LatencyP99    float64 `json:"latency_p99_ms"` // 99th percentile latency (ms)
-	LatencySum    float64 `json:"latency_sum_ms"`  // Sum of all latencies (ms)
-	ErrorCount    int64   `json:"error_count"`    // Total errors
+	TPSCalculated float64 `json:"tps_calculated"`     // Calculated TPS
+	LatencyAvg    float64 `json:"latency_avg_ms"`     // Average latency (ms)
+	LatencyMin    float64 `json:"latency_min_ms"`     // Minimum latency (ms)
+	LatencyMax    float64 `json:"latency_max_ms"`     // Maximum latency (ms)
+	LatencyP95    float64 `json:"latency_p95_ms"`     // 95th percentile latency (ms)
+	LatencyP99    float64 `json:"latency_p99_ms"`     // 99th percentile latency (ms)
+	LatencySum    float64 `json:"latency_sum_ms"`     // Sum of all latencies (ms)
+	ErrorCount    int64   `json:"error_count"`        // Total errors
 	ErrorRate     float64 `json:"error_rate_percent"` // Error rate (%)
 
 	// Statistics
-	Duration          time.Duration `json:"duration"`           // Run duration
-	TotalTransactions int64         `json:"total_transactions"` // Total transactions
+	Duration          time.Duration `json:"duration"`                // Run duration
+	TotalTransactions int64         `json:"total_transactions"`      // Total transactions
 	TotalQueries      int64         `json:"total_queries,omitempty"` // Total queries
 
 	// SQL Statistics
-	ReadQueries  int64 `json:"read_queries,omitempty"`  // Read queries
-	WriteQueries int64 `json:"write_queries,omitempty"` // Write queries
-	OtherQueries  int64 `json:"other_queries,omitempty"` // Other queries
+	ReadQueries   int64 `json:"read_queries,omitempty"`   // Read queries
+	WriteQueries  int64 `json:"write_queries,omitempty"`  // Write queries
+	OtherQueries  int64 `json:"other_queries,omitempty"`  // Other queries
 	IgnoredErrors int64 `json:"ignored_errors,omitempty"` // Ignored errors
-	Reconnects    int64 `json:"reconnects,omitempty"`    // Reconnects
+	Reconnects    int64 `json:"reconnects,omitempty"`     // Reconnects
 
 	// General Statistics
-	TotalTime   float64 `json:"total_time_seconds,omitempty"`   // Total time in seconds
-	TotalEvents int64   `json:"total_events,omitempty"`      // Total number of events
+	TotalTime   float64 `json:"total_time_seconds,omitempty"` // Total time in seconds
+	TotalEvents int64   `json:"total_events,omitempty"`       // Total number of events
 
 	// Threads Fairness
-	EventsAvg    float64 `json:"events_avg,omitempty"`     // Events average
-	EventsStddev float64 `json:"events_stddev,omitempty"`  // Events stddev
-	ExecTimeAvg  float64 `json:"exec_time_avg,omitempty"`   // Execution time average
+	EventsAvg      float64 `json:"events_avg,omitempty"`       // Events average
+	EventsStddev   float64 `json:"events_stddev,omitempty"`    // Events stddev
+	ExecTimeAvg    float64 `json:"exec_time_avg,omitempty"`    // Execution time average
 	ExecTimeStddev float64 `json:"exec_time_stddev,omitempty"` // Execution time stddev
 
 	// Connection and Template Info (for History)
-	ConnectionName string `json:"connection_name,omitempty"` // Connection name
-	TemplateName   string `json:"template_name,omitempty"`   // Template name
-	DatabaseType    string `json:"database_type,omitempty"`    // Database type
-	Threads        int    `json:"threads,omitempty"`           // Thread count
+	ConnectionName string    `json:"connection_name,omitempty"` // Connection name
+	TemplateName   string    `json:"template_name,omitempty"`   // Template name
+	DatabaseType   string    `json:"database_type,omitempty"`   // Database type
+	Threads        int       `json:"threads,omitempty"`         // Thread count
 	StartTime      time.Time `json:"start_time,omitempty"`      // Benchmark start time
 
 	// Time series data
@@ -86,15 +86,15 @@ type BenchmarkResult struct {
 // MetricSample represents a single metric sample.
 // Implements: spec.md 3.5.1
 type MetricSample struct {
-	Timestamp   time.Time `json:"timestamp"`    // Sample timestamp
-	Phase       string    `json:"phase"`        // Phase: warmup/run/cooldown
-	TPS         float64   `json:"tps"`          // Transactions per second
-	QPS         float64   `json:"qps,omitempty"` // Queries per second
-	LatencyAvg  float64   `json:"latency_avg_ms"` // Average latency (ms)
-	LatencyP95  float64   `json:"latency_p95_ms"` // 95th percentile latency (ms)
-	LatencyP99  float64   `json:"latency_p99_ms"` // 99th percentile latency (ms)
-	ErrorRate   float64   `json:"error_rate_percent"` // Error rate (%)
-	RawLine     string    `json:"raw_line,omitempty"` // Original output line
+	Timestamp  time.Time `json:"timestamp"`          // Sample timestamp
+	Phase      string    `json:"phase"`              // Phase: warmup/run/cooldown
+	TPS        float64   `json:"tps"`                // Transactions per second
+	QPS        float64   `json:"qps,omitempty"`      // Queries per second
+	LatencyAvg float64   `json:"latency_avg_ms"`     // Average latency (ms)
+	LatencyP95 float64   `json:"latency_p95_ms"`     // 95th percentile latency (ms)
+	LatencyP99 float64   `json:"latency_p99_ms"`     // 99th percentile latency (ms)
+	ErrorRate  float64   `json:"error_rate_percent"` // Error rate (%)
+	RawLine    string    `json:"raw_line,omitempty"` // Original output line
 }
 
 // IsCompleted checks if the run is in a terminal state.
@@ -145,13 +145,13 @@ func (e *InvalidStateTransitionError) Error() string {
 
 // BenchmarkTask represents a benchmark task configuration.
 type BenchmarkTask struct {
-	ID           string                 `json:"id"`           // UUID
-	Name         string                 `json:"name"`         // Task name
+	ID           string                 `json:"id"`            // UUID
+	Name         string                 `json:"name"`          // Task name
 	ConnectionID string                 `json:"connection_id"` // Connection ID
 	TemplateID   string                 `json:"template_id"`   // Template ID
-	Parameters   map[string]interface{} `json:"parameters"`   // Parameter overrides
-	Options      TaskOptions            `json:"options"`      // Execution options
-	Tags         []string               `json:"tags"`         // Tags
+	Parameters   map[string]interface{} `json:"parameters"`    // Parameter overrides
+	Options      TaskOptions            `json:"options"`       // Execution options
+	Tags         []string               `json:"tags"`          // Tags
 	CreatedAt    time.Time              `json:"created_at"`
 }
 
@@ -175,11 +175,11 @@ func (t *BenchmarkTask) Validate() error {
 // TaskOptions represents execution options for a task.
 // Implements: spec.md 3.4.1
 type TaskOptions struct {
-	SkipPrepare    bool          `json:"skip_prepare"`     // Skip data preparation
-	SkipCleanup    bool          `json:"skip_cleanup"`     // Skip data cleanup
-	WarmupTime     int           `json:"warmup_time"`      // Warmup duration (seconds)
-	SampleInterval time.Duration `json:"sample_interval"`  // Sample interval (default 1s)
-	DryRun         bool          `json:"dry_run"`          // Show commands only, don't execute (REQ-EXEC-010)
-	PrepareTimeout time.Duration `json:"prepare_timeout"`  // Prepare phase timeout (default 30m)
-	RunTimeout     time.Duration `json:"run_timeout"`      // Run phase timeout (default 24h)
+	SkipPrepare    bool          `json:"skip_prepare"`    // Skip data preparation
+	SkipCleanup    bool          `json:"skip_cleanup"`    // Skip data cleanup
+	WarmupTime     int           `json:"warmup_time"`     // Warmup duration (seconds)
+	SampleInterval time.Duration `json:"sample_interval"` // Sample interval (default 1s)
+	DryRun         bool          `json:"dry_run"`         // Show commands only, don't execute (REQ-EXEC-010)
+	PrepareTimeout time.Duration `json:"prepare_timeout"` // Prepare phase timeout (default 30m)
+	RunTimeout     time.Duration `json:"run_timeout"`     // Run phase timeout (default 24h)
 }

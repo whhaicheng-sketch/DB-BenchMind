@@ -20,14 +20,14 @@ import (
 
 // ResultComparisonPage provides the result comparison GUI.
 type ResultComparisonPage struct {
-	win               fyne.Window
-	comparisonUC      *usecase.ComparisonUseCase
-	list              *widget.List
-	recordRefs        []*comparison.RecordRef
-	selectedMap       map[string]bool
-	ctx               context.Context
-	resultsText       *widget.Entry
-	toggleSelectBtn   *widget.Button
+	win                fyne.Window
+	comparisonUC       *usecase.ComparisonUseCase
+	list               *widget.List
+	recordRefs         []*comparison.RecordRef
+	selectedMap        map[string]bool
+	ctx                context.Context
+	resultsText        *widget.Entry
+	toggleSelectBtn    *widget.Button
 	databaseTypeSelect *widget.Select
 }
 
@@ -159,11 +159,11 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 
 	// ⭐ 上半部分：使用Border让list自动扩展
 	selectionArea := container.NewBorder(
-		filterForm,    // Top
-		nil,           // Bottom
-		nil,           // Left
-		nil,           // Right
-		listScroll,    // Center - 自动扩展填充空间
+		filterForm, // Top
+		nil,        // Bottom
+		nil,        // Left
+		nil,        // Right
+		listScroll, // Center - 自动扩展填充空间
 	)
 
 	// ⭐ 下半部分：关键修复 - 让resultsScroll直接作为Center扩展

@@ -33,11 +33,12 @@ func main() {
 	// Initialize repositories
 	fmt.Println("\n📦 Initializing repositories...")
 	historyRepo := repository.NewSQLiteHistoryRepository(db)
+	runRepo := repository.NewSQLiteRunRepository(db)
 	fmt.Println("✅ History repository initialized")
 
 	// Initialize ComparisonUseCase
 	fmt.Println("\n🔧 Initializing ComparisonUseCase...")
-	comparisonUC := usecase.NewComparisonUseCase(historyRepo)
+	comparisonUC := usecase.NewComparisonUseCase(historyRepo, runRepo)
 	fmt.Println("✅ ComparisonUseCase initialized")
 
 	// Test 1: Get all records

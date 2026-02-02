@@ -119,7 +119,7 @@ func (p *ResultComparisonPage) displayComprehensiveReport(report *comparison.Com
 		}
 	}
 
-	summary += "\nFull report is displayed below.\n\n"+
+	summary += "\nFull report is displayed below.\n\n" +
 		"You can export this report to Markdown or TXT format."
 
 	dialog.ShowInformation("Report Generated", summary, p.win)

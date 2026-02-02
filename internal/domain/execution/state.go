@@ -7,16 +7,16 @@ package execution
 type RunState string
 
 const (
-	StatePending      RunState = "pending"        // Created, waiting to execute
-	StatePreparing    RunState = "preparing"      // Preparing data
-	StatePrepared     RunState = "prepared"       // Preparation complete
-	StateWarmingUp    RunState = "warming_up"     // Warming up
-	StateRunning      RunState = "running"        // Running
-	StateCompleted    RunState = "completed"      // Completed successfully
-	StateFailed       RunState = "failed"         // Failed
-	StateCancelled    RunState = "cancelled"      // Cancelled by user
-	StateTimeout      RunState = "timeout"        // Timeout
-	StateForceStopped RunState = "force_stopped"  // Force stopped
+	StatePending      RunState = "pending"       // Created, waiting to execute
+	StatePreparing    RunState = "preparing"     // Preparing data
+	StatePrepared     RunState = "prepared"      // Preparation complete
+	StateWarmingUp    RunState = "warming_up"    // Warming up
+	StateRunning      RunState = "running"       // Running
+	StateCompleted    RunState = "completed"     // Completed successfully
+	StateFailed       RunState = "failed"        // Failed
+	StateCancelled    RunState = "cancelled"     // Cancelled by user
+	StateTimeout      RunState = "timeout"       // Timeout
+	StateForceStopped RunState = "force_stopped" // Force stopped
 )
 
 // IsValid checks if the state is valid.
