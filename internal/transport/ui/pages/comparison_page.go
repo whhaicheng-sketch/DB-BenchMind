@@ -45,7 +45,6 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 
 	// Create Database Type selector
 	page.databaseTypeSelect = widget.NewSelect([]string{
-		"All",
 		"MySQL",
 		"PostgreSQL",
 		"Oracle",
@@ -53,7 +52,7 @@ func NewResultComparisonPage(win fyne.Window, comparisonUC *usecase.ComparisonUs
 	}, func(selected string) {
 		page.onDatabaseTypeChange(selected)
 	})
-	page.databaseTypeSelect.SetSelected("All")
+	page.databaseTypeSelect.SetSelected("MySQL")
 
 	// Create toolbar
 	btnCompare := widget.NewButton("📊 Compare Records", func() {
@@ -341,17 +340,13 @@ func (p *ResultComparisonPage) onDatabaseTypeChange(selected string) {
 	}
 
 	// Filter by database type
-	if selected == "All" {
-		p.recordRefs = refs
-	} else {
-		var filtered []*comparison.RecordRef
-		for _, ref := range refs {
-			if ref.DatabaseType == selected {
-				filtered = append(filtered, ref)
-			}
+	var filtered []*comparison.RecordRef
+	for _, ref := range refs {
+		if ref.DatabaseType == selected {
+			filtered = append(filtered, ref)
 		}
-		p.recordRefs = filtered
 	}
+	p.recordRefs = filtered
 
 	// Clear selections when filter changes
 	p.selectedMap = make(map[string]bool)
