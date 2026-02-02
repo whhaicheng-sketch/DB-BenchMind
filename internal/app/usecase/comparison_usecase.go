@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/repository"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/comparison"
@@ -144,4 +146,178 @@ type ComparisonFilter struct {
 	TemplateName string
 	MinThreads    int
 	MaxThreads    int
+}
+
+// GenerateComprehensiveReport generates a comprehensive comparison report
+// with grouped configurations and statistical analysis.
+//
+// This is the new method that replaces CompareRecords for professional
+// multi-configuration analysis with N runs per config.
+//
+// Parameters:
+//   - ctx: Context
+//   - recordIDs: IDs of history records to include (or empty for all records)
+//   - groupBy: Primary grouping dimension
+//   - similarityConfig: Auto-detection settings (optional, uses defaults if nil)
+//
+// Returns:
+//   - *comparison.ComparisonReport: Comprehensive report with all analysis
+//   - error: If report generation fails
+func (uc *ComparisonUseCase) GenerateComprehensiveReport(
+	ctx context.Context,
+	recordIDs []string,
+	groupBy comparison.GroupByField,
+	similarityConfig *comparison.SimilarityConfig,
+) (*comparison.ComparisonReport, error) {
+	slog.Info("Comparison: Generating comprehensive report",
+		"record_ids_count", len(recordIDs), "group_by", groupBy)
+
+	// Fetch records
+	var records []*history.Record
+	var err error
+
+	if len(recordIDs) > 0 {
+		// Fetch specific records
+		records, err = uc.getRecordsByID(ctx, recordIDs)
+	} else {
+		// Fetch all records
+		records, err = uc.historyRepo.GetAll(ctx)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("fetch records: %w", err)
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("need at least 2 records for comparison, got %d", len(records))
+	}
+
+	slog.Info("Comparison: Records loaded", "count", len(records))
+
+	// Use default similarity config if not provided
+	if similarityConfig == nil {
+		similarityConfig = comparison.DefaultSimilarityConfig()
+		similarityConfig.GroupBy = groupBy
+	}
+
+	// Group records by configuration
+	configGroups, err := comparison.GroupRecordsByConfig(records, groupBy, similarityConfig)
+	if err != nil {
+		return nil, fmt.Errorf("group records: %w", err)
+	}
+
+	slog.Info("Comparison: Records grouped", "groups", len(configGroups))
+
+	// Create report
+	report := &comparison.ComparisonReport{
+		GeneratedAt:     time.Now(),
+		ReportID:        comparison.FormatReportID(),
+		GroupBy:         groupBy,
+		ConfigGroups:    configGroups,
+		SimilarityConfig: similarityConfig,
+	}
+
+	// Perform scaling analysis
+	report.ScalingAnalysis = uc.performScalingAnalysis(configGroups)
+
+	// Perform sanity checks
+	report.SanityChecks = comparison.ValidateReport(report)
+
+	// Generate findings
+	report.Findings = comparison.GenerateReportFindings(report)
+
+	slog.Info("Comparison: Report generated successfully",
+		"report_id", report.ReportID,
+		"groups", len(configGroups))
+
+	return report, nil
+}
+
+// getRecordsByID fetches specific records by their IDs.
+func (uc *ComparisonUseCase) getRecordsByID(ctx context.Context, recordIDs []string) ([]*history.Record, error) {
+	if len(recordIDs) == 0 {
+		return []*history.Record{}, nil
+	}
+
+	allRecords, err := uc.historyRepo.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create ID map for efficient lookup
+	idMap := make(map[string]bool)
+	for _, id := range recordIDs {
+		idMap[id] = true
+	}
+
+	// Filter records by ID
+	var filtered []*history.Record
+	for _, record := range allRecords {
+		if idMap[record.ID] {
+			filtered = append(filtered, record)
+		}
+	}
+
+	// Verify all requested records were found
+	if len(filtered) != len(recordIDs) {
+		return nil, fmt.Errorf("some records not found: expected %d, found %d",
+			len(recordIDs), len(filtered))
+	}
+
+	return filtered, nil
+}
+
+// performScalingAnalysis performs scaling analysis on config groups.
+func (uc *ComparisonUseCase) performScalingAnalysis(groups []*comparison.ConfigGroup) *comparison.ScalingAnalysis {
+	if len(groups) == 0 {
+		return nil
+	}
+
+	// Find baseline (threads=1)
+	var baseline *comparison.ConfigGroup
+	for _, group := range groups {
+		if group.Config.Threads == 1 {
+			baseline = group
+			break
+		}
+	}
+
+	// Perform analysis
+	return comparison.AnalyzeScaling(groups, baseline)
+}
+
+// ExportReport exports a comparison report to file.
+// Supported formats: "markdown", "txt"
+func (uc *ComparisonUseCase) ExportReport(
+	ctx context.Context,
+	report *comparison.ComparisonReport,
+	format string,
+	filepath string,
+) error {
+	if report == nil {
+		return fmt.Errorf("report is nil")
+	}
+
+	var content string
+	switch format {
+	case "markdown", "md":
+		content = report.FormatMarkdown()
+	case "txt":
+		content = report.FormatTXT()
+	default:
+		return fmt.Errorf("unsupported format: %s (supported: markdown, txt)", format)
+	}
+
+	// Write to file
+	err := os.WriteFile(filepath, []byte(content), 0644)
+	if err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	slog.Info("Comparison: Report exported",
+		"format", format,
+		"filepath", filepath,
+		"report_id", report.ReportID)
+
+	return nil
 }

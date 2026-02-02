@@ -1,0 +1,114 @@
+╔══════════════════════════════════════════════════════════════════╗
+║        SYSBENCH MULTI-CONFIGURATION COMPARISON REPORT            ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Generated: 2026-02-02 03:04:30
+Report ID: report-20260202-030430
+Group By: threads
+Config Groups: 5
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2) EXPERIMENT MATRIX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Config C1: threads=1, database=mysql, runs=1
+Config C2: threads=2, database=mysql, runs=1
+Config C3: threads=4, database=mysql, runs=1
+Config C4: threads=8, database=mysql, runs=1
+Config C5: threads=16, database=mysql, runs=1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3) THROUGHPUT & LATENCY SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+threads=1 (N=1):
+  TPS:  63.93
+  QPS:  1286.67
+  Lat:  avg=15.57, p95=33.72, max=48.39
+
+threads=2 (N=1):
+  TPS:  116.84
+  QPS:  2360.00
+  Lat:  avg=17.04, p95=27.17, max=32.57
+
+threads=4 (N=1):
+  TPS:  255.63
+  QPS:  5173.33
+  Lat:  avg=15.52, p95=21.50, max=30.97
+
+threads=8 (N=1):
+  TPS:  608.50
+  QPS:  12273.33
+  Lat:  avg=13.06, p95=16.41, max=49.96
+
+threads=16 (N=1):
+  TPS:  751.37
+  QPS:  15333.33
+  Lat:  avg=20.96, p95=31.94, max=104.36
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4) SCALING ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+threads=1: speedup=1.00x, efficiency=100.00%
+threads=2: speedup=1.83x, efficiency=91.38%
+threads=4: speedup=4.00x, efficiency=99.96%
+threads=8: speedup=9.52x, efficiency=118.98%
+threads=16: speedup=11.75x, efficiency=73.46%
+
+
+## Sanity Checks
+
+⚠️  **SOME CHECKS FAILED**
+
+│ Check │ Result │ Details │
+├───────┼────────┼─────────┤
+│ Config groups exist                                │ ✅ PASS   │ Found 5 config groups                              │
+│ Latency min ≤ avg (Group C1)                       │ ✅ PASS   │ min=15.57, avg=15.57                               │
+│ Latency avg ≤ p95 (Group C1)                       │ ✅ PASS   │ avg=15.57, p95=33.72                               │
+│ Latency p95 ≤ p99 (Group C1)                       │ ❌ FAIL   │ p95=33.72, p99=0.00                                │
+│ Latency p99 ≤ max (Group C1)                       │ ✅ PASS   │ p99=0.00, max=48.39                                │
+│ QPS ≈ TPS × queries/tx (Group C1)                  │ ✅ PASS   │ Expected=1278.60, Actual=1286.67, Diff=0.63%       │
+│ SQL total = read + write + other (Group C1)        │ ✅ PASS   │ Read=2702, Write=772, Other=386, Calculated=386... │
+│ No errors/reconnects (Group C1)                    │ ✅ PASS   │ Errors=0, Reconnects=0                             │
+│ N=1 stddev check (Group C1)                        │ ✅ PASS   │ StdDev=0.00 (expected 0 for N=1)                   │
+│ Latency min ≤ avg (Group C2)                       │ ✅ PASS   │ min=17.04, avg=17.04                               │
+│ Latency avg ≤ p95 (Group C2)                       │ ✅ PASS   │ avg=17.04, p95=27.17                               │
+│ Latency p95 ≤ p99 (Group C2)                       │ ❌ FAIL   │ p95=27.17, p99=0.00                                │
+│ Latency p99 ≤ max (Group C2)                       │ ✅ PASS   │ p99=0.00, max=32.57                                │
+│ QPS ≈ TPS × queries/tx (Group C2)                  │ ✅ PASS   │ Expected=2336.80, Actual=2360.00, Diff=0.99%       │
+│ SQL total = read + write + other (Group C2)        │ ✅ PASS   │ Read=4956, Write=1416, Other=708, Calculated=70... │
+│ No errors/reconnects (Group C2)                    │ ✅ PASS   │ Errors=0, Reconnects=0                             │
+│ N=1 stddev check (Group C2)                        │ ✅ PASS   │ StdDev=0.00 (expected 0 for N=1)                   │
+│ Latency min ≤ avg (Group C3)                       │ ✅ PASS   │ min=15.52, avg=15.52                               │
+│ Latency avg ≤ p95 (Group C3)                       │ ✅ PASS   │ avg=15.52, p95=21.50                               │
+│ Latency p95 ≤ p99 (Group C3)                       │ ❌ FAIL   │ p95=21.50, p99=0.00                                │
+│ Latency p99 ≤ max (Group C3)                       │ ✅ PASS   │ p99=0.00, max=30.97                                │
+│ QPS ≈ TPS × queries/tx (Group C3)                  │ ✅ PASS   │ Expected=5112.60, Actual=5173.33, Diff=1.19%       │
+│ SQL total = read + write + other (Group C3)        │ ✅ PASS   │ Read=10864, Write=3104, Other=1552, Calculated=... │
+│ No errors/reconnects (Group C3)                    │ ✅ PASS   │ Errors=0, Reconnects=0                             │
+│ N=1 stddev check (Group C3)                        │ ✅ PASS   │ StdDev=0.00 (expected 0 for N=1)                   │
+│ Latency min ≤ avg (Group C4)                       │ ✅ PASS   │ min=13.06, avg=13.06                               │
+│ Latency avg ≤ p95 (Group C4)                       │ ✅ PASS   │ avg=13.06, p95=16.41                               │
+│ Latency p95 ≤ p99 (Group C4)                       │ ❌ FAIL   │ p95=16.41, p99=0.00                                │
+│ Latency p99 ≤ max (Group C4)                       │ ✅ PASS   │ p99=0.00, max=49.96                                │
+│ QPS ≈ TPS × queries/tx (Group C4)                  │ ✅ PASS   │ Expected=12170.00, Actual=12273.33, Diff=0.85%     │
+│ SQL total = read + write + other (Group C4)        │ ✅ PASS   │ Read=25774, Write=7364, Other=3682, Calculated=... │
+│ No errors/reconnects (Group C4)                    │ ✅ PASS   │ Errors=0, Reconnects=0                             │
+│ N=1 stddev check (Group C4)                        │ ✅ PASS   │ StdDev=0.00 (expected 0 for N=1)                   │
+│ Latency min ≤ avg (Group C5)                       │ ✅ PASS   │ min=20.96, avg=20.96                               │
+│ Latency avg ≤ p95 (Group C5)                       │ ✅ PASS   │ avg=20.96, p95=31.94                               │
+│ Latency p95 ≤ p99 (Group C5)                       │ ❌ FAIL   │ p95=31.94, p99=0.00                                │
+│ Latency p99 ≤ max (Group C5)                       │ ✅ PASS   │ p99=0.00, max=104.36                               │
+│ QPS ≈ TPS × queries/tx (Group C5)                  │ ✅ PASS   │ Expected=15027.40, Actual=15333.33, Diff=2.04%     │
+│ SQL total = read + write + other (Group C5)        │ ✅ PASS   │ Read=32200, Write=9200, Other=4600, Calculated=... │
+│ No errors/reconnects (Group C5)                    │ ✅ PASS   │ Errors=0, Reconnects=0                             │
+│ N=1 stddev check (Group C5)                        │ ✅ PASS   │ StdDev=0.00 (expected 0 for N=1)                   │
+│ Baseline exists                                    │ ✅ PASS   │ threads=1 group found: true                        │
+└───────┴────────┴─────────┘
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5) RECOMMENDATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+threads=8
+═══════════════════════════════════════════════════════════════════
