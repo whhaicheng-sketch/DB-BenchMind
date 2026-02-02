@@ -59,7 +59,38 @@
       "Bash(/opt/project/DB-BenchMind/build/db-benchmind-cli detect:*)",
       "Bash(head:*)",
       "Bash(pkill:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(unset:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git reset:*)",
+      "Bash(gofmt:*)",
+      "Bash(bash:*)",
+      "Bash(do echo -n \"Testing $page... \" if go build -o /tmp/test_page.o \"internal/transport/ui/pages/$page\")",
+      "Bash(then echo \"✓ PASSED\" else echo \"✗ FAILED\" fi done)",
+      "Bash(git restore:*)",
+      "Bash(kill:*)",
+      "Bash(git push:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git config:*)",
+      "Bash(git credential-cache:*)",
+      "Bash(ssh-add:*)",
+      "Bash(make:*)",
+      "Bash(dmesg:*)",
+      "Bash(./db-benchmind:*)",
+      "Bash(killall:*)",
+      "Bash(/tmp/check_connections.go <<'GOEOF'\npackage main\n\nimport \\(\n\t\"database/sql\"\n\t\"fmt\"\n\t\"log\"\n\t_ \"github.com/mattn/go-sqlite3\"\n\\)\n\nfunc main\\(\\) {\n\tdb, err := sql.Open\\(\"sqlite3\", \"data/db-benchmind.db\"\\)\n\tif err != nil {\n\t\tlog.Fatal\\(err\\)\n\t}\n\tdefer db.Close\\(\\)\n\n\trows, err := db.Query\\(\"SELECT id, name, db_type, display_type FROM connections\"\\)\n\tif err != nil {\n\t\tlog.Fatal\\(err\\)\n\t}\n\tdefer rows.Close\\(\\)\n\n\tfor rows.Next\\(\\) {\n\t\tvar id, name, dbType, displayType string\n\t\trows.Scan\\(&id, &name, &dbType, &displayType\\)\n\t\tfmt.Printf\\(\"ID: %s, Name: %s, Type: %s, Display: %s\\\\n\", id, name, dbType, displayType\\)\n\t}\n}\nGOEOF)",
+      "Bash(__NEW_LINE_d94327d837ef59f6__ go run /tmp/check_connections.go)",
+      "Bash(pgrep:*)",
+      "Bash(ps:*)",
+      "Bash(xargs:*)",
+      "Bash(/opt/project/DB-BenchMind/.claude/commands/start)",
+      "Bash(/opt/project/DB-Benchmind/.claude/commands/start:*)",
+      "Bash(tail:*)",
+      "Bash(./bin/db-benchmind:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "github"
+  ]
 }

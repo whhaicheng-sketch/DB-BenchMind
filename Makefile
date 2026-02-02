@@ -6,7 +6,7 @@
 # Variables
 BINARY_NAME=db-benchmind
 CMD_DIR=./cmd/db-benchmind
-BUILD_DIR=./build
+BUILD_DIR=./bin
 GO=go
 GOFLAGS=-v
 LINT=golangci-lint
@@ -62,7 +62,12 @@ clean:
 ## run: Build and run the application
 run: build
 	@echo "Running $(BINARY_NAME)..."
-	$(BUILD_DIR)/$(BINARY_NAME)
+	@echo "IMPORTANT: Must run from project root directory!"
+	@if [ "$$(pwd)" != "$$(cd "$(dirname "$(realpath "$(MAKEFILE_LIST))")" && pwd)" ]; then \
+		echo "ERROR: Must run from project root directory. Current: $$(pwd)"; \
+		exit 1; \
+	fi
+	$(BUILD_DIR)/$(BINARY_NAME) gui
 
 ## deps: Download dependencies
 deps:
