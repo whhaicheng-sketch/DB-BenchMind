@@ -4,8 +4,11 @@ package connection
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	_ "github.com/lib/pq" // Register PostgreSQL driver
 )
 
 // PostgreSQLConnection represents a PostgreSQL database connection configuration.
@@ -104,25 +107,59 @@ func (c *PostgreSQLConnection) Validate() error {
 	return nil
 }
 
-// Test tests the PostgreSQL connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
+// Test tests the PostgreSQL connection availability (REQ-PG-CONN-010, REQ-PG-CONN-011, REQ-PG-CONN-012).
 //
-// Note: PostgreSQL driver is not imported yet.
-// When ready, need to import: _ "github.com/lib/pq"
+// It attempts to connect to the PostgreSQL database and returns:
+// - Success: Whether the connection succeeded
+// - LatencyMs: Time taken to establish connection
+// - Version: PostgreSQL version string (on success)
+// - Error: Error message (on failure)
+//
+// The context supports cancellation and timeout.
 func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Placeholder - PostgreSQL driver not yet imported
-	// When ready, uncomment and implement:
-	// dsn := c.GetDSNWithPassword()
-	// db, err := sql.Open("postgres", dsn)
-	// ...
+	// Build DSN with password
+	dsn := c.GetDSNWithPassword()
 
+	// Try to open connection
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to open connection: %v", err),
+			LatencyMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+	defer db.Close()
+
+	// Set timeout for connection test (5 seconds per REQ-PG-CONN-011)
+	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Attempt to ping the database
+	err = db.PingContext(testCtx)
 	latency := time.Since(start).Milliseconds()
 
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: latency,
+			Error:     fmt.Sprintf("Connection failed: %v", err),
+		}, nil
+	}
+
+	// Query PostgreSQL version (REQ-PG-CONN-011)
+	var version string
+	err = db.QueryRowContext(testCtx, "SELECT version()").Scan(&version)
+	if err != nil {
+		version = "Unknown"
+	}
+
 	return &TestResult{
-		Success:   false,
-		LatencyMs: latency,
-		Error:     "PostgreSQL driver not available - requires github.com/lib/pq",
+		Success:         true,
+		LatencyMs:       latency,
+		DatabaseVersion: version,
 	}, nil
 }
 

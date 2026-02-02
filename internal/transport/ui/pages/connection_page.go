@@ -293,7 +293,10 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	d.dbEntry = widget.NewEntry()
 	d.userEntry = widget.NewEntry()
 	d.passEntry = widget.NewPasswordEntry()
-	d.sslSelect = widget.NewSelect([]string{"disabled", "preferred", "required"}, nil)
+	d.sslSelect = widget.NewSelect([]string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}, func(selected string) {
+		// Update form preview if needed
+	})
+	d.sslSelect.SetSelected("prefer")
 	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, func(s string) {
 		// Set default port based on database type
 		switch s {
