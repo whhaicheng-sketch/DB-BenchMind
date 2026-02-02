@@ -186,12 +186,14 @@ func (r *SQLiteHistoryRepository) GetAll(ctx context.Context) ([]*history.Record
 		record.StartTime = startTime
 
 		record.Duration = time.Duration(durationSeconds) * time.Second
-		record.TPSCalculated = tps
 
 		// Unmarshal the full record JSON to get all fields
 		if err := json.Unmarshal([]byte(recordJSON), &record); err != nil {
 			return nil, fmt.Errorf("unmarshal record JSON: %w", err)
 		}
+
+		// ⭐ 关键修复：在Unmarshal之后设置TPS，确保使用数据库列中的值
+		record.TPSCalculated = tps
 
 		records = append(records, &record)
 	}
@@ -318,12 +320,14 @@ func (r *SQLiteHistoryRepository) List(ctx context.Context, opts *repository.Lis
 		record.StartTime = startTime
 
 		record.Duration = time.Duration(durationSeconds) * time.Second
-		record.TPSCalculated = tps
 
 		// Unmarshal the full record JSON to get all fields
 		if err := json.Unmarshal([]byte(recordJSON), &record); err != nil {
 			return nil, fmt.Errorf("unmarshal record JSON: %w", err)
 		}
+
+		// ⭐ 关键修复：在Unmarshal之后设置TPS，确保使用数据库列中的值
+		record.TPSCalculated = tps
 
 		records = append(records, &record)
 	}

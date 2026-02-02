@@ -322,6 +322,13 @@ func (c *MultiConfigComparison) FormatBarChart(metric string) string {
 		stats = c.TPSComparison
 	case "QPS":
 		stats = c.QPSComparison
+	case "Latency":
+		// For latency, use average latency statistics
+		if c.LatencyCompare == nil || c.LatencyCompare.Avg == nil {
+			return "No latency data available"
+		}
+		stats = c.LatencyCompare.Avg
+		metric = "Avg Latency (ms)" // More descriptive label
 	default:
 		return "Unknown metric"
 	}

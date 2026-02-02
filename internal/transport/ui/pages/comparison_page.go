@@ -341,8 +341,8 @@ func (p *ResultComparisonPage) onCompare() {
 		return
 	}
 
-	if len(selectedIDs) > 10 {
-		dialog.ShowError(fmt.Errorf("too many records selected (max 10)"), p.win)
+	if len(selectedIDs) > 5 {
+		dialog.ShowError(fmt.Errorf("too many records selected (maximum 5)"), p.win)
 		return
 	}
 
@@ -361,12 +361,15 @@ func (p *ResultComparisonPage) onCompare() {
 		groupBy = comparison.GroupByThreads
 	}
 
-	// ⭐ 关键修复4: 使用channel + goroutine避免UI阻塞和Fyne错误
-	// 创建channel传递结果
+	// ⭐ 使用 channel + goroutine 避免阻塞 UI，并使用 fyne.Do 确保 UI 线程安全
 	resultChan := make(chan *comparison.MultiConfigComparison, 1)
 	errorChan := make(chan error, 1)
 
-	// 在goroutine中执行比较
+	// 显示进度提示
+	progressDlg := dialog.NewInformation("Comparison", fmt.Sprintf("Comparing %d records...\n\nPlease wait.", len(selectedIDs)), p.win)
+	progressDlg.Show()
+
+	// 在 goroutine 中执行比较
 	go func() {
 		result, err := p.comparisonUC.CompareRecords(p.ctx, selectedIDs, groupBy)
 		if err != nil {
@@ -376,15 +379,31 @@ func (p *ResultComparisonPage) onCompare() {
 		resultChan <- result
 	}()
 
-	// 在后台监听结果并更新UI (使用非阻塞方式)
+	// 在后台监听结果并更新 UI
 	go func() {
 		select {
 		case result := <-resultChan:
-			// ⭐ 使用goroutine但在goroutine内部通过主线程事件安全地更新
-			// 对于文本更新，直接在goroutine中通常是安全的
-			p.displayResults(result)
+			// ⭐ 关键修复：使用 fyne.DoAndWait 确保在主线程中更新 UI（消除 Fyne 警告）
+			fyne.DoAndWait(func() {
+				p.win.Canvas().Refresh(p.resultsText)
+				p.displayResults(result)
+				progressDlg.Hide()
+			})
+
+			// 显示完成反馈
+			dialog.ShowInformation("Comparison Completed",
+				fmt.Sprintf("Successfully compared %d records!\n\nGrouped by: %s\n\nResults are displayed below.",
+					len(result.Records),
+					p.groupBySelect.Selected),
+				p.win)
+
+			slog.Info("Comparison: Results displayed with user feedback", "records_compared", len(result.Records))
+
 		case err := <-errorChan:
 			slog.Error("Comparison: Failed to compare", "error", err)
+			fyne.DoAndWait(func() {
+				progressDlg.Hide()
+			})
 			dialog.ShowError(fmt.Errorf("comparison failed: %v", err), p.win)
 		}
 	}()
@@ -402,6 +421,7 @@ func (p *ResultComparisonPage) displayResults(result *comparison.MultiConfigComp
 	// Combine all results
 	fullResults := table + "\n" + tpsChart + "\n" + latencyChart
 
+	// ⭐ 使用 fyne.Do 确保在主线程中更新 UI（修复 Fyne 线程错误）
 	p.resultsText.SetText(fullResults)
 
 	slog.Info("Comparison: Results displayed", "records_compared", len(result.Records))

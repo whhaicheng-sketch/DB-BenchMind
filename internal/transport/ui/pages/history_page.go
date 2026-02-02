@@ -140,15 +140,18 @@ func NewHistoryRecordPage(win fyne.Window, historyUC *usecase.HistoryUseCase, ex
 		},
 	)
 
-	// Create toolbar - only Refresh and Export All
+	// Create toolbar - Refresh, Delete All, Export All
 	btnRefresh := widget.NewButton("🔄 Refresh", func() {
 		page.Refresh()
+	})
+	btnDeleteAll := widget.NewButton("🗑️ Delete All", func() {
+		page.onDeleteAll()
 	})
 	btnExportAll := widget.NewButton("💾 Export All", func() {
 		page.onExportAll()
 	})
 
-	toolbar := container.NewHBox(btnRefresh, btnExportAll)
+	toolbar := container.NewHBox(btnRefresh, btnDeleteAll, btnExportAll)
 
 	// Create summary label
 	page.summaryLabel = widget.NewLabel(fmt.Sprintf("Total Runs: %d", len(page.records)))
@@ -468,4 +471,48 @@ func (p *HistoryRecordPage) onExportAll() {
 				p.win)
 		}()
 	}, p.win)
+}
+
+// onDeleteAll deletes all history records after confirmation.
+func (p *HistoryRecordPage) onDeleteAll() {
+	if len(p.records) == 0 {
+		dialog.ShowInformation("Delete All", "No records to delete", p.win)
+		return
+	}
+
+	dialog.ShowConfirm(
+		"Delete All Records",
+		fmt.Sprintf("Are you sure you want to delete ALL %d history records?\n\nThis action cannot be undone!", len(p.records)),
+		func(confirmed bool) {
+			if !confirmed {
+				return
+			}
+
+			recordCount := len(p.records)
+			slog.Info("History: Deleting all records", "count", recordCount)
+
+			// Delete all records from database
+			if p.historyUC != nil {
+				for _, record := range p.records {
+					if err := p.historyUC.DeleteRecord(p.ctx, record.ID); err != nil {
+						slog.Error("History: Failed to delete record", "id", record.ID, "error", err)
+					}
+				}
+			}
+
+			// Clear the list
+			p.records = []*history.Record{}
+			p.selected = -1
+			p.list.Refresh()
+
+			// Update summary
+			p.summaryLabel.SetText("Total Runs: 0")
+
+			slog.Info("History: All records deleted successfully", "count", recordCount)
+			dialog.ShowInformation("Delete All Successful",
+				fmt.Sprintf("Successfully deleted all %d records", recordCount),
+				p.win)
+		},
+		p.win,
+	)
 }
