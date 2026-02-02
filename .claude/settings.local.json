@@ -88,7 +88,9 @@
       "Bash(tail:*)",
       "Bash(./bin/db-benchmind:*)",
       "Bash(./test_simplified_report:*)",
-      "Bash(gh auth status:*)"
+      "Bash(gh auth status:*)",
+      "Bash(GIT_ASKPASS=\"echo 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\" git push https://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@github.com/whhaicheng/DB-BenchMind.git main)",
+      "Bash(GIT_ASKPASS=\"echo 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\" git push origin main)"
     ]
   },
   "enableAllProjectMcpServers": true,

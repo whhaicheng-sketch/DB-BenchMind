@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,12 +37,13 @@ func (m *mockBenchmarkAdapter) ParseRunOutput(ctx context.Context, stdout string
 	return &Result{TPS: 1000.0}, nil
 }
 
-func (m *mockBenchmarkAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error) {
+func (m *mockBenchmarkAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader, stderr io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
 	sampleCh := make(chan Sample, 1)
 	errCh := make(chan error, 1)
+	var buf strings.Builder
 	close(sampleCh)
 	close(errCh)
-	return sampleCh, errCh
+	return sampleCh, errCh, &buf
 }
 
 func (m *mockBenchmarkAdapter) ValidateConfig(ctx context.Context, config *Config) error {
@@ -50,6 +52,13 @@ func (m *mockBenchmarkAdapter) ValidateConfig(ctx context.Context, config *Confi
 
 func (m *mockBenchmarkAdapter) SupportsDatabase(dbType connection.DatabaseType) bool {
 	return true
+}
+
+func (m *mockBenchmarkAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
+	return &FinalResult{
+		TransactionsPerSec: 1000.0,
+		TotalTransactions: 1000,
+	}, nil
 }
 
 // TestAdapterRegistry_Register tests adapter registration.
