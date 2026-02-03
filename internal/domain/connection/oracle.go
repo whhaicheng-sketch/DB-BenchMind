@@ -6,6 +6,9 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	_ "github.com/sijms/go-ora/v2" // Oracle driver
+	"database/sql"
 )
 
 // OracleConnection represents an Oracle database connection configuration.
@@ -97,23 +100,57 @@ func (c *OracleConnection) Validate() error {
 
 // Test tests the Oracle connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
 //
-// Note: Oracle driver is not imported yet.
-// When ready, need to import: _ "github.com/sijms/go-ora/v2"
+// It attempts to connect to the Oracle database and returns:
+// - Success: Whether the connection succeeded
+// - LatencyMs: Time taken to establish connection
+// - Version: Oracle version string (on success)
+// - Error: Error message (on failure)
+//
+// The context supports cancellation and timeout.
 func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Placeholder - Oracle driver not yet imported
-	// When ready, uncomment and implement:
-	// dsn := c.GetDSNWithPassword()
-	// db, err := sql.Open("oracle", dsn)
-	// ...
+	// Build DSN with password
+	dsn := c.GetDSNWithPassword()
 
+	// Try to open connection
+	db, err := sql.Open("oracle", dsn)
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			Error:     fmt.Sprintf("failed to open connection: %v", err),
+			LatencyMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+	defer db.Close()
+
+	// Set timeout for connection test (10 seconds)
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Attempt to ping the database
+	err = db.PingContext(testCtx)
 	latency := time.Since(start).Milliseconds()
 
+	if err != nil {
+		return &TestResult{
+			Success:   false,
+			LatencyMs: latency,
+			Error:     fmt.Sprintf("connection failed: %v", err),
+		}, nil
+	}
+
+	// Query Oracle version
+	var version string
+	err = db.QueryRowContext(testCtx, "SELECT * FROM v$version WHERE rownum = 1").Scan(&version)
+	if err != nil {
+		version = "unknown"
+	}
+
 	return &TestResult{
-		Success:   false,
-		LatencyMs: latency,
-		Error:     "Oracle driver not available - requires github.com/sijms/go-ora/v2",
+		Success:        true,
+		LatencyMs:      latency,
+		DatabaseVersion: version,
 	}, nil
 }
 
