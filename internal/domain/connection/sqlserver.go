@@ -123,10 +123,17 @@ func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
+		errorMsg := fmt.Sprintf("connection failed: %v", err)
+
+		// Provide helpful hints for common errors
+		if !c.TrustServerCertificate {
+			errorMsg += "\n\n💡 Hint: Try enabling 'Trust Server Certificate' if using self-signed certificates"
+		}
+
 		return &TestResult{
 			Success:   false,
 			LatencyMs: latency,
-			Error:     fmt.Sprintf("connection failed: %v", err),
+			Error:     errorMsg,
 		}, nil
 	}
 

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark Report - test-run-1</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 40px;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        .summary {
+            background: #ecf0f1;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .summary-item {
+            display: inline-block;
+            margin: 5px 15px 5px 0;
+        }
+        .summary-label {
+            font-weight: bold;
+            color: #7f8c8d;
+        }
+        .status-success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .status-failed {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: 600;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .metric-card {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            margin: 10px;
+            border-radius: 8px;
+            min-width: 200px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .chart-container {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+            font-size: 0.9em;
+        }
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #34495e;
+        }
+        .log-error {
+            color: #e74c3c;
+        }
+        .log-info {
+            color: #3498db;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body><div class="container"><h1>Benchmark Report - test-run-1</h1>
+<div class="summary"><div class="summary-item"><span class="summary-label">Status:</span> <span class="status-success">✅ Completed</span></div><div class="summary-item"><span class="summary-label">Tool:</span> unknown</div><div class="summary-item"><span class="summary-label">Template:</span> Unknown</div><div class="summary-item"><span class="summary-label">Database:</span> Unknown (unknown)</div><div class="summary-item"><span class="summary-label">Duration:</span> 5m0s</div><div class="summary-item"><span class="summary-label">Started:</span> 2026-02-02T14:29:02Z</div><div class="summary-item"><span class="summary-label">Completed:</span> 2026-02-02T14:29:02Z</div></div><h2>Environment</h2><table><tr><th>Property</th><th>Value</th></tr><tr><td>Run ID</td><td><code>test-run-1</code></td></tr><tr><td>Task ID</td><td><code>task-1</code></td></tr><tr><td>State</td><td>completed</td></tr><tr><td>Created</td><td>Mon, 02 Feb 2026 14:29:02 UTC</td></tr></table><h2>Metrics</h2><div class="metrics"><div class="metric-card"><div class="metric-label">TPS</div><div class="metric-value">1234.56</div></div><div class="metric-card"><div class="metric-label">Avg Latency</div><div class="metric-value">5.25 ms</div></div><div class="metric-card"><div class="metric-label">P95 Latency</div><div class="metric-value">12.34 ms</div></div><div class="metric-card"><div class="metric-label">P99 Latency</div><div class="metric-value">23.45 ms</div></div><div class="metric-card"><div class="metric-label">Transactions</div><div class="metric-value">10000</div></div><div class="metric-card"><div class="metric-label">Queries</div><div class="metric-value">50000</div></div><div class="metric-card"><div class="metric-label">Error Rate</div><div class="metric-value">0.00%</div></div></div><h2>Charts</h2><h3>TPS Over Time</h3><div class="chart-container"><pre>TPS
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │                                                            
+ 1000.00 │█                                                           
+</pre></div><h3>Latency Distribution</h3><div class="chart-container"><pre><5.0 │█████████████████████████████████████████████ 1
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+5.0-5.0 │ 0
+≥5.0 │ 0
+</pre></div><h2>Time Series Data</h2><table><tr><th>Timestamp</th><th>TPS</th><th>Latency (ms)</th><th>P95 (ms)</th><th>P99 (ms)</th><th>Error Rate (%)</th></tr><tr><td>14:29:02</td><td>1000.00</td><td>5.00</td><td>10.00</td><td>20.00</td><td>0.00</td></tr></table></div><div class="footer"><p>Generated by DB-BenchMind at Mon, 02 Feb 2026 14:29:02 UTC</p></div></body></html>

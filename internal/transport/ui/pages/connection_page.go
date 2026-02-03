@@ -252,10 +252,20 @@ func (p *ConnectionPage) onDeleteConnection(conn connection.Connection) {
 // onTestConnection handles the "Test Connection" button click.
 func (p *ConnectionPage) onTestConnection(conn connection.Connection) {
 	win := p.win // Capture for goroutine
+
+	// Show progress dialog
+	progressDlg := dialog.NewInformation("Testing Connection",
+		fmt.Sprintf("Testing connection '%s'...\n\nPlease wait.", conn.GetName()), win)
+	progressDlg.Show()
+
 	// Test in background
 	go func() {
 		slog.Info("Connections: Testing connection", "name", conn.GetName())
 		result, err := p.connUC.TestConnection(context.Background(), conn.GetID())
+
+		// Hide progress dialog
+		progressDlg.Hide()
+
 		if err != nil {
 			dialog.ShowError(err, win)
 			return
@@ -293,15 +303,11 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	d.dbEntry = widget.NewEntry()
 	d.userEntry = widget.NewEntry()
 	d.passEntry = widget.NewPasswordEntry()
-	d.sslSelect = widget.NewSelect([]string{"disable", "require", "verify-ca", "verify-full"}, func(selected string) {
-		// Update form preview if needed
-	})
-	d.sslSelect.SetSelected("disable")
 	d.trustServerCertCheck = widget.NewCheck("Trust Server Certificate", func(checked bool) {
 		// Handle trust server certificate change
 	})
-	d.trustServerCertCheck.SetChecked(false)
-	d.trustServerCertCheck.Hide() // Initially hidden, only show for SQL Server
+	d.trustServerCertCheck.SetChecked(true) // Default to true for SQL Server (recommended)
+	d.trustServerCertCheck.Hide()          // Initially hidden, only show for SQL Server
 	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, func(s string) {
 		// Set default port based on database type
 		switch s {
@@ -315,12 +321,11 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.portEntry.SetText("1433")
 		}
 
-		// Show/hide SSL and Trust Server Certificate based on database type
+		// Show/hide Trust Server Certificate based on database type
 		if s == "SQL Server" {
-			d.sslSelect.Hide()
 			d.trustServerCertCheck.Show()
+			d.trustServerCertCheck.SetChecked(true) // Enable by default for SQL Server
 		} else {
-			d.sslSelect.Show()
 			d.trustServerCertCheck.Hide()
 		}
 
@@ -339,9 +344,6 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 						}
 						d.dbEntry.SetText(defaultConfig.MySQL.Database)
 						d.userEntry.SetText(defaultConfig.MySQL.Username)
-						if defaultConfig.MySQL.SSLMode != "" {
-							d.sslSelect.SetSelected(defaultConfig.MySQL.SSLMode)
-						}
 						slog.Info("Connections: Loaded default config for MySQL")
 					}
 				case "PostgreSQL":
@@ -354,9 +356,6 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 						}
 						d.dbEntry.SetText(defaultConfig.PostgreSQL.Database)
 						d.userEntry.SetText(defaultConfig.PostgreSQL.Username)
-						if defaultConfig.PostgreSQL.SSLMode != "" {
-							d.sslSelect.SetSelected(defaultConfig.PostgreSQL.SSLMode)
-						}
 						slog.Info("Connections: Loaded default config for PostgreSQL")
 					}
 				case "Oracle":
@@ -396,6 +395,18 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 
 	// If editing, populate with existing values
 	if d.isEditMode && d.conn != nil {
+		// For edit mode, load connection with password from keyring
+		connWithPassword, err := connUC.GetConnectionByID(context.Background(), d.conn.GetID())
+		if err != nil {
+			slog.Warn("Connections: Failed to load password from keyring", "error", err)
+			// Continue without password, user will need to re-enter
+		} else {
+			d.conn = connWithPassword // Replace with connection that has password
+			slog.Info("Connections: Loaded connection with password from keyring",
+				"id", d.conn.GetID(),
+				"has_password", d.conn != nil)
+		}
+
 		d.nameEntry.SetText(d.conn.GetName())
 		// Convert DatabaseType to display name
 		displayType := ""
@@ -419,14 +430,12 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
-			d.sslSelect.SetSelected(c.SSLMode)
 		case *connection.PostgreSQLConnection:
 			d.hostEntry.SetText(c.Host)
 			d.portEntry.SetText(fmt.Sprintf("%d", c.Port))
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
-			d.sslSelect.SetSelected(c.SSLMode)
 		case *connection.OracleConnection:
 			d.hostEntry.SetText(c.Host)
 			d.portEntry.SetText(fmt.Sprintf("%d", c.Port))
@@ -440,6 +449,12 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
 			d.trustServerCertCheck.SetChecked(c.TrustServerCertificate)
+			slog.Info("Connections: Loaded SQL Server connection in edit mode",
+				"host", c.Host,
+				"port", c.Port,
+				"username", c.Username,
+				"password_length", len(c.Password),
+				"trust_server_cert", c.TrustServerCertificate)
 		}
 	} else {
 		// New connection - load default config if available
@@ -453,15 +468,11 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 				}
 				d.dbEntry.SetText(defaultConfig.MySQL.Database)
 				d.userEntry.SetText(defaultConfig.MySQL.Username)
-				if defaultConfig.MySQL.SSLMode != "" {
-					d.sslSelect.SetSelected(defaultConfig.MySQL.SSLMode)
-				}
 			}
 			slog.Info("Connections: Loaded default config", "db_type", "MySQL")
 		}
 	}
 
-	// Create form items with dynamic SSL/Trust Server Certificate field
 	formItems := []*widget.FormItem{
 		widget.NewFormItem("Database Type", d.dbTypeSelect),
 		widget.NewFormItem("Name", d.nameEntry),
@@ -470,7 +481,6 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		widget.NewFormItem("Database", d.dbEntry),
 		widget.NewFormItem("Username", d.userEntry),
 		widget.NewFormItem("Password", d.passEntry),
-		widget.NewFormItem("SSL", d.sslSelect),
 		widget.NewFormItem("Encryption", d.trustServerCertCheck),
 	}
 
@@ -533,8 +543,31 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 	database := strings.TrimSpace(d.dbEntry.Text)
 	username := strings.TrimSpace(d.userEntry.Text)
 	password := d.passEntry.Text
-	sslMode := d.sslSelect.Selected
 	trustServerCert := d.trustServerCertCheck.Checked
+
+	// In edit mode, if password field is empty, reload from keyring
+	if d.isEditMode && d.conn != nil && password == "" {
+		slog.Info("Connections: Loading password from keyring for save",
+			"conn_id", d.conn.GetID())
+		connWithPassword, err := d.connUC.GetConnectionByID(ctx, d.conn.GetID())
+		if err != nil {
+			slog.Error("Connections: Failed to load password from keyring", "error", err)
+			dialog.ShowError(fmt.Errorf("failed to load password: %w", err), win)
+			return
+		}
+		switch c := connWithPassword.(type) {
+		case *connection.MySQLConnection:
+			password = c.Password
+		case *connection.PostgreSQLConnection:
+			password = c.Password
+		case *connection.OracleConnection:
+			password = c.Password
+		case *connection.SQLServerConnection:
+			password = c.Password
+		}
+		slog.Info("Connections: Loaded password from keyring for save",
+			"password_length", len(password))
+	}
 
 	mode := "add"
 	if d.isEditMode {
@@ -549,7 +582,6 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 		"port", port,
 		"database", database,
 		"username", username,
-		"ssl_mode", sslMode,
 		"trust_server_cert", trustServerCert)
 
 	// In edit mode, use the existing connection's ID to avoid duplicate name error
@@ -597,7 +629,7 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 			Database: database,
 			Username: username,
 			Password: password,
-			SSLMode:  sslMode,
+			SSLMode:  "disable", // Default value
 		}
 	case "PostgreSQL":
 		conn = &connection.PostgreSQLConnection{
@@ -612,7 +644,7 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 			Database: database,
 			Username: username,
 			Password: password,
-			SSLMode:  sslMode,
+			SSLMode:  "disable", // Default value
 		}
 	case "Oracle":
 		conn = &connection.OracleConnection{
@@ -686,24 +718,6 @@ func (d *connectionDialog) onSave(win fyne.Window) {
 func (d *connectionDialog) onTestInDialog() {
 	ctx := context.Background()
 	name := strings.TrimSpace(d.nameEntry.Text)
-	host := strings.TrimSpace(d.hostEntry.Text)
-	port, _ := strconv.Atoi(d.portEntry.Text)
-	database := strings.TrimSpace(d.dbEntry.Text)
-	username := strings.TrimSpace(d.userEntry.Text)
-	password := d.passEntry.Text
-	sslMode := d.sslSelect.Selected
-	trustServerCert := d.trustServerCertCheck.Checked
-	dbType := d.dbTypeSelect.Selected
-
-	slog.Info("Connections: Testing in dialog",
-		"name", name,
-		"type", dbType,
-		"host", host,
-		"port", port,
-		"database", database,
-		"username", username,
-		"ssl_mode", sslMode,
-		"trust_server_cert", trustServerCert)
 
 	if name == "" {
 		slog.Warn("Connections: Dialog test validation failed", "error", "name required")
@@ -711,105 +725,140 @@ func (d *connectionDialog) onTestInDialog() {
 		return
 	}
 
-	// Create temporary connection for testing
-	var conn connection.Connection
-	now := time.Now()
-	switch dbType {
-	case "MySQL":
-		conn = &connection.MySQLConnection{
-			BaseConnection: connection.BaseConnection{
-				ID:        "temp-test",
-				Name:      name,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			Host:     host,
-			Port:     port,
-			Database: database,
-			Username: username,
-			Password: password,
-			SSLMode:  sslMode,
-		}
-	case "PostgreSQL":
-		conn = &connection.PostgreSQLConnection{
-			BaseConnection: connection.BaseConnection{
-				ID:        "temp-test",
-				Name:      name,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			Host:     host,
-			Port:     port,
-			Database: database,
-			Username: username,
-			Password: password,
-			SSLMode:  sslMode,
-		}
-	case "Oracle":
-		conn = &connection.OracleConnection{
-			BaseConnection: connection.BaseConnection{
-				ID:        "temp-test",
-				Name:      name,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			Host:     host,
-			Port:     port,
-			SID:      database,
-			Username: username,
-			Password: password,
-		}
-	case "SQL Server":
-		conn = &connection.SQLServerConnection{
-			BaseConnection: connection.BaseConnection{
-				ID:        "temp-test",
-				Name:      name,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			Host:                   host,
-			Port:                   port,
-			Database:               database,
-			Username:               username,
-			Password:               password,
-			TrustServerCertificate: trustServerCert,
-		}
-	default:
-		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), d.win)
-		return
-	}
+	// Show progress dialog
+	progressDlg := dialog.NewInformation("Testing Connection",
+		fmt.Sprintf("Testing connection '%s'...\n\nPlease wait.", name), d.win)
+	progressDlg.Show()
 
-	// Validate connection
-	if err := conn.Validate(); err != nil {
-		slog.Warn("Connections: Dialog test validation failed", "name", name, "type", dbType, "error", err)
-		dialog.ShowError(fmt.Errorf("validation: %w", err), d.win)
-		return
-	}
+	// Test connection in background
+	go func() {
+		var result *connection.TestResult
+		var err error
 
-	// Test connection
-	result, err := conn.Test(ctx)
-	if err != nil {
-		slog.Error("Connections: Dialog test error", "name", name, "type", dbType, "error", err)
-		dialog.ShowError(err, d.win)
-		return
-	}
+		if d.isEditMode && d.conn != nil {
+			// EDIT MODE: Use the saved connection (same logic as list test)
+			slog.Info("Connections: Testing in EDIT mode",
+				"name", name,
+				"conn_id", d.conn.GetID())
 
-	if result.Success {
-		slog.Info("Connections: Dialog test successful",
-			"name", name,
-			"type", dbType,
-			"latency_ms", result.LatencyMs,
-			"version", result.DatabaseVersion)
-		msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
-			result.LatencyMs, result.DatabaseVersion)
-		dialog.ShowInformation("Connection Test", msg, d.win)
-	} else {
-		slog.Warn("Connections: Dialog test failed",
-			"name", name,
-			"type", dbType,
-			"error", result.Error)
-		dialog.ShowError(fmt.Errorf("failed: %s", result.Error), d.win)
-	}
+			result, err = d.connUC.TestConnection(ctx, d.conn.GetID())
+		} else {
+			// ADD MODE: Create temporary connection from form fields
+			slog.Info("Connections: Testing in ADD mode", "name", name)
+
+			host := strings.TrimSpace(d.hostEntry.Text)
+			port, _ := strconv.Atoi(d.portEntry.Text)
+			database := strings.TrimSpace(d.dbEntry.Text)
+			username := strings.TrimSpace(d.userEntry.Text)
+			password := d.passEntry.Text
+			trustServerCert := d.trustServerCertCheck.Checked
+			dbType := d.dbTypeSelect.Selected
+
+			// Create temporary connection
+			var conn connection.Connection
+			now := time.Now()
+			switch dbType {
+			case "MySQL":
+				conn = &connection.MySQLConnection{
+					BaseConnection: connection.BaseConnection{
+						ID:        "temp-test",
+						Name:      name,
+						CreatedAt: now,
+						UpdatedAt: now,
+					},
+					Host:     host,
+					Port:     port,
+					Database: database,
+					Username: username,
+					Password: password,
+					SSLMode:  "disable", // Default, will be removed later
+				}
+			case "PostgreSQL":
+				conn = &connection.PostgreSQLConnection{
+					BaseConnection: connection.BaseConnection{
+						ID:        "temp-test",
+						Name:      name,
+						CreatedAt: now,
+						UpdatedAt: now,
+					},
+					Host:     host,
+					Port:     port,
+					Database: database,
+					Username: username,
+					Password: password,
+					SSLMode:  "disable", // Default, will be removed later
+				}
+			case "Oracle":
+				conn = &connection.OracleConnection{
+					BaseConnection: connection.BaseConnection{
+						ID:        "temp-test",
+						Name:      name,
+						CreatedAt: now,
+						UpdatedAt: now,
+					},
+					Host:     host,
+					Port:     port,
+					SID:      database,
+					Username: username,
+					Password: password,
+				}
+			case "SQL Server":
+				conn = &connection.SQLServerConnection{
+					BaseConnection: connection.BaseConnection{
+						ID:        "temp-test",
+						Name:      name,
+						CreatedAt: now,
+						UpdatedAt: now,
+					},
+					Host:                   host,
+					Port:                   port,
+					Database:               database,
+					Username:               username,
+					Password:               password,
+					TrustServerCertificate: trustServerCert,
+				}
+			default:
+				progressDlg.Hide()
+				dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), d.win)
+				return
+			}
+
+			// Validate
+			if err := conn.Validate(); err != nil {
+				progressDlg.Hide()
+				slog.Warn("Connections: Dialog test validation failed", "name", name, "error", err)
+				dialog.ShowError(fmt.Errorf("validation: %w", err), d.win)
+				return
+			}
+
+			// Test
+			result, err = conn.Test(ctx)
+		}
+
+		// Hide progress dialog
+		progressDlg.Hide()
+
+		if err != nil {
+			slog.Error("Connections: Dialog test error", "name", name, "error", err)
+			dialog.ShowError(err, d.win)
+			return
+		}
+
+		if result.Success {
+			slog.Info("Connections: Dialog test successful",
+				"name", name,
+				"latency_ms", result.LatencyMs,
+				"version", result.DatabaseVersion)
+			msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
+				result.LatencyMs, result.DatabaseVersion)
+			dialog.ShowInformation("Connection Test", msg, d.win)
+		} else {
+			slog.Warn("Connections: Dialog test failed",
+				"name", name,
+				"error", result.Error)
+			dialog.ShowError(fmt.Errorf("failed: %s", result.Error), d.win)
+		}
+	}()
 }
 
 // connectionDialog represents the connection dialog.
@@ -826,7 +875,6 @@ type connectionDialog struct {
 	dbEntry              *widget.Entry
 	userEntry            *widget.Entry
 	passEntry            *widget.Entry
-	sslSelect            *widget.Select
 	trustServerCertCheck *widget.Check // For SQL Server
 	dbTypeSelect         *widget.Select
 }
