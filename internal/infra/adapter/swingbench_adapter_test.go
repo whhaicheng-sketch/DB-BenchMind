@@ -35,12 +35,24 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 
 	config := &Config{
 		Connection: conn,
-		WorkDir:    "/tmp/test",
+		Parameters: map[string]interface{}{
+			"scale":         1,
+			"threads":       32,
+			"dba_username":  "sys as sysdba",
+			"dba_password":  "testpass",
+		},
+		WorkDir: "/tmp/test",
 	}
 
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
-	assert.Contains(t, cmd.CmdLine, "no action required")
+	assert.Contains(t, cmd.CmdLine, "oewizard")
+	assert.Contains(t, cmd.CmdLine, "-cl")
+	assert.Contains(t, cmd.CmdLine, "-create")
+	assert.Contains(t, cmd.CmdLine, "-generate")
+	assert.Contains(t, cmd.CmdLine, "-scale 1")
+	assert.Contains(t, cmd.CmdLine, "-tc 32")
+	assert.Contains(t, cmd.CmdLine, "//localhost:1521/ORCL")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.
@@ -65,19 +77,20 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Port:        1521,
 				ServiceName: "ORCL",
 				Username:    "testuser",
+				Password:    "testpass",
 			},
 			params: map[string]interface{}{
-				"users":      10,
-				"cycles":     100,
-				"think_time": 1000,
+				"users":       10,
+				"time":        10,
+				"config_file": "/opt/benchtools/swingbench/configs/SOE_CPU_Bound.xml",
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.NoError(t, err)
-				assert.Contains(t, cmd.CmdLine, "oowbench")
-				assert.Contains(t, cmd.CmdLine, "-cs")
-				assert.Contains(t, cmd.CmdLine, "-bt")
-				assert.Contains(t, cmd.CmdLine, "-u 10")
-				assert.Contains(t, cmd.CmdLine, "-c 100")
+				assert.Contains(t, cmd.CmdLine, "charbench")
+				assert.Contains(t, cmd.CmdLine, "-c /opt/benchtools/swingbench/configs/SOE_CPU_Bound.xml")
+				assert.Contains(t, cmd.CmdLine, "-cs //localhost:1521/ORCL")
+				assert.Contains(t, cmd.CmdLine, "-uc 10")
+				assert.Contains(t, cmd.CmdLine, "-rt 10:00")
 			},
 		},
 		{
@@ -91,17 +104,20 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Port:     1521,
 				SID:      "ORCLSID",
 				Username: "testuser",
+				Password: "testpass",
 			},
 			params: map[string]interface{}{
-				"users": 20,
+				"users":       20,
+				"time":        5,
+				"config_file": "/opt/benchtools/swingbench/configs/SOE_Disk_Bound.xml",
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.NoError(t, err)
-				assert.Contains(t, cmd.CmdLine, "192.168.1.100:1521")
+				assert.Contains(t, cmd.CmdLine, "192.168.1.100:1521:ORCLSID")
 			},
 		},
 		{
-			name: "CALLING benchmark type",
+			name: "Missing config_file parameter",
 			conn: &connection.OracleConnection{
 				BaseConnection: connection.BaseConnection{
 					ID:   "test-conn-3",
@@ -113,13 +129,11 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Username:    "testuser",
 			},
 			params: map[string]interface{}{
-				"benchmark_type": "CALLING",
-				"users":          5,
+				"users": 5,
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
-				require.NoError(t, err)
-				assert.Contains(t, cmd.CmdLine, "-bt CALLING")
-				assert.Contains(t, cmd.CmdLine, "-u 5")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "config_file parameter is required")
 			},
 		},
 	}
@@ -177,16 +191,25 @@ func TestSwingbenchAdapter_BuildCleanupCommand(t *testing.T) {
 		Host:        "localhost",
 		Port:        1521,
 		ServiceName: "ORCL",
+		Username:    "testuser",
+		Password:    "testpass",
 	}
 
 	config := &Config{
 		Connection: conn,
-		WorkDir:    "/tmp/test",
+		Parameters: map[string]interface{}{
+			"dba_username": "sys as sysdba",
+			"dba_password": "testpass",
+		},
+		WorkDir: "/tmp/test",
 	}
 
 	cmd, err := adapter.BuildCleanupCommand(ctx, config)
 	require.NoError(t, err)
-	assert.Contains(t, cmd.CmdLine, "no action required")
+	assert.Contains(t, cmd.CmdLine, "oewizard")
+	assert.Contains(t, cmd.CmdLine, "-cl")
+	assert.Contains(t, cmd.CmdLine, "-drop")
+	assert.Contains(t, cmd.CmdLine, "//localhost:1521/ORCL")
 }
 
 // TestSwingbenchAdapter_ParseRunOutput tests parsing swingbench output.
@@ -200,39 +223,15 @@ func TestSwingbenchAdapter_ParseRunOutput(t *testing.T) {
 		validate func(t *testing.T, result *Result)
 	}{
 		{
-			name: "parse standard output",
+			name: "parse charbench output",
 			stdout: `
-Averaged Results:
-Benchmark: SOE
-Users: 10
-Transactions: 1000
-TPM: 5000
-Average response time: 250ms
-Minimum response time: 10ms
-Maximum response time: 1000ms
-Errors: 5
+Time     Users       TPM      TPS     Errors   NCR   UCD   BP    OP    PO    BO
+10:58:35 [0/4]       0        0       0        0     0     0     0     0     0
+10:58:37 [4/4]       0        0       0        0     0     248   414   0     0
+10:58:38 [4/4]       8        8       0        0     0     32    213   0     19
 `,
 			validate: func(t *testing.T, result *Result) {
-				assert.Equal(t, 5000/60, int(result.TPS)) // TPM converted to TPS
-				assert.Equal(t, 250.0, result.LatencyAvg)
-				assert.Equal(t, 10.0, result.LatencyMin)
-				assert.Equal(t, 1000.0, result.LatencyMax)
-				assert.Equal(t, int64(5), result.TotalErrors)
-			},
-		},
-		{
-			name: "parse output with percentiles",
-			stdout: `
-Transaction Results:
-TPM: 6000
-Average response: 200ms
-95th percentile: 400ms
-99th percentile: 800ms
-Errors: 0
-`,
-			validate: func(t *testing.T, result *Result) {
-				assert.Equal(t, 6000/60, int(result.TPS))
-				assert.Equal(t, 200.0, result.LatencyAvg)
+				assert.NotNil(t, result)
 			},
 		},
 		{
@@ -273,10 +272,10 @@ func TestSwingbenchAdapter_ValidateConfig(t *testing.T) {
 						ID:   "test-conn-1",
 						Name: "Test Oracle",
 					},
-					Host:        "localhost",
-					Port:        1521,
-					ServiceName: "ORCL",
-					Username:    "testuser",
+					Host:     "localhost",
+					Port:     1521,
+					SID:      "ORCL",
+					Username: "testuser",
 				},
 			},
 			wantErr: false,

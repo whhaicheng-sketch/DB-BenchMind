@@ -18,14 +18,17 @@ import (
 // SwingbenchAdapter implements BenchmarkAdapter for Swingbench tool.
 // Implements: REQ-EXEC-001, REQ-EXEC-002, REQ-EXEC-004
 type SwingbenchAdapter struct {
-	// Path to swingbench executable (optional, if empty uses PATH)
+	// Path to charbench executable (CLI for running workload)
 	SwingbenchPath string
+	// Path to oewizard executable (for data generation and cleanup)
+	OewizardPath string
 }
 
 // NewSwingbenchAdapter creates a new swingbench adapter.
 func NewSwingbenchAdapter() *SwingbenchAdapter {
 	return &SwingbenchAdapter{
-		SwingbenchPath: "oowbench", // Default to oowbench
+		SwingbenchPath: "/opt/benchtools/swingbench/bin/charbench", // Default to charbench
+		OewizardPath:   "/opt/benchtools/swingbench/bin/oewizard",   // oewizard for data generation
 	}
 }
 
@@ -35,17 +38,71 @@ func (a *SwingbenchAdapter) Type() AdapterType {
 }
 
 // BuildPrepareCommand builds the command for data preparation phase.
-// Swingbench doesn't have a separate prepare phase - data is created during run.
+// Uses oewizard to create schema and generate data.
 func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Config) (*Command, error) {
-	// Swingbench doesn't have a separate prepare command
-	// We return a minimal command that does nothing
+	conn := config.Connection
+
+	// Only Oracle is supported by Swingbench
+	if conn.GetType() != connection.DatabaseTypeOracle {
+		return nil, fmt.Errorf("swingbench only supports Oracle database, got %s", conn.GetType())
+	}
+
+	oracleConn, ok := conn.(*connection.OracleConnection)
+	if !ok {
+		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
+	}
+
+	// Build connection string for swingbench (not JDBC format)
+	connectionStr := a.buildCharbenchConnectionString(oracleConn)
+
+	// Build oewizard command
+	cmdArgs := []string{
+		"cd", "/opt/benchtools/swingbench/bin", "&&",
+		a.OewizardPath,
+		"-cl", // Character mode (non-interactive)
+		"-create",
+		"-generate",
+		"-cs", connectionStr,
+		"-u", oracleConn.Username,
+	}
+
+	// Add password if provided
+	if oracleConn.Password != "" {
+		cmdArgs = append(cmdArgs, "-p", oracleConn.Password)
+	}
+
+	// Add scale parameter (data size)
+	if scale, ok := config.Parameters["scale"].(int); ok {
+		cmdArgs = append(cmdArgs, "-scale", strconv.Itoa(scale))
+	} else {
+		cmdArgs = append(cmdArgs, "-scale", "1") // Default 1GB
+	}
+
+	// Add threads for data generation
+	if threads, ok := config.Parameters["threads"].(int); ok {
+		cmdArgs = append(cmdArgs, "-tc", strconv.Itoa(threads))
+	} else {
+		cmdArgs = append(cmdArgs, "-tc", "32") // Default 32 threads
+	}
+
+	// Add DBA credentials for schema creation
+	if dbaUser, ok := config.Parameters["dba_username"].(string); ok && dbaUser != "" {
+		cmdArgs = append(cmdArgs, "-dba", dbaUser)
+		if dbaPass, ok := config.Parameters["dba_password"].(string); ok && dbaPass != "" {
+			cmdArgs = append(cmdArgs, "-dbap", dbaPass)
+		}
+	}
+
+	cmdLine := strings.Join(cmdArgs, " ")
+
 	return &Command{
-		CmdLine: "echo 'Swingbench prepare phase - no action required'",
+		CmdLine: cmdLine,
 		WorkDir: config.WorkDir,
 	}, nil
 }
 
 // BuildRunCommand builds the command for the main benchmark run.
+// Uses charbench to run the workload with specified configuration.
 func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config) (*Command, error) {
 	conn := config.Connection
 
@@ -54,47 +111,52 @@ func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config)
 		return nil, fmt.Errorf("swingbench only supports Oracle database, got %s", conn.GetType())
 	}
 
-	// Build run command
-	cmdArgs := []string{
-		a.SwingbenchPath,
-	}
-
-	// Add connection parameters
 	oracleConn, ok := conn.(*connection.OracleConnection)
 	if !ok {
 		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
 	}
 
-	// Build connection string
-	connectionStr := a.buildConnectionString(oracleConn)
+	// Build connection string for charbench
+	connectionStr := a.buildCharbenchConnectionString(oracleConn)
+
+	// Build charbench command
+	cmdArgs := []string{
+		"cd", "/opt/benchtools/swingbench/bin", "&&",
+		a.SwingbenchPath,
+	}
+
+	// Add config file (required for charbench)
+	if configFile, ok := config.Parameters["config_file"].(string); ok && configFile != "" {
+		cmdArgs = append(cmdArgs, "-c", configFile)
+	} else {
+		return nil, fmt.Errorf("config_file parameter is required for charbench")
+	}
+
+	// Add connection string
 	cmdArgs = append(cmdArgs, "-cs", connectionStr)
 
-	// Add benchmark type from template
-	benchmarkType := "SOE" // Default
-	if bt, ok := config.Parameters["benchmark_type"].(string); ok {
-		benchmarkType = bt
+	// Add username
+	if oracleConn.Username != "" {
+		cmdArgs = append(cmdArgs, "-u", oracleConn.Username)
 	}
-	cmdArgs = append(cmdArgs, "-bt", benchmarkType)
 
-	// Add template parameters
+	// Add password if provided
+	if oracleConn.Password != "" {
+		cmdArgs = append(cmdArgs, "-p", oracleConn.Password)
+	}
+
+	// Add user count (concurrent users)
 	if users, ok := config.Parameters["users"].(int); ok {
-		cmdArgs = append(cmdArgs, "-u", strconv.Itoa(users))
-	}
-	if cycles, ok := config.Parameters["cycles"].(int); ok {
-		cmdArgs = append(cmdArgs, "-c", strconv.Itoa(cycles))
-	}
-	if thinkTime, ok := config.Parameters["think_time"].(int); ok {
-		cmdArgs = append(cmdArgs, "-t", strconv.Itoa(thinkTime))
-	}
-	if minDelay, ok := config.Parameters["min_delay"].(int); ok {
-		cmdArgs = append(cmdArgs, "-a", strconv.Itoa(minDelay))
-	}
-	if maxDelay, ok := config.Parameters["max_delay"].(int); ok {
-		cmdArgs = append(cmdArgs, "-b", strconv.Itoa(maxDelay))
+		cmdArgs = append(cmdArgs, "-uc", strconv.Itoa(users))
 	}
 
-	// Add output file
-	cmdArgs = append(cmdArgs, "-o", "swingbench_output.txt")
+	// Add runtime (in minutes)
+	if runtime, ok := config.Parameters["time"].(int); ok {
+		cmdArgs = append(cmdArgs, "-rt", fmt.Sprintf("%d:00", runtime))
+	}
+
+	// Add verbose output for metrics (tps, tpm, response time, errors, users)
+	cmdArgs = append(cmdArgs, "-v", "tps,tpm,resp,errs,users")
 
 	cmdLine := strings.Join(cmdArgs, " ")
 
@@ -105,15 +167,56 @@ func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config)
 }
 
 // BuildCleanupCommand builds the command for cleanup phase.
+// Uses oewizard to drop the schema.
 func (a *SwingbenchAdapter) BuildCleanupCommand(ctx context.Context, config *Config) (*Command, error) {
-	// Swingbench doesn't have a separate cleanup command
+	conn := config.Connection
+
+	// Only Oracle is supported by Swingbench
+	if conn.GetType() != connection.DatabaseTypeOracle {
+		return nil, fmt.Errorf("swingbench only supports Oracle database, got %s", conn.GetType())
+	}
+
+	oracleConn, ok := conn.(*connection.OracleConnection)
+	if !ok {
+		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
+	}
+
+	// Build connection string for swingbench (not JDBC format)
+	connectionStr := a.buildCharbenchConnectionString(oracleConn)
+
+	// Build oewizard drop command
+	cmdArgs := []string{
+		"cd", "/opt/benchtools/swingbench/bin", "&&",
+		a.OewizardPath,
+		"-cl", // Character mode (non-interactive)
+		"-drop",
+		"-cs", connectionStr,
+		"-u", oracleConn.Username,
+	}
+
+	// Add password if provided
+	if oracleConn.Password != "" {
+		cmdArgs = append(cmdArgs, "-p", oracleConn.Password)
+	}
+
+	// Add DBA credentials for schema drop
+	if dbaUser, ok := config.Parameters["dba_username"].(string); ok && dbaUser != "" {
+		cmdArgs = append(cmdArgs, "-dba", dbaUser)
+		if dbaPass, ok := config.Parameters["dba_password"].(string); ok && dbaPass != "" {
+			cmdArgs = append(cmdArgs, "-dbap", dbaPass)
+		}
+	}
+
+	cmdLine := strings.Join(cmdArgs, " ")
+
 	return &Command{
-		CmdLine: "echo 'Swingbench cleanup phase - no action required'",
+		CmdLine: cmdLine,
 		WorkDir: config.WorkDir,
 	}, nil
 }
 
-// ParseRunOutput parses the output from a swingbench run.
+// ParseRunOutput parses the output from a charbench run.
+// Expected format: "Time     Users       TPM      TPS     Errors ..."
 func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, stderr string) (*Result, error) {
 	result := &Result{
 		RawOutput: stdout,
@@ -121,71 +224,91 @@ func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, s
 
 	lines := strings.Split(stdout, "\n")
 
+	// Track totals for averaging
+	var totalTPS float64
+	var totalErrors int64
+	lineCount := 0
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "Time") || strings.HasPrefix(line, "Author") || strings.HasPrefix(line, "Version") {
 			continue
 		}
 
-		// Parse TPM (Transactions Per Minute)
-		if strings.Contains(strings.ToLower(line), "tpm") {
-			// Try format: "TPM: 5000" or "TPM:5000"
-			re := regexp.MustCompile(`(?i)tpm:\s*(\d+(?:\.\d+)?)`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					result.TPS = val / 60 // Convert TPM to TPS
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+
+		// Parse charbench output format:
+		// Time     Users       TPM      TPS     Errors   ...
+		// 10:58:37 [4/4]       0        0       0        0 ...
+
+		// Try to parse as data line (starts with time pattern HH:MM:SS or contains [N/M])
+		if len(fields) >= 5 {
+			// Find TPS field (4th numeric field usually)
+			for i, field := range fields {
+				// Parse TPS
+				if i > 2 && i < len(fields)-1 {
+					if val, err := strconv.ParseFloat(field, 64); err == nil {
+						// Check if this looks like TPS (reasonable range)
+						if val >= 0 && val <= 100000 {
+							// Check previous field for TPM
+							if i > 0 {
+								if prevVal, err := strconv.ParseFloat(fields[i-1], 64); err == nil {
+									if prevVal >= 0 && prevVal <= 6000000 {
+										// Found TPM and TPS pair
+										totalTPS = val
+										lineCount++
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// Parse Errors (field after TPS)
+				if i > 3 {
+					if val, err := strconv.ParseInt(field, 10, 64); err == nil {
+						if val >= 0 && val <= 1000000 {
+							// Check if previous field was TPS
+							if i > 0 {
+								if _, err := strconv.ParseFloat(fields[i-1], 64); err == nil {
+									totalErrors += val
+								}
+							}
+						}
+					}
 				}
 			}
 		}
 
-		// Parse average response time (format: "Average response time: 250ms")
-		if strings.Contains(line, "Average") && (strings.Contains(line, "response") || strings.Contains(line, "Response")) {
-			re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*ms`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					result.LatencyAvg = val
+		// Also try to find "Averages:" line which contains final averages
+		if strings.Contains(line, "Averages:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				// Format: Averages: TPS TPM
+				for i, part := range parts {
+					if val, err := strconv.ParseFloat(part, 64); err == nil {
+						if val > 0 {
+							if i < len(parts)-1 {
+								if nextVal, err := strconv.ParseFloat(parts[i+1], 64); err == nil && nextVal > 0 {
+									// Found TPS and TPM
+									result.TPS = val
+									if result.TPS == 0 || result.TPS < val {
+										result.TPS = val
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
 
-		// Parse minimum response time
-		if strings.Contains(line, "Minimum") && (strings.Contains(line, "response") || strings.Contains(line, "Response")) {
-			re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*ms`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					result.LatencyMin = val
-				}
-			}
-		}
-
-		// Parse maximum response time
-		if strings.Contains(line, "Maximum") && (strings.Contains(line, "response") || strings.Contains(line, "Response")) {
-			re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*ms`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					result.LatencyMax = val
-				}
-			}
-		}
-
-		// Parse errors (format: "Errors: 5" or "Errors:5")
-		if strings.Contains(strings.ToLower(line), "error") {
-			re := regexp.MustCompile(`(?i)error[s]?:\s*(\d+)`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
-					result.TotalErrors = val
-				}
-			}
-		}
-
-		// Parse transactions count
-		if strings.Contains(strings.ToLower(line), "transaction") {
-			re := regexp.MustCompile(`(?i)transaction[s]?:\s*(\d+)`)
+		// Parse "Total Transactions:" line
+		if strings.Contains(line, "Total") && strings.Contains(line, "Transactions") {
+			re := regexp.MustCompile(`Total\s+Transactions[:\s]+(\d+)`)
 			matches := re.FindStringSubmatch(line)
 			if len(matches) > 1 {
 				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
@@ -193,11 +316,34 @@ func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, s
 				}
 			}
 		}
+
+		// Parse "Average:" response time
+		if strings.Contains(line, "Average") && strings.Contains(line, ":") {
+			re := regexp.MustCompile(`Average\s*:\s*(\d+\.?\d*)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.LatencyAvg = val
+				}
+			}
+		}
+	}
+
+	// Use averages if found, otherwise use calculated values
+	if result.TPS == 0 && lineCount > 0 {
+		result.TPS = totalTPS / float64(lineCount)
+	}
+
+	if result.TotalErrors == 0 {
+		result.TotalErrors = totalErrors
 	}
 
 	// Calculate error rate
 	if result.TotalTransactions > 0 {
 		result.ErrorRate = (float64(result.TotalErrors) / float64(result.TotalTransactions)) * 100
+	} else if totalErrors > 0 && lineCount > 0 {
+		// Fallback: estimate from parsed data
+		result.ErrorRate = (float64(totalErrors) / float64(lineCount))
 	}
 
 	// Set default duration if not parsed
@@ -339,4 +485,17 @@ func (a *SwingbenchAdapter) buildConnectionString(conn *connection.OracleConnect
 	}
 
 	return connectionStr
+}
+
+// buildCharbenchConnectionString builds a charbench/oewizard connection string for Oracle.
+// Format: //host:port/service_name or host:port:sid (Easy Connect format)
+func (a *SwingbenchAdapter) buildCharbenchConnectionString(conn *connection.OracleConnection) string {
+	if conn.ServiceName != "" {
+		return fmt.Sprintf("//%s:%d/%s", conn.Host, conn.Port, conn.ServiceName)
+	} else if conn.SID != "" {
+		return fmt.Sprintf("%s:%d:%s", conn.Host, conn.Port, conn.SID)
+	} else {
+		// Fallback to default service name
+		return fmt.Sprintf("//%s:%d/ORCL", conn.Host, conn.Port)
+	}
 }
