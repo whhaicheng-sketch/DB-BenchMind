@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb" // SQL Server driver
@@ -89,33 +90,85 @@ func (c *SQLServerConnection) Validate() error {
 	return nil
 }
 
-// Test tests the SQL Server connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
+// Test tests the SQL Server connection availability with intelligent encryption detection.
 //
-// It attempts to connect to the SQL Server database and returns:
-// - Success: Whether the connection succeeded
-// - LatencyMs: Time taken to establish connection
-// - DatabaseVersion: SQL Server version string (on success)
-// - Error: Error message (on failure)
+// It attempts multiple encryption configurations in order:
+// 1. No encryption, trust certificate (most common)
+// 2. Encryption enabled, trust certificate
+// 3. No encryption, no trust
+// 4. Encryption enabled, no trust
 //
-// The context supports cancellation and timeout.
+// Returns: TestResult with success/failure, latency, version, error.
 func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	dsn := c.GetDSNWithPassword()
+	// Connection configurations to try in order
+	configs := []struct {
+		encrypt                bool
+		trustServerCertificate bool
+		desc                   string
+	}{
+		{false, true, "no encryption, trust certificate"},
+		{true, true, "encryption enabled, trust certificate"},
+		{false, false, "no encryption, no trust"},
+		{true, false, "encryption enabled, no trust"},
+	}
 
-	// Try to open connection
+	var lastErr error
+	for _, config := range configs {
+		dsn := c.buildDSNWithConfig(config.encrypt, config.trustServerCertificate)
+
+		slog.Info("SQL Server: Testing connection",
+			"host", c.Host,
+			"port", c.Port,
+			"encrypt", config.encrypt,
+			"trust_server_certificate", config.trustServerCertificate,
+			"username", c.Username)
+
+		result, err := c.testConnection(ctx, dsn, start)
+		if err != nil {
+			// Context cancelled or timeout
+			return nil, fmt.Errorf("test cancelled: %w", err)
+		}
+
+		if result.Success {
+			slog.Info("SQL Server: Connection successful",
+				"config", config.desc,
+				"latency_ms", result.LatencyMs,
+				"version", result.DatabaseVersion)
+			return result, nil
+		}
+
+		// Save last error for reporting
+		lastErr = fmt.Errorf("%s: %s", config.desc, result.Error)
+		slog.Debug("SQL Server: Connection attempt failed",
+			"config", config.desc,
+			"error", result.Error)
+	}
+
+	// All attempts failed
+	latency := time.Since(start).Milliseconds()
+	return &TestResult{
+		Success:   false,
+		LatencyMs: latency,
+		Error:     fmt.Sprintf("all connection attempts failed. Last error: %v", lastErr),
+	}, nil
+}
+
+// testConnection performs a single connection attempt with the given DSN.
+func (c *SQLServerConnection) testConnection(ctx context.Context, dsn string, start time.Time) (*TestResult, error) {
 	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
 		return &TestResult{
 			Success:   false,
 			Error:     fmt.Sprintf("failed to open connection: %v", err),
-			LatencyMs: 0,
+			LatencyMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
 	defer db.Close()
 
-	// Set timeout for connection test
-	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Set timeout for this connection attempt (5 seconds per attempt)
+	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Attempt to ping the database
@@ -123,21 +176,14 @@ func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
-		errorMsg := fmt.Sprintf("connection failed: %v", err)
-
-		// Provide helpful hints for common errors
-		if !c.TrustServerCertificate {
-			errorMsg += "\n\n💡 Hint: Try enabling 'Trust Server Certificate' if using self-signed certificates"
-		}
-
 		return &TestResult{
 			Success:   false,
 			LatencyMs: latency,
-			Error:     errorMsg,
+			Error:     fmt.Sprintf("%v", err),
 		}, nil
 	}
 
-	// Get database version (REQ-CONN-004)
+	// Get database version
 	var version string
 	err = db.QueryRowContext(testCtx, "SELECT @@VERSION").Scan(&version)
 	if err != nil {
@@ -149,6 +195,15 @@ func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 		LatencyMs:       latency,
 		DatabaseVersion: version,
 	}, nil
+}
+
+// buildDSNWithConfig builds a DSN with the specified encryption and trust settings.
+// Format: sqlserver://username:password@host:port?database=xxx&encrypt=xxx&trustservercertificate=xxx
+func (c *SQLServerConnection) buildDSNWithConfig(encrypt, trustServerCert bool) string {
+	// Build connection URL with encryption parameters
+	dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=%t&trustservercertificate=%t",
+		c.Username, c.Password, c.Host, c.Port, c.Database, encrypt, trustServerCert)
+	return dsn
 }
 
 // SetPassword sets the password (used by keyring provider).

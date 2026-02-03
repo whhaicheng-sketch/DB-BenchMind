@@ -5,6 +5,7 @@ package connection
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/sijms/go-ora/v2" // Oracle driver
@@ -32,20 +33,23 @@ func (c *OracleConnection) GetType() DatabaseType {
 }
 
 // GetDSN generates a connection string without password (for logging).
-// Format: username@//host:port/service_name or username@//host:port:sid
+// Format: oracle://username@host:port/service_name or oracle://username@host:port/sid
 func (c *OracleConnection) GetDSN() string {
+	identifier := c.SID
 	if c.ServiceName != "" {
-		return fmt.Sprintf("%s@//%s:%d/%s", c.Username, c.Host, c.Port, c.ServiceName)
+		identifier = c.ServiceName
 	}
-	return fmt.Sprintf("%s@//%s:%d:%s", c.Username, c.Host, c.Port, c.SID)
+	return fmt.Sprintf("oracle://%s@%s:%d/%s", c.Username, c.Host, c.Port, identifier)
 }
 
 // GetDSNWithPassword generates a complete connection string with password.
+// Format: oracle://username:password@host:port/service_name or oracle://username:password@host:port/sid
 func (c *OracleConnection) GetDSNWithPassword() string {
+	identifier := c.SID
 	if c.ServiceName != "" {
-		return fmt.Sprintf("%s/%s@//%s:%d/%s", c.Username, c.Password, c.Host, c.Port, c.ServiceName)
+		identifier = c.ServiceName
 	}
-	return fmt.Sprintf("%s/%s@//%s:%d:%s", c.Username, c.Password, c.Host, c.Port, c.SID)
+	return fmt.Sprintf("oracle://%s:%s@%s:%d/%s", c.Username, c.Password, c.Host, c.Port, identifier)
 }
 
 // Redact returns a redacted connection string for display (REQ-CONN-008).
@@ -82,7 +86,15 @@ func (c *OracleConnection) Validate() error {
 		errs = append(errs, err)
 	}
 
-	// ServiceName/SID is optional - can connect to Oracle instance without specifying database
+	// SID is required (ServiceName is not used in our UI)
+	if c.SID == "" {
+		errs = append(errs, &ValidationError{
+			Field:   "sid",
+			Message: "SID is required",
+			Value:   c.SID,
+		})
+	}
+
 	// Validate that ServiceName and SID are not both specified (mutually exclusive)
 	if c.ServiceName != "" && c.SID != "" {
 		errs = append(errs, &ValidationError{
@@ -110,12 +122,28 @@ func (c *OracleConnection) Validate() error {
 func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
+	// Log connection parameters for debugging
+	identifier := c.SID
+	if identifier == "" {
+		identifier = c.ServiceName
+	}
+	slog.Info("Oracle: Testing connection",
+		"host", c.Host,
+		"port", c.Port,
+		"sid", c.SID,
+		"service_name", c.ServiceName,
+		"identifier", identifier,
+		"username", c.Username,
+		"password_set", c.Password != "")
+
 	// Build DSN with password
 	dsn := c.GetDSNWithPassword()
+	slog.Info("Oracle: Generated DSN", "dsn", dsn)
 
 	// Try to open connection
 	db, err := sql.Open("oracle", dsn)
 	if err != nil {
+		slog.Error("Oracle: Failed to open connection", "error", err)
 		return &TestResult{
 			Success:   false,
 			Error:     fmt.Sprintf("failed to open connection: %v", err),

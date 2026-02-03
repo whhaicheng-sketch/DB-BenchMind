@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/lib/pq" // Register PostgreSQL driver
@@ -69,10 +70,10 @@ func (c *PostgreSQLConnection) Validate() error {
 	if err := ValidateRequired("host", c.Host); err != nil {
 		errs = append(errs, err)
 	}
-	// Database is optional for PostgreSQL - can connect without specifying a database
-	// if err := ValidateRequired("database", c.Database); err != nil {
-	// 	errs = append(errs, err)
-	// }
+	// Database is required for PostgreSQL
+	if err := ValidateRequired("database", c.Database); err != nil {
+		errs = append(errs, err)
+	}
 	if err := ValidateRequired("username", c.Username); err != nil {
 		errs = append(errs, err)
 	}
@@ -105,33 +106,80 @@ func (c *PostgreSQLConnection) Validate() error {
 	return nil
 }
 
-// Test tests the PostgreSQL connection availability (REQ-PG-CONN-010, REQ-PG-CONN-011, REQ-PG-CONN-012).
+// Test tests the PostgreSQL connection availability with intelligent SSL detection.
 //
-// It attempts to connect to the PostgreSQL database and returns:
-// - Success: Whether the connection succeeded
-// - LatencyMs: Time taken to establish connection
-// - Version: PostgreSQL version string (on success)
-// - Error: Error message (on failure)
+// It attempts multiple SSL configurations in order:
+// 1. disable (no SSL - fastest)
+// 2. require (SSL without verification)
+// 3. verify-ca (SSL with CA verification)
 //
-// The context supports cancellation and timeout.
+// Returns: TestResult with success/failure, latency, version, error.
 func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Build DSN with password
-	dsn := c.GetDSNWithPassword()
+	// SSL modes to try in order (most common first)
+	sslModes := []struct {
+		mode   string
+		desc   string
+	}{
+		{"disable", "no SSL"},
+		{"require", "SSL without verification"},
+		{"verify-ca", "SSL with CA verification"},
+	}
 
-	// Try to open connection
+	var lastErr error
+	for _, sslConfig := range sslModes {
+		dsn := c.buildDSNWithSSL(sslConfig.mode)
+
+		slog.Info("PostgreSQL: Testing connection",
+			"host", c.Host,
+			"port", c.Port,
+			"sslmode", sslConfig.mode,
+			"username", c.Username)
+
+		result, err := c.testConnection(ctx, dsn, start)
+		if err != nil {
+			// Context cancelled or timeout
+			return nil, fmt.Errorf("test cancelled: %w", err)
+		}
+
+		if result.Success {
+			slog.Info("PostgreSQL: Connection successful",
+				"sslmode", sslConfig.mode,
+				"latency_ms", result.LatencyMs,
+				"version", result.DatabaseVersion)
+			return result, nil
+		}
+
+		// Save last error for reporting
+		lastErr = fmt.Errorf("sslmode=%s: %s", sslConfig.mode, result.Error)
+		slog.Debug("PostgreSQL: Connection attempt failed",
+			"sslmode", sslConfig.mode,
+			"error", result.Error)
+	}
+
+	// All attempts failed
+	latency := time.Since(start).Milliseconds()
+	return &TestResult{
+		Success:   false,
+		LatencyMs: latency,
+		Error:     fmt.Sprintf("all connection attempts failed. Last error: %v", lastErr),
+	}, nil
+}
+
+// testConnection performs a single connection attempt with the given DSN.
+func (c *PostgreSQLConnection) testConnection(ctx context.Context, dsn string, start time.Time) (*TestResult, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return &TestResult{
 			Success:   false,
-			Error:     fmt.Sprintf("Failed to open connection: %v", err),
+			Error:     fmt.Sprintf("failed to open connection: %v", err),
 			LatencyMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
 	defer db.Close()
 
-	// Set timeout for connection test (5 seconds per REQ-PG-CONN-011)
+	// Set timeout for this connection attempt (5 seconds per attempt)
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -143,15 +191,15 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		return &TestResult{
 			Success:   false,
 			LatencyMs: latency,
-			Error:     fmt.Sprintf("Connection failed: %v", err),
+			Error:     fmt.Sprintf("%v", err),
 		}, nil
 	}
 
-	// Query PostgreSQL version (REQ-PG-CONN-011)
+	// Get database version
 	var version string
 	err = db.QueryRowContext(testCtx, "SELECT version()").Scan(&version)
 	if err != nil {
-		version = "Unknown"
+		version = "unknown"
 	}
 
 	return &TestResult{
@@ -159,6 +207,15 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		LatencyMs:       latency,
 		DatabaseVersion: version,
 	}, nil
+}
+
+// buildDSNWithSSL builds a DSN with the specified SSL mode.
+// Format: postgres://username:password@host:port/database?sslmode=xxx
+func (c *PostgreSQLConnection) buildDSNWithSSL(sslMode string) string {
+	// Build connection URL with SSL mode parameter
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		c.Username, c.Password, c.Host, c.Port, c.Database, sslMode)
+	return dsn
 }
 
 // SetPassword sets the password (used by keyring provider).

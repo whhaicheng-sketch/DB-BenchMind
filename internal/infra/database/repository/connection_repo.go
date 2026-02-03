@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -245,17 +246,27 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 		return conn, nil
 
 	case connection.DatabaseTypeOracle:
+		rawPort := getInt(data, "port")
 		conn := &connection.OracleConnection{
 			BaseConnection: base,
 			Host:           getString(data, "host"),
-			Port:           getInt(data, "port"),
+			Port:           rawPort,
 			ServiceName:    getString(data, "service_name"),
 			SID:            getString(data, "sid"),
 			Username:       getString(data, "username"),
 		}
 		if conn.Port == 0 {
+			slog.Info("Repository: Oracle port is 0, using default 1521", "conn_id", id, "raw_port", rawPort)
 			conn.Port = 1521
 		}
+		slog.Info("Repository: Deserialized Oracle connection",
+			"conn_id", id,
+			"name", name,
+			"host", conn.Host,
+			"port", conn.Port,
+			"sid", conn.SID,
+			"service_name", conn.ServiceName,
+			"username", conn.Username)
 		return conn, nil
 
 	case connection.DatabaseTypeSQLServer:

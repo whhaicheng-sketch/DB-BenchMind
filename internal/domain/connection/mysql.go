@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
@@ -95,14 +96,8 @@ func (c *MySQLConnection) Validate() error {
 		errs = append(errs, err)
 	}
 
-	// Validate SSL mode
-	if c.SSLMode != "" && c.SSLMode != "disabled" && c.SSLMode != "preferred" && c.SSLMode != "required" {
-		errs = append(errs, &ValidationError{
-			Field:   "ssl_mode",
-			Message: "ssl_mode must be one of: disabled, preferred, required",
-			Value:   c.SSLMode,
-		})
-	}
+	// Note: SSL mode validation removed - we auto-detect the best mode
+	// c.SSLMode field is kept for backward compatibility but not validated
 
 	if len(errs) > 0 {
 		return &MultiValidationError{Errors: errs}
@@ -111,37 +106,74 @@ func (c *MySQLConnection) Validate() error {
 	return nil
 }
 
-// Test tests the MySQL connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
+// Test tests the MySQL connection availability with intelligent SSL detection.
 //
-// It attempts to connect to the MySQL database and returns:
-// - Success: Whether the connection succeeded
-// - LatencyMs: Time taken to establish connection
-// - DatabaseVersion: MySQL version string (on success)
-// - Error: Error message (on failure)
+// It attempts multiple SSL configurations in order:
+// 1. disabled (no SSL - fastest)
+// 2. preferred (auto-detect, fallback to no SSL)
+// 3. required (force SSL)
 //
-// The context supports cancellation and timeout.
-// Note: This method requires the MySQL driver to be imported.
-// Currently returns an error stating driver not available.
+// Returns: TestResult with success/failure, latency, version, error.
 func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	dsn := c.GetDSNWithPassword()
+	// SSL modes to try in order (most common first)
+	sslModes := []string{"disabled", "preferred", "required"}
 
-	// Try to open connection
-	// Note: MySQL driver is not imported yet to avoid dependency
-	// When ready, uncomment: _ "github.com/go-sql-driver/mysql"
+	var lastErr error
+	for _, sslMode := range sslModes {
+		dsn := c.buildDSNWithSSL(sslMode)
+
+		slog.Info("MySQL: Testing connection",
+			"host", c.Host,
+			"port", c.Port,
+			"ssl_mode", sslMode,
+			"username", c.Username)
+
+		result, err := c.testConnection(ctx, dsn, start)
+		if err != nil {
+			// Context cancelled or timeout
+			return nil, fmt.Errorf("test cancelled: %w", err)
+		}
+
+		if result.Success {
+			slog.Info("MySQL: Connection successful",
+				"ssl_mode", sslMode,
+				"latency_ms", result.LatencyMs,
+				"version", result.DatabaseVersion)
+			return result, nil
+		}
+
+		// Save last error for reporting
+		lastErr = fmt.Errorf("ssl_mode=%s: %s", sslMode, result.Error)
+		slog.Debug("MySQL: Connection attempt failed",
+			"ssl_mode", sslMode,
+			"error", result.Error)
+	}
+
+	// All attempts failed
+	latency := time.Since(start).Milliseconds()
+	return &TestResult{
+		Success:   false,
+		LatencyMs: latency,
+		Error:     fmt.Sprintf("all connection attempts failed. Last error: %v", lastErr),
+	}, nil
+}
+
+// testConnection performs a single connection attempt with the given DSN.
+func (c *MySQLConnection) testConnection(ctx context.Context, dsn string, start time.Time) (*TestResult, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return &TestResult{
 			Success:   false,
 			Error:     fmt.Sprintf("failed to open connection: %v", err),
-			LatencyMs: 0,
+			LatencyMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
 	defer db.Close()
 
-	// Set timeout for connection test
-	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Set timeout for this connection attempt (5 seconds per attempt)
+	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Attempt to ping the database
@@ -152,11 +184,11 @@ func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		return &TestResult{
 			Success:   false,
 			LatencyMs: latency,
-			Error:     fmt.Sprintf("connection failed: %v", err),
+			Error:     fmt.Sprintf("%v", err),
 		}, nil
 	}
 
-	// Get database version (REQ-CONN-004)
+	// Get database version
 	var version string
 	err = db.QueryRowContext(testCtx, "SELECT VERSION()").Scan(&version)
 	if err != nil {
@@ -168,6 +200,23 @@ func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		LatencyMs:       latency,
 		DatabaseVersion: version,
 	}, nil
+}
+
+// buildDSNWithSSL builds a DSN with the specified SSL mode.
+// Format: username:password@tcp(host:port)/database?tls=xxx
+// If database is empty: username:password@tcp(host:port)/?tls=xxx
+func (c *MySQLConnection) buildDSNWithSSL(sslMode string) string {
+	var dsn string
+	if c.Database == "" {
+		// No database specified
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=%s",
+			c.Username, c.Password, c.Host, c.Port, sslMode)
+	} else {
+		// With database
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?tls=%s",
+			c.Username, c.Password, c.Host, c.Port, c.Database, sslMode)
+	}
+	return dsn
 }
 
 // MultiValidationError represents multiple validation errors.

@@ -1,7 +1,12 @@
 # DB-BenchMind 用户手册
 
-**版本**: 1.0.0
-**更新日期**: 2026-01-28
+**版本**: 1.1.0
+**更新日期**: 2026-02-03
+**新功能**:
+- ✅ GUI 连接管理完成度 100%
+- ✅ 智能连接检测（自动尝试多种 SSL/加密配置）
+- ✅ 数据库特定字段标签和验证
+- ✅ 自动刷新连接列表
 
 ---
 
@@ -129,7 +134,75 @@ go build -o build/db-benchmind ./cmd/db-benchmind
 
 ## 连接管理
 
-### 添加连接（程序化）
+### GUI 连接管理（推荐）
+
+DB-BenchMind 提供了完整的图形界面来管理数据库连接。
+
+#### 支持的数据库类型
+
+| 数据库 | 图标 | 端口 | 必填字段 | 默认值 |
+|--------|------|------|----------|--------|
+| 🐬 MySQL | `mysql` | 3306 | Host, Username, Password | Database 可选 |
+| 🐘 PostgreSQL | `postgresql` | 5432 | Host, Database, Username, Password | Database 默认 `postgres` |
+| 🔴 Oracle | `oracle` | 1521 | Host, SID, Username, Password | SID 默认 `orcl` |
+| 🔷 SQL Server | `sqlserver` | 1433 | Host, Username, Password | Database 可选 |
+
+#### 添加连接
+
+1. 切换到 **Connections** 标签页
+2. 点击 **➕ Add** 按钮
+3. 填写连接信息：
+   - **Database Type**: 选择数据库类型
+   - **Name**: 连接名称（唯一标识）
+   - **Host**: 数据库主机地址
+   - **Port**: 端口号（自动填充默认端口）
+   - **Database/SID**: 根据数据库类型显示不同标签
+     - MySQL/PostgreSQL/SQL Server: 显示 "Database"
+     - Oracle: 显示 "SID"
+   - **Username**: 数据库用户名
+   - **Password**: 数据库密码（使用系统 keyring 加密存储）
+4. 点击 **Test** 测试连接（可选）
+5. 点击 **Save** 保存连接
+
+#### 智能连接特性
+
+系统会自动尝试多种 SSL/加密配置，确保最大兼容性：
+
+- **MySQL**: 尝试 `disabled` → `preferred` → `required`
+- **PostgreSQL**: 尝试 `disable` → `require` → `verify-ca`
+- **SQL Server**: 尝试 4 种加密组合
+- **Oracle**: 使用标准 URL 格式
+
+#### 编辑连接
+
+1. 在连接列表中找到要编辑的连接
+2. 点击 **✏️ Edit** 按钮
+3. 修改连接信息
+4. 点击 **Test** 测试修改后的连接
+5. 点击 **Save** 保存更改
+
+#### 删除连接
+
+1. 在连接列表中找到要删除的连接
+2. 点击 **🗑️ Delete** 按钮
+3. 确认删除操作
+
+#### 测试连接
+
+- **列表测试**: 点击列表中的 **🔌 Test** 按钮
+- **对话框测试**: 在添加/编辑对话框中点击 **Test** 按钮
+
+测试成功后显示：
+- 连接延迟（毫秒）
+- 数据库版本信息
+
+#### 自动刷新
+
+切换到 **Connections** 标签页时，连接列表会自动刷新，显示最新数据。
+
+---
+
+### CLI 连接管理（程序化）
 
 当前 CLI 版本需要通过 API 添加连接。以下是示例代码：
 

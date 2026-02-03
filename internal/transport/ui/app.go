@@ -55,9 +55,12 @@ func (a *Application) Run() {
 	// Create comparison page and save reference
 	comparisonPage, comparisonPageContent := pages.NewResultComparisonPage(window, a.comparisonUC)
 
+	// Create connections page and save reference
+	connectionPage, connectionPageContent := pages.NewConnectionPage(a.connUC, window)
+
 	// Create tabs
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Connections", pages.NewConnectionPage(a.connUC, window)),
+		container.NewTabItem("Connections", connectionPageContent),
 		container.NewTabItem("Templates", pages.NewTemplatePage(window)),
 		container.NewTabItem("Tasks & Monitor", pages.NewTaskMonitorPageWithUC(window, a.connUC, a.benchmarkUC, a.templateUC, a.historyUC)),
 		container.NewTabItem("History", historyPageContent),
@@ -70,6 +73,10 @@ func (a *Application) Run() {
 
 	// Add tab change listener to auto-refresh pages when selected
 	tabs.OnSelected = func(tab *container.TabItem) {
+		// Auto-refresh Connections when selected
+		if tab.Text == "Connections" {
+			connectionPage.Refresh()
+		}
 		// Auto-refresh History when selected
 		if tab.Text == "History" {
 			historyPage.Refresh()
