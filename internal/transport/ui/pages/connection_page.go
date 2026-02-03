@@ -1,23 +1,23 @@
 // Package pages provides GUI pages for DB-BenchMind.
 //
-# Connections Page - Completion: 100%
-#
-# Features Implemented:
-# - ✅ List connections grouped by database type (MySQL, PostgreSQL, Oracle, SQL Server)
-# - ✅ Add new connections with database-specific field labels and defaults
-# - ✅ Edit existing connections
-# - ✅ Delete connections with confirmation
-# - ✅ Test connections with intelligent SSL/encryption detection
-# - ✅ Database-specific icons (🐬 MySQL, 🐘 PostgreSQL, 🔴 Oracle, 🔷 SQL Server)
-# - ✅ Dynamic labels: "Database" for MySQL/PostgreSQL/SQL Server, "SID" for Oracle
-# - ✅ Field validation: PostgreSQL Database and Oracle SID are required
-# - ✅ Auto-refresh when switching to Connections tab
-# - ✅ Dialog remains open on save failure (name conflict, etc.)
-# - ✅ Database-specific defaults:
-#   - MySQL: Database can be empty
-#   - PostgreSQL: Database defaults to "postgres"
-#   - Oracle: SID defaults to "orcl"
-#   - SQL Server: Database can be empty
+// Connections Page - Completion: 100%
+//
+// Features Implemented:
+// - ✅ List connections grouped by database type (MySQL, PostgreSQL, Oracle, SQL Server)
+// - ✅ Add new connections with database-specific field labels and defaults
+// - ✅ Edit existing connections
+// - ✅ Delete connections with confirmation
+// - ✅ Test connections with intelligent SSL/encryption detection
+// - ✅ Database-specific icons (🐬 MySQL, 🐘 PostgreSQL, 🔴 Oracle, 🔷 SQL Server)
+// - ✅ Dynamic labels: "Database" for MySQL/PostgreSQL/SQL Server, "SID" for Oracle
+// - ✅ Field validation: PostgreSQL Database and Oracle SID are required
+// - ✅ Auto-refresh when switching to Connections tab
+// - ✅ Dialog remains open on save failure (name conflict, etc.)
+// - ✅ Database-specific defaults:
+//   - MySQL: Database can be empty
+//   - PostgreSQL: Database defaults to "postgres"
+//   - Oracle: SID defaults to "orcl"
+//   - SQL Server: Database can be empty
 package pages
 
 import (

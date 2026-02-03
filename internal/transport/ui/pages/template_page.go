@@ -95,52 +95,86 @@ func NewTemplateManagementPage(win fyne.Window) fyne.CanvasObject {
 // loadTemplatesData loads and returns template information.
 func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 	// Built-in templates (cannot be deleted)
-	// Default template with user-specified parameters
-	defaultParams := &OLTPParameters{
+	// Test templates (default for each database type)
+	testParams := &OLTPParameters{
 		Tables:    10,
 		TableSize: 10000,
 	}
 
+	// CPU Bound templates (data fits in memory)
+	cpuBoundParams := &OLTPParameters{
+		Tables:    10,
+		TableSize: 10000000,
+	}
+
+	// Disk Bound templates (data exceeds memory)
+	diskBoundParams := &OLTPParameters{
+		Tables:    50,
+		TableSize: 10000000,
+	}
+
 	builtinTemplates := []templateInfo{
+		// MySQL templates
 		{
-			ID:          "sysbench-oltp-read-write",
-			Name:        "OLTP Read-Write (Sysbench)",
-			Description: "OLTP read-write mixed workload for MySQL",
+			ID:          "sysbench-mysql-test",
+			Name:        "Test (Sysbench)",
+			Description: "Lightweight test template for quick MySQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
 			DBType:      "MySQL",
 			IsBuiltin:   true,
 			IsDefault:   true,
-			Parameters:  defaultParams,
+			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-oltp-read-write",
-			Name:        "OLTP Read-Write (Sysbench)",
-			Description: "OLTP read-write mixed workload for PostgreSQL",
+			ID:          "sysbench-mysql-cpu-bound",
+			Name:        "CPU Bound (Sysbench)",
+			Description: "CPU-bound test template for MySQL (10 tables, 10M rows each - fits in memory)",
+			Tool:        "sysbench",
+			DBType:      "MySQL",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  cpuBoundParams,
+		},
+		{
+			ID:          "sysbench-mysql-disk-bound",
+			Name:        "Disk Bound (Sysbench)",
+			Description: "Disk-bound test template for MySQL (50 tables, 10M rows each - exceeds memory)",
+			Tool:        "sysbench",
+			DBType:      "MySQL",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  diskBoundParams,
+		},
+		// PostgreSQL templates
+		{
+			ID:          "sysbench-postgresql-test",
+			Name:        "Test (Sysbench)",
+			Description: "Lightweight test template for quick PostgreSQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
 			DBType:      "PostgreSQL",
 			IsBuiltin:   true,
 			IsDefault:   true,
-			Parameters:  defaultParams,
+			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-oltp-read-write",
-			Name:        "OLTP Read-Write (Sysbench)",
-			Description: "OLTP read-write mixed workload for Oracle",
+			ID:          "sysbench-postgresql-cpu-bound",
+			Name:        "CPU Bound (Sysbench)",
+			Description: "CPU-bound test template for PostgreSQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
-			DBType:      "Oracle",
+			DBType:      "PostgreSQL",
 			IsBuiltin:   true,
-			IsDefault:   true,
-			Parameters:  defaultParams,
+			IsDefault:   false,
+			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-oltp-read-write",
-			Name:        "OLTP Read-Write (Sysbench)",
-			Description: "OLTP read-write mixed workload for SQL Server",
+			ID:          "sysbench-postgresql-disk-bound",
+			Name:        "Disk Bound (Sysbench)",
+			Description: "Disk-bound test template for PostgreSQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",
-			DBType:      "SQL Server",
+			DBType:      "PostgreSQL",
 			IsBuiltin:   true,
-			IsDefault:   true,
-			Parameters:  defaultParams,
+			IsDefault:   false,
+			Parameters:  diskBoundParams,
 		},
 	}
 

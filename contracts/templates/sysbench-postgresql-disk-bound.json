@@ -1,0 +1,64 @@
+{
+  "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
+  "id": "sysbench-postgresql-disk-bound",
+  "name": "Sysbench PostgreSQL Disk Bound",
+  "description": "Disk-bound test template for PostgreSQL (50 tables, 10M rows each - exceeds memory)",
+  "tool": "sysbench",
+  "database_types": ["postgresql"],
+  "version": "1.0.0",
+  "parameters": {
+    "threads": {
+      "type": "integer",
+      "label": "Thread count",
+      "default": 8,
+      "min": 1,
+      "max": 1024
+    },
+    "time": {
+      "type": "integer",
+      "label": "Runtime (seconds)",
+      "default": 60,
+      "min": 10,
+      "max": 86400
+    },
+    "tables": {
+      "type": "integer",
+      "label": "Number of tables",
+      "default": 50,
+      "min": 1,
+      "max": 1000
+    },
+    "table_size": {
+      "type": "integer",
+      "label": "Rows per table",
+      "default": 10000000,
+      "min": 1000,
+      "max": 100000000
+    },
+    "rate": {
+      "type": "integer",
+      "label": "Transaction rate (0 = unlimited)",
+      "default": 0,
+      "min": 0,
+      "max": 100000
+    }
+  },
+  "command_template": {
+    "prepare": "sysbench pgsql --tables={tables} --table-size={table_size} {connection_string} prepare",
+    "run": "sysbench pgsql --threads={threads} --time={time} --tables={tables} --report-interval=1 {rate_arg} {connection_string} run",
+    "cleanup": "sysbench pgsql --tables={tables} {connection_string} cleanup"
+  },
+  "output_parser": {
+    "type": "regex",
+    "patterns": {
+      "tps": "transactions:\\s*\\(\\s*(\\d+\\.?\\d*)\\s*per sec\\.",
+      "latency_avg": "latency:\\s*\\(ms\\).*?avg=\\s*(\\d+\\.?\\d*)",
+      "latency_min": "latency:\\s*\\(ms\\).*?min=\\s*(\\d+\\.?\\d*)",
+      "latency_max": "latency:\\s*\\(ms\\).*?max=\\s*(\\d+\\.?\\d*)",
+      "95th_percentile": "latency:\\s*\\(ms\\).*?95th percentile=\\s*(\\d+\\.?\\d*)",
+      "queries": "queries:\\s*\\(\\s*(\\d+\\.?\\d*)\\s*per sec\\.",
+      "errors": "SQL errors:\\s*\\(\\s*(\\d+\\.?\\d*)",
+      "reconnects": "reconnects:\\s*\\(\\s*(\\d+\\.?\\d*)"
+    }
+  }
+}

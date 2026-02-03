@@ -6,6 +6,24 @@ This directory contains built-in benchmark templates for DB-BenchMind.
 
 ### Sysbench Templates
 
+#### MySQL Templates
+
+| ID | Name | Description | Default | Tables | Table Size |
+|----|------|-------------|---------|--------|------------|
+| `sysbench-mysql-test` ⭐ | Test | Lightweight test template for quick testing | Yes | 10 | 10,000 |
+| `sysbench-mysql-cpu-bound` | CPU Bound | CPU-bound test (data fits in memory) | No | 10 | 10,000,000 |
+| `sysbench-mysql-disk-bound` | Disk Bound | Disk-bound test (data exceeds memory) | No | 50 | 10,000,000 |
+
+#### PostgreSQL Templates
+
+| ID | Name | Description | Default | Tables | Table Size |
+|----|------|-------------|---------|--------|------------|
+| `sysbench-postgresql-test` ⭐ | Test | Lightweight test template for quick testing | Yes | 10 | 10,000 |
+| `sysbench-postgresql-cpu-bound` | CPU Bound | CPU-bound test (data fits in memory) | No | 10 | 10,000,000 |
+| `sysbench-postgresql-disk-bound` | Disk Bound | Disk-bound test (data exceeds memory) | No | 50 | 10,000,000 |
+
+#### Legacy Templates (Deprecated)
+
 | ID | Name | Description | Supported Databases |
 |----|------|-------------|---------------------|
 | `sysbench-oltp-read-write` | Sysbench OLTP Read-Write | Standard OLTP mixed test (70% read, 30% write) | MySQL, PostgreSQL |
