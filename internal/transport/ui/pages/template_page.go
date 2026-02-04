@@ -19,6 +19,13 @@ import (
 var (
 	customTemplates      []templateInfo
 	customTemplatesMutex sync.RWMutex
+	// Default template IDs for each database type (persists Set Default operations)
+	defaultTemplateIDs   = map[string]string{
+		"MySQL":      "sysbench-mysql-test",
+		"PostgreSQL": "sysbench-postgresql-test",
+		"Oracle":     "swingbench-oracle-test",
+		"SQL Server": "", // No SQL Server templates yet
+	}
 )
 
 // TemplateManagementPage provides the template management GUI.
@@ -113,6 +120,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 		TableSize: 10000000,
 	}
 
+	// Create builtin templates (initially all IsDefault=false, will be set below)
 	builtinTemplates := []templateInfo{
 		// MySQL templates
 		{
@@ -122,7 +130,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Tool:        "sysbench",
 			DBType:      "MySQL",
 			IsBuiltin:   true,
-			IsDefault:   true,
+			IsDefault:   false, // Will be set based on defaultTemplateIDs
 			Parameters:  testParams,
 		},
 		{
@@ -153,7 +161,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Tool:        "sysbench",
 			DBType:      "PostgreSQL",
 			IsBuiltin:   true,
-			IsDefault:   true,
+			IsDefault:   false, // Will be set based on defaultTemplateIDs
 			Parameters:  testParams,
 		},
 		{
@@ -176,6 +184,37 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			IsDefault:   false,
 			Parameters:  diskBoundParams,
 		},
+		// Oracle templates
+		{
+			ID:          "swingbench-oracle-test",
+			Name:        "Test (Swingbench)",
+			Description: "Lightweight test template for quick Oracle testing (1GB data, balanced read/write mix)",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   false, // Will be set based on defaultTemplateIDs
+			Parameters:  nil, // Swingbench uses different parameters
+		},
+		{
+			ID:          "swingbench-oracle-cpu-bound",
+			Name:        "CPU Bound (Swingbench)",
+			Description: "CPU-bound test template for Oracle - 85% read (Browse Products), 15% write operations. Uses 1GB data size.",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil, // Swingbench uses different parameters
+		},
+		{
+			ID:          "swingbench-oracle-disk-bound",
+			Name:        "Disk Bound (Swingbench)",
+			Description: "Disk-bound test template for Oracle - Balanced read/write mix (35% Order Products, 35% Browse Products, 10% each for Customer operations). Uses 1GB data size.",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil, // Swingbench uses different parameters
+		},
 	}
 
 	// Load custom templates from global storage
@@ -183,23 +222,23 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 	defer customTemplatesMutex.RUnlock()
 	slog.Info("Templates: Loading custom templates from global storage", "count", len(customTemplates))
 
-	// Check which DB types have custom default templates
-	dbTypesWithCustomDefault := make(map[string]bool)
-	for _, ct := range customTemplates {
-		if ct.IsDefault {
-			dbTypesWithCustomDefault[ct.DBType] = true
+	// Set default flag for builtin templates based on defaultTemplateIDs map
+	// and clear default flag for custom templates that are NOT the default
+	for i := range builtinTemplates {
+		dbType := builtinTemplates[i].DBType
+		defaultID := defaultTemplateIDs[dbType]
+		if builtinTemplates[i].ID == defaultID {
+			builtinTemplates[i].IsDefault = true
+		} else {
+			builtinTemplates[i].IsDefault = false
 		}
 	}
 
-	// Update built-in templates' default flag based on custom templates
-	for i := range builtinTemplates {
-		dbType := builtinTemplates[i].DBType
-		// If there's a custom default for this DB type, mark built-in as non-default
-		if dbTypesWithCustomDefault[dbType] {
-			builtinTemplates[i].IsDefault = false
-		} else {
-			builtinTemplates[i].IsDefault = true
-		}
+	// Update custom templates to match defaultTemplateIDs (if custom template is default)
+	for i := range customTemplates {
+		dbType := customTemplates[i].DBType
+		defaultID := defaultTemplateIDs[dbType]
+		customTemplates[i].IsDefault = (customTemplates[i].ID == defaultID)
 	}
 
 	// Combine all templates
@@ -457,6 +496,10 @@ func (p *TemplateManagementPage) onDeleteTemplate(tmpl templateInfo) {
 
 // onSetDefault sets a template as default for its database type.
 func (p *TemplateManagementPage) onSetDefault(tmpl templateInfo, dbType string) {
+	// Update the global defaultTemplateIDs map (works for both builtin and custom templates)
+	defaultTemplateIDs[dbType] = tmpl.ID
+	slog.Info("Templates: Default template updated", "db_type", dbType, "template_id", tmpl.ID, "template_name", tmpl.Name)
+
 	// Update custom templates in global storage
 	customTemplatesMutex.Lock()
 	// Clear default flag for all templates of the same database type
@@ -466,7 +509,7 @@ func (p *TemplateManagementPage) onSetDefault(tmpl templateInfo, dbType string) 
 		}
 	}
 
-	// Set the selected template as default
+	// Set the selected template as default (only for custom templates)
 	for i := range customTemplates {
 		if customTemplates[i].ID == tmpl.ID {
 			customTemplates[i].IsDefault = true
@@ -539,6 +582,21 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		sb.WriteString("\n**Note:** Additional parameters (threads, time, rate) are configured in the Tasks page when running the benchmark.\n")
 	}
 
+	// Show transaction weights for Oracle Swingbench templates
+	if tmpl.Tool == "swingbench" && tmpl.DBType == "Oracle" {
+		sb.WriteString("---\n\n")
+		sb.WriteString("### Transaction Mix (Proportions)\n\n")
+
+		// Load the actual template to get transaction weights
+		weights := p.getTransactionWeights(tmpl.ID)
+		if weights != nil {
+			sb.WriteString("**Transaction Distribution:**\n\n")
+			for name, weight := range weights {
+				sb.WriteString(fmt.Sprintf("- %s：**%d**\n", name, weight))
+			}
+		}
+	}
+
 	content := widget.NewRichTextFromMarkdown(sb.String())
 
 	dlg := dialog.NewCustomConfirm(
@@ -551,6 +609,39 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 	)
 	dlg.Resize(fyne.NewSize(700, 600))
 	dlg.Show()
+}
+
+// getTransactionWeights loads transaction weights from a template file.
+func (p *TemplateManagementPage) getTransactionWeights(templateID string) map[string]int {
+	// Mapping of transaction weights for each Oracle template
+	weightMap := map[string]map[string]int{
+		"swingbench-oracle-test": {
+			"Customer_Registration": 10,
+			"Update_Customer_Details": 10,
+			"Browse_Products":       35,
+			"Order_Products":        35,
+			"Process_Orders":        5,
+			"Browse_Orders":          5,
+		},
+		"swingbench-oracle-cpu-bound": {
+			"Customer_Registration": 1,
+			"Update_Customer_Details": 1,
+			"Browse_Products":       85,
+			"Order_Products":        5,
+			"Process_Orders":        3,
+			"Browse_Orders":          5,
+		},
+		"swingbench-oracle-disk-bound": {
+			"Customer_Registration": 10,
+			"Update_Customer_Details": 10,
+			"Browse_Products":       35,
+			"Order_Products":        35,
+			"Process_Orders":        5,
+			"Browse_Orders":          5,
+		},
+	}
+
+	return weightMap[templateID]
 }
 
 // GetDefaultTemplate returns the default template for use in Tasks page.
@@ -575,6 +666,9 @@ type templateDialog struct {
 	dialog              *dialog.CustomDialog
 	nameEntry           *widget.Entry
 	dbTypeSelect        *widget.Select // Added database type selection
+	formContainer       *fyne.Container // Container for dynamic form fields
+
+	// Sysbench parameters
 	tablesEntry         *widget.Entry
 	tableSizeEntry      *widget.Entry
 	dbPSModeEntry       *widget.Select
@@ -587,6 +681,17 @@ type templateDialog struct {
 	oltpIndexUpdates    *widget.Entry
 	oltpNonIndexUpdates *widget.Entry
 	oltpDeleteInserts   *widget.Entry
+
+	// Swingbench parameters (for Oracle)
+	usersEntry          *widget.Entry
+	timeEntry           *widget.Entry
+	scaleEntry          *widget.Entry
+	usernameEntry       *widget.Entry
+	passwordEntry       *widget.Entry
+	dbaUsernameEntry    *widget.Entry
+	dbaPasswordEntry    *widget.Entry
+	configFileEntry     *widget.Entry
+	threadsEntry        *widget.Entry
 }
 
 // showTemplateDialog shows the template add/edit dialog.
@@ -626,7 +731,16 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	defaultOLTPNonIndexUpdates := 1
 	defaultOLTPDeleteInserts := 1
 
-	// Create form fields
+	// Default Swingbench parameters
+	defaultUsers := 8
+	defaultTime := 10
+	defaultScale := 1
+	defaultUsername := "soe"
+	defaultDBAUsername := "sys as sysdba"
+	defaultConfigFile := "/opt/benchtools/swingbench/configs/SOE_TEST.xml"
+	defaultThreads := 32
+
+	// Create common form fields
 	d.nameEntry = widget.NewEntry()
 	d.nameEntry.SetPlaceHolder("My Custom Template")
 	if existingName != "" {
@@ -637,6 +751,7 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, nil)
 	d.dbTypeSelect.SetSelected(initialDBType) // Use initial DB type
 
+	// ============ Create Sysbench parameters ============
 	d.tablesEntry = widget.NewEntry()
 	d.tablesEntry.SetText(fmt.Sprintf("%d", defaultParams.Tables))
 
@@ -673,23 +788,76 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	d.oltpDeleteInserts = widget.NewEntry()
 	d.oltpDeleteInserts.SetText(fmt.Sprintf("%d", defaultOLTPDeleteInserts))
 
-	// Create form with visible parameters
-	formItems := []*widget.FormItem{
-		widget.NewFormItem("Database Type", d.dbTypeSelect),
-		widget.NewFormItem("Template Name", d.nameEntry),
-		widget.NewFormItem("Tables (N)", d.tablesEntry),
-		widget.NewFormItem("Table Size (N)", d.tableSizeEntry),
-		widget.NewFormItem("DB PS Mode", d.dbPSModeEntry),
-		widget.NewFormItem("OLTP Test Mode", d.oltpTestModeEntry),
-		widget.NewFormItem("Point Selects", d.oltpPointSelects),
-		widget.NewFormItem("Simple Ranges", d.oltpSimpleRanges),
-		widget.NewFormItem("Sum Ranges", d.oltpSumRanges),
-		widget.NewFormItem("Order Ranges", d.oltpOrderRanges),
-		widget.NewFormItem("Distinct Ranges", d.oltpDistinctRanges),
-		widget.NewFormItem("Index Updates", d.oltpIndexUpdates),
-		widget.NewFormItem("Non-Index Updates", d.oltpNonIndexUpdates),
-		widget.NewFormItem("Delete Inserts", d.oltpDeleteInserts),
+	// ============ Create Swingbench parameters ============
+	d.usersEntry = widget.NewEntry()
+	d.usersEntry.SetText(fmt.Sprintf("%d", defaultUsers))
+
+	d.timeEntry = widget.NewEntry()
+	d.timeEntry.SetText(fmt.Sprintf("%d", defaultTime))
+
+	d.scaleEntry = widget.NewEntry()
+	d.scaleEntry.SetText(fmt.Sprintf("%d", defaultScale))
+
+	d.usernameEntry = widget.NewEntry()
+	d.usernameEntry.SetText(defaultUsername)
+
+	d.passwordEntry = widget.NewEntry()
+	d.passwordEntry.SetPlaceHolder("Schema password")
+
+	d.dbaUsernameEntry = widget.NewEntry()
+	d.dbaUsernameEntry.SetText(defaultDBAUsername)
+
+	d.dbaPasswordEntry = widget.NewEntry()
+	d.dbaPasswordEntry.SetPlaceHolder("DBA password")
+
+	d.configFileEntry = widget.NewEntry()
+	d.configFileEntry.SetText(defaultConfigFile)
+
+	d.threadsEntry = widget.NewEntry()
+	d.threadsEntry.SetText(fmt.Sprintf("%d", defaultThreads))
+
+	// ============ Create dynamic form container ============
+	d.formContainer = container.NewVBox()
+
+	// Function to update form fields based on database type
+	updateFormFields := func(dbType string) {
+		slog.Info("Templates: Updating form fields for DB type", "db_type", dbType)
+		d.formContainer.Objects = nil
+
+		if dbType == "Oracle" {
+			// Show message: Oracle custom templates not supported yet
+			msgLabel := widget.NewLabel("Oracle templates use Swingbench with different parameters.\n\nCurrently, only built-in Oracle templates are supported.\n\nPlease use the built-in Oracle templates:\n- Test (Swingbench)\n- CPU Bound (Swingbench)\n- Disk Bound (Swingbench)")
+			d.formContainer.Add(container.NewVBox(msgLabel))
+		} else {
+			// Show Sysbench parameters
+			formItems := []*widget.FormItem{
+				widget.NewFormItem("Tables (N)", d.tablesEntry),
+				widget.NewFormItem("Table Size (N)", d.tableSizeEntry),
+				widget.NewFormItem("DB PS Mode", d.dbPSModeEntry),
+				widget.NewFormItem("OLTP Test Mode", d.oltpTestModeEntry),
+				widget.NewFormItem("Point Selects", d.oltpPointSelects),
+				widget.NewFormItem("Simple Ranges", d.oltpSimpleRanges),
+				widget.NewFormItem("Sum Ranges", d.oltpSumRanges),
+				widget.NewFormItem("Order Ranges", d.oltpOrderRanges),
+				widget.NewFormItem("Distinct Ranges", d.oltpDistinctRanges),
+				widget.NewFormItem("Index Updates", d.oltpIndexUpdates),
+				widget.NewFormItem("Non-Index Updates", d.oltpNonIndexUpdates),
+				widget.NewFormItem("Delete Inserts", d.oltpDeleteInserts),
+			}
+			form := widget.NewForm(formItems...)
+			d.formContainer.Add(form)
+		}
+		d.formContainer.Refresh()
 	}
+
+	// Set up callback for database type change
+	d.dbTypeSelect.OnChanged = func(dbType string) {
+		slog.Info("Templates: DB type changed", "db_type", dbType)
+		updateFormFields(dbType)
+	}
+
+	// Initialize form with initial DB type
+	updateFormFields(initialDBType)
 
 	// Create buttons
 	btnSave := widget.NewButton("Save", func() {
@@ -706,11 +874,14 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 
 	buttonContainer := container.NewHBox(btnSave, btnCancel)
 
-	// Create form
-	form := widget.NewForm(formItems...)
+	// Create static form items (Database Type and Template Name)
+	staticForm := widget.NewForm(
+		widget.NewFormItem("Database Type", d.dbTypeSelect),
+		widget.NewFormItem("Template Name", d.nameEntry),
+	)
 
 	// Create dialog content with buttons at bottom
-	content := container.NewVBox(form, widget.NewSeparator(), buttonContainer)
+	content := container.NewVBox(staticForm, d.formContainer, widget.NewSeparator(), buttonContainer)
 
 	// Create custom dialog without buttons
 	dlg := dialog.NewCustomWithoutButtons(title, content, win)
@@ -729,6 +900,16 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 // Returns true if save was successful (dialog should close), false otherwise (dialog stays open).
 func (d *templateDialog) onSave() bool {
 	slog.Info("Templates: Save button clicked in dialog")
+
+	dbType := d.dbTypeSelect.Selected
+
+	// Check if Oracle is selected (not supported for custom templates yet)
+	if dbType == "Oracle" {
+		slog.Warn("Templates: Cannot create custom Oracle templates")
+		dialog.ShowError(fmt.Errorf("custom Oracle templates are not supported yet\n\nPlease use the built-in Oracle templates"), d.win)
+		return false
+	}
+
 	// Parse and validate parameters
 	name := strings.TrimSpace(d.nameEntry.Text)
 	if name == "" {
@@ -772,7 +953,6 @@ func (d *templateDialog) onSave() bool {
 		TableSize: tableSize,
 	}
 
-	dbType := d.dbTypeSelect.Selected
 	slog.Info("Templates: DB Type from selector", "db_type", dbType, "selected", d.dbTypeSelect.Selected, "options", d.dbTypeSelect.Options)
 
 	if d.onSuccess != nil {

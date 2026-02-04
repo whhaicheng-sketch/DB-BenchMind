@@ -181,24 +181,92 @@ func (r *SQLiteConnectionRepository) serializeConnection(conn connection.Connect
 		data["database"] = c.Database
 		data["username"] = c.Username
 		data["ssl_mode"] = c.SSLMode
+		// Serialize SSH configuration if enabled
+		if c.SSH != nil {
+			data["ssh"] = map[string]interface{}{
+				"enabled":    c.SSH.Enabled,
+				"host":       c.SSH.Host,
+				"port":       c.SSH.Port,
+				"username":   c.SSH.Username,
+				"local_port": c.SSH.LocalPort,
+			}
+			slog.Info("Repository: Serializing MySQL connection with SSH",
+				"conn_id", conn.GetID(),
+				"name", conn.GetName(),
+				"ssh_enabled", c.SSH.Enabled,
+				"ssh_host", c.SSH.Host,
+				"ssh_port", c.SSH.Port,
+				"ssh_user", c.SSH.Username)
+		}
 	case *connection.OracleConnection:
 		data["host"] = c.Host
 		data["port"] = c.Port
 		data["service_name"] = c.ServiceName
 		data["sid"] = c.SID
 		data["username"] = c.Username
+		// Serialize SSH configuration if enabled
+		if c.SSH != nil {
+			data["ssh"] = map[string]interface{}{
+				"enabled":    c.SSH.Enabled,
+				"host":       c.SSH.Host,
+				"port":       c.SSH.Port,
+				"username":   c.SSH.Username,
+				"local_port": c.SSH.LocalPort,
+			}
+			slog.Info("Repository: Serializing Oracle connection with SSH",
+				"conn_id", conn.GetID(),
+				"name", conn.GetName(),
+				"ssh_enabled", c.SSH.Enabled,
+				"ssh_host", c.SSH.Host,
+				"ssh_port", c.SSH.Port,
+				"ssh_user", c.SSH.Username)
+		}
 	case *connection.SQLServerConnection:
 		data["host"] = c.Host
 		data["port"] = c.Port
 		data["database"] = c.Database
 		data["username"] = c.Username
 		data["trust_server_certificate"] = c.TrustServerCertificate
+		// Serialize WinRM configuration if enabled
+		if c.WinRM != nil {
+			data["winrm"] = map[string]interface{}{
+				"enabled":   c.WinRM.Enabled,
+				"host":      c.WinRM.Host,
+				"port":      c.WinRM.Port,
+				"username":  c.WinRM.Username,
+				"use_https": c.WinRM.UseHTTPS,
+			}
+			slog.Info("Repository: Serializing SQL Server connection with WinRM",
+				"conn_id", conn.GetID(),
+				"name", conn.GetName(),
+				"winrm_enabled", c.WinRM.Enabled,
+				"winrm_host", c.WinRM.Host,
+				"winrm_port", c.WinRM.Port,
+				"winrm_use_https", c.WinRM.UseHTTPS)
+		}
 	case *connection.PostgreSQLConnection:
 		data["host"] = c.Host
 		data["port"] = c.Port
 		data["database"] = c.Database
 		data["username"] = c.Username
 		data["ssl_mode"] = c.SSLMode
+		// Serialize SSH configuration if enabled
+		if c.SSH != nil {
+			data["ssh"] = map[string]interface{}{
+				"enabled":    c.SSH.Enabled,
+				"host":       c.SSH.Host,
+				"port":       c.SSH.Port,
+				"username":   c.SSH.Username,
+				"local_port": c.SSH.LocalPort,
+			}
+			slog.Info("Repository: Serializing PostgreSQL connection with SSH",
+				"conn_id", conn.GetID(),
+				"name", conn.GetName(),
+				"ssh_enabled", c.SSH.Enabled,
+				"ssh_host", c.SSH.Host,
+				"ssh_port", c.SSH.Port,
+				"ssh_user", c.SSH.Username)
+		}
 	default:
 		return "", fmt.Errorf("unsupported connection type: %T", conn)
 	}
@@ -239,6 +307,23 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			Username:       getString(data, "username"),
 			SSLMode:        getString(data, "ssl_mode"),
 		}
+		// Load SSH configuration if present
+		if sshData, ok := data["ssh"].(map[string]interface{}); ok {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:   getBool(sshData, "enabled"),
+				Host:      getString(sshData, "host"),
+				Port:      getInt(sshData, "port"),
+				Username:  getString(sshData, "username"),
+				LocalPort: getInt(sshData, "local_port"),
+			}
+			slog.Info("Repository: Deserialized MySQL connection with SSH",
+				"conn_id", id,
+				"name", name,
+				"ssh_enabled", conn.SSH.Enabled,
+				"ssh_host", conn.SSH.Host,
+				"ssh_port", conn.SSH.Port,
+				"ssh_user", conn.SSH.Username)
+		}
 		// Set default port if not specified
 		if conn.Port == 0 {
 			conn.Port = 3306
@@ -254,6 +339,23 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			ServiceName:    getString(data, "service_name"),
 			SID:            getString(data, "sid"),
 			Username:       getString(data, "username"),
+		}
+		// Load SSH configuration if present
+		if sshData, ok := data["ssh"].(map[string]interface{}); ok {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:   getBool(sshData, "enabled"),
+				Host:      getString(sshData, "host"),
+				Port:      getInt(sshData, "port"),
+				Username:  getString(sshData, "username"),
+				LocalPort: getInt(sshData, "local_port"),
+			}
+			slog.Info("Repository: Deserialized Oracle connection with SSH",
+				"conn_id", id,
+				"name", name,
+				"ssh_enabled", conn.SSH.Enabled,
+				"ssh_host", conn.SSH.Host,
+				"ssh_port", conn.SSH.Port,
+				"ssh_user", conn.SSH.Username)
 		}
 		if conn.Port == 0 {
 			slog.Info("Repository: Oracle port is 0, using default 1521", "conn_id", id, "raw_port", rawPort)
@@ -278,6 +380,23 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			Username:               getString(data, "username"),
 			TrustServerCertificate: getBool(data, "trust_server_certificate"),
 		}
+		// Load WinRM configuration if present
+		if winrmData, ok := data["winrm"].(map[string]interface{}); ok {
+			conn.WinRM = &connection.WinRMConfig{
+				Enabled:   getBool(winrmData, "enabled"),
+				Host:      getString(winrmData, "host"),
+				Port:      getInt(winrmData, "port"),
+				Username:  getString(winrmData, "username"),
+				UseHTTPS:  getBool(winrmData, "use_https"),
+			}
+			slog.Info("Repository: Deserialized SQL Server connection with WinRM",
+				"conn_id", id,
+				"name", name,
+				"winrm_enabled", conn.WinRM.Enabled,
+				"winrm_host", conn.WinRM.Host,
+				"winrm_port", conn.WinRM.Port,
+				"winrm_use_https", conn.WinRM.UseHTTPS)
+		}
 		if conn.Port == 0 {
 			conn.Port = 1433
 		}
@@ -291,6 +410,23 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			Database:       getString(data, "database"),
 			Username:       getString(data, "username"),
 			SSLMode:        getString(data, "ssl_mode"),
+		}
+		// Load SSH configuration if present
+		if sshData, ok := data["ssh"].(map[string]interface{}); ok {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:   getBool(sshData, "enabled"),
+				Host:      getString(sshData, "host"),
+				Port:      getInt(sshData, "port"),
+				Username:  getString(sshData, "username"),
+				LocalPort: getInt(sshData, "local_port"),
+			}
+			slog.Info("Repository: Deserialized PostgreSQL connection with SSH",
+				"conn_id", id,
+				"name", name,
+				"ssh_enabled", conn.SSH.Enabled,
+				"ssh_host", conn.SSH.Host,
+				"ssh_port", conn.SSH.Port,
+				"ssh_user", conn.SSH.Username)
 		}
 		if conn.Port == 0 {
 			conn.Port = 5432

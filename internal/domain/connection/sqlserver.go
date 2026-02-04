@@ -25,6 +25,9 @@ type SQLServerConnection struct {
 	Username               string `json:"username"`                 // Username
 	Password               string `json:"-"`                        // Password (stored in keyring)
 	TrustServerCertificate bool   `json:"trust_server_certificate"` // Trust server certificate
+
+	// WinRM configuration (for Windows Server monitoring)
+	WinRM *WinRMConfig `json:"winrm,omitempty"` // WinRM configuration (optional)
 }
 
 // GetType returns DatabaseTypeSQLServer.
@@ -215,4 +218,15 @@ func (c *SQLServerConnection) SetPassword(password string) {
 // GetPassword returns the password (used by keyring provider).
 func (c *SQLServerConnection) GetPassword() string {
 	return c.Password
+}
+
+// GetWinRMConfig returns the WinRM configuration.
+func (c *SQLServerConnection) GetWinRMConfig() *WinRMConfig {
+	return c.WinRM
+}
+
+// SetWinRMConfig sets the WinRM configuration.
+func (c *SQLServerConnection) SetWinRMConfig(config *WinRMConfig) {
+	c.WinRM = config
+	c.UpdatedAt = time.Now()
 }

@@ -27,6 +27,11 @@ func NewConnectionUseCase(repo ConnectionRepository, keyring keyring.Provider) *
 	}
 }
 
+// GetKeyring returns the keyring provider (used by UI to load SSH passwords).
+func (uc *ConnectionUseCase) GetKeyring() keyring.Provider {
+	return uc.keyring
+}
+
 // =============================================================================
 // Connection Operations
 // Implements: REQ-CONN-001, REQ-CONN-008
@@ -67,10 +72,33 @@ func (uc *ConnectionUseCase) CreateConnection(ctx context.Context, conn connecti
 		}
 	}
 
+	// Save SSH password to keyring if provided
+	if sshPwd := getSSHPassword(conn); sshPwd != "" {
+		sshKey := conn.GetID() + ":ssh"
+		if err := uc.keyring.Set(ctx, sshKey, sshPwd); err != nil {
+			// Rollback: remove database password from keyring
+			_ = uc.keyring.Delete(ctx, conn.GetID())
+			return fmt.Errorf("save SSH password to keyring: %w", err)
+		}
+	}
+
+	// Save WinRM password to keyring if provided
+	if winrmPwd := getWinRMPassword(conn); winrmPwd != "" {
+		winrmKey := conn.GetID() + ":winrm"
+		if err := uc.keyring.Set(ctx, winrmKey, winrmPwd); err != nil {
+			// Rollback: remove database and SSH passwords from keyring
+			_ = uc.keyring.Delete(ctx, conn.GetID())
+			_ = uc.keyring.Delete(ctx, conn.GetID()+":ssh")
+			return fmt.Errorf("save WinRM password to keyring: %w", err)
+		}
+	}
+
 	// Save connection to repository
 	if err := uc.repo.Save(ctx, conn); err != nil {
-		// Rollback: remove password from keyring
+		// Rollback: remove passwords from keyring
 		_ = uc.keyring.Delete(ctx, conn.GetID())
+		_ = uc.keyring.Delete(ctx, conn.GetID()+":ssh")
+		_ = uc.keyring.Delete(ctx, conn.GetID()+":winrm")
 		return fmt.Errorf("save connection: %w", err)
 	}
 
@@ -113,6 +141,22 @@ func (uc *ConnectionUseCase) UpdateConnection(ctx context.Context, conn connecti
 		}
 	}
 
+	// Update SSH password in keyring if changed
+	if sshPwd := getSSHPassword(conn); sshPwd != "" {
+		sshKey := conn.GetID() + ":ssh"
+		if err := uc.keyring.Set(ctx, sshKey, sshPwd); err != nil {
+			return fmt.Errorf("update SSH password in keyring: %w", err)
+		}
+	}
+
+	// Update WinRM password in keyring if changed
+	if winrmPwd := getWinRMPassword(conn); winrmPwd != "" {
+		winrmKey := conn.GetID() + ":winrm"
+		if err := uc.keyring.Set(ctx, winrmKey, winrmPwd); err != nil {
+			return fmt.Errorf("update WinRM password in keyring: %w", err)
+		}
+	}
+
 	// Save updated connection
 	if err := uc.repo.Save(ctx, conn); err != nil {
 		return fmt.Errorf("update connection: %w", err)
@@ -138,6 +182,8 @@ func (uc *ConnectionUseCase) DeleteConnection(ctx context.Context, id string) er
 
 	// Remove password from keyring (best effort, ignore if not found)
 	_ = uc.keyring.Delete(ctx, id)
+	_ = uc.keyring.Delete(ctx, id+":ssh")
+	_ = uc.keyring.Delete(ctx, id+":winrm")
 
 	return nil
 }
@@ -164,6 +210,30 @@ func (uc *ConnectionUseCase) GetConnectionByID(ctx context.Context, id string) (
 			// Password not in keyring, continue without it
 		} else {
 			setPassword(conn, password)
+		}
+
+		// Load SSH password from keyring and set on connection
+		sshKey := id + ":ssh"
+		sshPassword, err := uc.keyring.Get(ctx, sshKey)
+		if err != nil {
+			if !keyring.IsNotFound(err) {
+				return nil, fmt.Errorf("get SSH password from keyring: %w", err)
+			}
+			// SSH password not in keyring, continue without it
+		} else {
+			setSSHPassword(conn, sshPassword)
+		}
+
+		// Load WinRM password from keyring and set on connection
+		winrmKey := id + ":winrm"
+		winrmPassword, err := uc.keyring.Get(ctx, winrmKey)
+		if err != nil {
+			if !keyring.IsNotFound(err) {
+				return nil, fmt.Errorf("get WinRM password from keyring: %w", err)
+			}
+			// WinRM password not in keyring, continue without it
+		} else {
+			setWinRMPassword(conn, winrmPassword)
 		}
 	}
 
@@ -246,6 +316,64 @@ func setPassword(conn connection.Connection, password string) {
 		c.SetPassword(password)
 	case *connection.PostgreSQLConnection:
 		c.SetPassword(password)
+	}
+}
+
+// getSSHPassword gets SSH password from a connection (type-specific).
+func getSSHPassword(conn connection.Connection) string {
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		if c.SSH != nil {
+			return c.SSH.Password
+		}
+	case *connection.PostgreSQLConnection:
+		if c.SSH != nil {
+			return c.SSH.Password
+		}
+	case *connection.OracleConnection:
+		if c.SSH != nil {
+			return c.SSH.Password
+		}
+	}
+	return ""
+}
+
+// setSSHPassword sets SSH password on a connection (type-specific).
+func setSSHPassword(conn connection.Connection, password string) {
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		if c.SSH != nil {
+			c.SSH.Password = password
+		}
+	case *connection.PostgreSQLConnection:
+		if c.SSH != nil {
+			c.SSH.Password = password
+		}
+	case *connection.OracleConnection:
+		if c.SSH != nil {
+			c.SSH.Password = password
+		}
+	}
+}
+
+// getWinRMPassword gets WinRM password from a connection (type-specific).
+func getWinRMPassword(conn connection.Connection) string {
+	switch c := conn.(type) {
+	case *connection.SQLServerConnection:
+		if c.WinRM != nil {
+			return c.WinRM.Password
+		}
+	}
+	return ""
+}
+
+// setWinRMPassword sets WinRM password on a connection (type-specific).
+func setWinRMPassword(conn connection.Connection, password string) {
+	switch c := conn.(type) {
+	case *connection.SQLServerConnection:
+		if c.WinRM != nil {
+			c.WinRM.Password = password
+		}
 	}
 }
 

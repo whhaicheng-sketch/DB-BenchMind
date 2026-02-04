@@ -31,7 +31,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -181,6 +180,8 @@ func (p *ConnectionPage) createConnectionGroup(dbType string, conns []connection
 		// Get connection info for display
 		connName := conn.GetName()
 		var host, portStr, username string
+		var sshEnabled bool
+		var winrmEnabled bool
 
 		// Get database icon
 		var dbIcon string
@@ -190,25 +191,36 @@ func (p *ConnectionPage) createConnectionGroup(dbType string, conns []connection
 			host = c.Host
 			portStr = fmt.Sprintf("%d", c.Port)
 			username = c.Username
+			sshEnabled = c.SSH != nil && c.SSH.Enabled
 		case *connection.PostgreSQLConnection:
 			dbIcon = "🐘"
 			host = c.Host
 			portStr = fmt.Sprintf("%d", c.Port)
 			username = c.Username
+			sshEnabled = c.SSH != nil && c.SSH.Enabled
 		case *connection.OracleConnection:
 			dbIcon = "🔴"
 			host = c.Host
 			portStr = fmt.Sprintf("%d", c.Port)
 			username = c.Username
+			sshEnabled = c.SSH != nil && c.SSH.Enabled
 		case *connection.SQLServerConnection:
 			dbIcon = "🔷"
 			host = c.Host
 			portStr = fmt.Sprintf("%d", c.Port)
 			username = c.Username
+			winrmEnabled = c.WinRM != nil && c.WinRM.Enabled
 		}
 
-		// Connection info label
-		infoText := fmt.Sprintf("%s %s  |  %s@%s:%s", dbIcon, connName, username, host, portStr)
+		// Connection info label with SSH/WinRM status
+		tunnelIndicator := ""
+		if sshEnabled {
+			tunnelIndicator = " | 🔒 SSH"
+		}
+		if winrmEnabled {
+			tunnelIndicator = " | 🖥️ WinRM"
+		}
+		infoText := fmt.Sprintf("%s %s  |  %s@%s:%s%s", dbIcon, connName, username, host, portStr, tunnelIndicator)
 		infoLabel := widget.NewLabel(infoText)
 
 		// Buttons for this connection: Test, Edit, Delete
@@ -291,23 +303,210 @@ func (p *ConnectionPage) onTestConnection(conn connection.Connection) {
 	// Test in background
 	go func() {
 		slog.Info("Connections: Testing connection", "name", conn.GetName())
-		result, err := p.connUC.TestConnection(context.Background(), conn.GetID())
 
-		// Show result dialog (safe to call from goroutine in Fyne)
+		ctx := context.Background()
+
+		// First, load connection with passwords from keyring to get SSH config
+		connWithPasswords, err := p.connUC.GetConnectionByID(ctx, conn.GetID())
 		if err != nil {
-			dialog.ShowError(err, win)
+			slog.Error("Connections: Failed to load connection with passwords", "error", err)
+			dialog.ShowError(fmt.Errorf("failed to load connection: %w", err), win)
 			return
 		}
-		if result.Success {
-			slog.Info("Connections: Test successful", "name", conn.GetName(), "latency_ms", result.LatencyMs)
-			msg := fmt.Sprintf("Success! Latency: %dms\nVersion: %s",
-				result.LatencyMs, result.DatabaseVersion)
-			dialog.ShowInformation("Connection Test", msg, win)
+
+		// Check if connection has SSH configured (from loaded connection)
+		var sshConfig *connection.SSHTunnelConfig
+		switch c := connWithPasswords.(type) {
+		case *connection.MySQLConnection:
+			sshConfig = c.SSH
+		case *connection.PostgreSQLConnection:
+			sshConfig = c.SSH
+		case *connection.OracleConnection:
+			sshConfig = c.SSH
+		}
+
+		// Test results
+		var sshSuccess bool
+		var sshError error
+		var sshLatency int64
+		var dbSuccess bool
+		var dbError error
+		var dbResult *connection.TestResult
+		var dbConnectedDirectly bool // Whether we connected without SSH
+
+		// Test SSH tunnel if configured
+		if sshConfig != nil && sshConfig.Enabled {
+			slog.Info("Connections: Testing SSH tunnel",
+				"ssh_host", sshConfig.Host,
+				"ssh_port", sshConfig.Port,
+				"ssh_user", sshConfig.Username,
+				"has_password", sshConfig.Password != "")
+
+			start := time.Now()
+
+			// Test SSH connection
+			tunnel, err := connection.NewSSHTunnel(ctx, sshConfig, "localhost", 22)
+			if err != nil {
+				slog.Error("Connections: SSH test failed", "error", err)
+				sshError = err
+				sshSuccess = false
+			} else {
+				tunnel.Close()
+				sshLatency = time.Since(start).Milliseconds()
+				sshSuccess = true
+				slog.Info("Connections: SSH test successful",
+					"ssh_host", sshConfig.Host,
+					"latency_ms", sshLatency)
+			}
+		}
+
+		// Test database connection
+		// If SSH succeeded, use SSH tunnel
+		// If SSH failed or not configured, test direct connection
+		if sshSuccess {
+			slog.Info("Connections: Testing database through SSH tunnel")
+			result, err := p.connUC.TestConnection(ctx, conn.GetID())
+			if err != nil {
+				dbSuccess = false
+				dbError = err
+				slog.Error("Connections: Database test failed", "error", err)
+			} else if result.Success {
+				dbSuccess = true
+				dbResult = result
+				slog.Info("Connections: Database test successful",
+					"latency_ms", result.LatencyMs,
+					"version", result.DatabaseVersion)
+			} else {
+				dbSuccess = false
+				dbError = fmt.Errorf("%s", result.Error)
+				slog.Warn("Connections: Database test failed", "error", result.Error)
+			}
 		} else {
-			slog.Warn("Connections: Test failed", "name", conn.GetName(), "error", result.Error)
-			dialog.ShowError(fmt.Errorf("failed: %s", result.Error), win)
+			// SSH failed or not configured, test direct database connection
+			if sshConfig != nil && sshConfig.Enabled {
+				slog.Info("Connections: SSH failed, testing direct database connection",
+					"reason", "SSH tunnel not available")
+			} else {
+				slog.Info("Connections: Testing direct database connection",
+					"reason", "SSH not configured")
+			}
+
+			// Create a connection copy without SSH for direct testing
+			connWithoutSSH := p.createConnectionWithoutSSH(connWithPasswords)
+			result, err := connWithoutSSH.Test(ctx)
+			dbConnectedDirectly = true
+
+			if err != nil {
+				dbSuccess = false
+				dbError = err
+				slog.Error("Connections: Direct database test failed", "error", err)
+			} else if result.Success {
+				dbSuccess = true
+				dbResult = result
+				slog.Info("Connections: Direct database test successful",
+					"latency_ms", result.LatencyMs,
+					"version", result.DatabaseVersion)
+			} else {
+				dbSuccess = false
+				dbError = fmt.Errorf("%s", result.Error)
+				slog.Warn("Connections: Direct database test failed", "error", result.Error)
+			}
+		}
+
+		// Build comprehensive test result message
+		var msg strings.Builder
+		msg.WriteString(fmt.Sprintf("Connection Test Results: %s\n\n", conn.GetName()))
+
+		// SSH Tunnel section
+		if sshConfig != nil && sshConfig.Enabled {
+			msg.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			msg.WriteString("📡 SSH TUNNEL\n")
+			if sshSuccess {
+				msg.WriteString(fmt.Sprintf("  Status: ✓ Connected\n  Host: %s\n  Port: %d\n  User: %s\n  Latency: %dms\n",
+					sshConfig.Host, sshConfig.Port, sshConfig.Username, sshLatency))
+			} else {
+				msg.WriteString(fmt.Sprintf("  Status: ✗ Failed\n  Host: %s\n  Port: %d\n  User: %s\n  Error: %v\n",
+					sshConfig.Host, sshConfig.Port, sshConfig.Username, sshError))
+			}
+		}
+
+		// Database section
+		msg.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		msg.WriteString("💾 DATABASE\n")
+		if dbSuccess {
+			if dbConnectedDirectly && (sshConfig != nil && sshConfig.Enabled) {
+				msg.WriteString(fmt.Sprintf("  Status: ✓ Connected (Direct, without SSH)\n  Version: %s\n  Latency: %dms\n  ⚠️  SSH tunnel was not used\n",
+					dbResult.DatabaseVersion, dbResult.LatencyMs))
+			} else {
+				msg.WriteString(fmt.Sprintf("  Status: ✓ Connected\n  Version: %s\n  Latency: %dms\n",
+					dbResult.DatabaseVersion, dbResult.LatencyMs))
+			}
+		} else {
+			if dbConnectedDirectly {
+				msg.WriteString(fmt.Sprintf("  Status: ✗ Failed (Direct connection)\n  Error: %v\n", dbError))
+			} else {
+				msg.WriteString(fmt.Sprintf("  Status: ✗ Failed\n  Error: %v\n", dbError))
+			}
+		}
+
+		// Add helpful note based on results
+		hasSSH := sshConfig != nil && sshConfig.Enabled
+		if hasSSH && !sshSuccess && dbSuccess && dbConnectedDirectly {
+			msg.WriteString("\n💡 Note: Database is directly accessible without SSH tunnel.\n")
+		} else if hasSSH && !sshSuccess && !dbSuccess {
+			msg.WriteString("\n💡 Note: SSH tunnel failed. Direct database connection also failed.\n")
+		}
+
+		// Always show the detailed test results
+		dialog.ShowInformation("Connection Test", msg.String(), win)
+
+		// Show error dialog only if both failed
+		if !dbSuccess {
+			dialog.ShowError(fmt.Errorf("database connection failed"), win)
 		}
 	}()
+}
+
+// createConnectionWithoutSSH creates a copy of connection without SSH configuration for direct testing
+func (p *ConnectionPage) createConnectionWithoutSSH(conn connection.Connection) connection.Connection {
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		return &connection.MySQLConnection{
+			BaseConnection: c.BaseConnection,
+			Host:           c.Host,
+			Port:           c.Port,
+			Database:       c.Database,
+			Username:       c.Username,
+			Password:       c.Password,
+			SSLMode:        c.SSLMode,
+			SSH:            nil, // Remove SSH
+		}
+	case *connection.PostgreSQLConnection:
+		return &connection.PostgreSQLConnection{
+			BaseConnection: c.BaseConnection,
+			Host:           c.Host,
+			Port:           c.Port,
+			Database:       c.Database,
+			Username:       c.Username,
+			Password:       c.Password,
+			SSLMode:        c.SSLMode,
+			SSH:            nil, // Remove SSH
+		}
+	case *connection.OracleConnection:
+		return &connection.OracleConnection{
+			BaseConnection: c.BaseConnection,
+			Host:           c.Host,
+			Port:           c.Port,
+			ServiceName:    c.ServiceName,
+			SID:            c.SID,
+			Username:       c.Username,
+			Password:       c.Password,
+			SSH:            nil, // Remove SSH
+		}
+	case *connection.SQLServerConnection:
+		return c // SQL Server doesn't support SSH
+	}
+	return conn
 }
 
 // =============================================================================
@@ -322,16 +521,14 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		isEditMode: conn != nil,
 		win:        win,
 	}
+
+	// Declare button variable that will be used in both SSH config and dialog buttons
+	var btnTestSSH *widget.Button
+	var btnTestWinRM *widget.Button
+
 	// Create form fields
 	d.nameEntry = widget.NewEntry()
 	d.hostEntry = widget.NewEntry()
-	// When database host changes, update SSH Host if it's empty or matches the old value
-	d.hostEntry.OnChanged = func(text string) {
-		// Only update SSH Host if SSH is enabled and SSH Host is empty
-		if d.sshEnabledCheck.Checked && d.sshHostEntry.Text == "" {
-			d.sshHostEntry.SetText(text)
-		}
-	}
 	// Don't set default host - let user enter it manually
 	d.portEntry = widget.NewEntry()
 	d.portEntry.SetText("3306")
@@ -348,19 +545,13 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 
 	// Create SSH configuration fields
 	d.sshEnabledCheck = widget.NewCheck("Enable SSH Tunnel", func(checked bool) {
-		// Show/hide SSH fields based on checkbox
+		// Show/hide SSH fields and update test buttons based on checkbox
 		if checked {
 			d.sshContainer.Show()
-			// Auto-fill SSH Host with database Host if empty
-			if d.sshHostEntry.Text == "" {
-				d.sshHostEntry.SetText(d.hostEntry.Text)
-			}
 		} else {
 			d.sshContainer.Hide()
 		}
 	})
-	d.sshHostEntry = widget.NewEntry()
-	d.sshHostEntry.SetPlaceHolder("SSH server host")
 	d.sshPortEntry = widget.NewEntry()
 	d.sshPortEntry.SetText("22")
 	d.sshPortEntry.SetPlaceHolder("Port")
@@ -370,33 +561,66 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	d.sshPassEntry = widget.NewEntry()
 	d.sshPassEntry.Password = true
 	d.sshPassEntry.SetPlaceHolder("SSH password")
-	d.sshLocalPortEntry = widget.NewEntry()
-	d.sshLocalPortEntry.SetText("0")
-	d.sshLocalPortEntry.SetPlaceHolder("0 for auto-assign (recommended)")
 
-	// SSH test button
-	btnTestSSH := widget.NewButton("🔌 Test SSH", func() {
-		d.onTestSSHConnection()
-	})
-
-	// Create SSH container with test button (initially hidden)
+	// Create SSH container (initially hidden)
 	sshHeader := container.NewHBox(
 		widget.NewLabel("SSH Configuration"),
-		layout.NewSpacer(),
-		btnTestSSH,
 	)
 	sshForm := widget.NewForm(
-		widget.NewFormItem("SSH Host", d.sshHostEntry),
 		widget.NewFormItem("SSH Port", d.sshPortEntry),
 		widget.NewFormItem("SSH Username", d.sshUserEntry),
 		widget.NewFormItem("SSH Password", d.sshPassEntry),
-		widget.NewFormItem("Local Port", d.sshLocalPortEntry),
 	)
-	// Add help text for Local Port
-	sshHelpText := widget.NewLabel("💡 Local Port: 0 = auto-assign (recommended), or specify a free port (1024-65535)")
+	// Add help text
+	sshHelpText := widget.NewLabel("💡 SSH Host uses Database Host")
 	sshHelpText.Importance = widget.LowImportance
 	d.sshContainer = container.NewVBox(widget.NewSeparator(), sshHeader, sshForm, sshHelpText)
 	d.sshContainer.Hide() // Initially hidden
+
+	// Create WinRM configuration fields (only for SQL Server)
+	d.winrmEnabledCheck = widget.NewCheck("Enable WinRM (Windows Remote Management)", func(checked bool) {
+		// Show/hide WinRM fields based on checkbox
+		if checked {
+			d.winrmContainer.Show()
+		} else {
+			d.winrmContainer.Hide()
+		}
+	})
+	d.winrmPortEntry = widget.NewEntry()
+	d.winrmPortEntry.SetText("5985")
+	d.winrmPortEntry.SetPlaceHolder("Port")
+	d.winrmHTTPSCheck = widget.NewCheck("Use HTTPS", func(checked bool) {
+		// Auto-update port based on HTTPS selection
+		if checked {
+			d.winrmPortEntry.SetText("5986")
+		} else {
+			d.winrmPortEntry.SetText("5985")
+		}
+	})
+	d.winrmUserEntry = widget.NewEntry()
+	d.winrmUserEntry.SetPlaceHolder("WinRM username (empty = integrated Windows auth)")
+	d.winrmPassEntry = widget.NewEntry()
+	d.winrmPassEntry.Password = true
+	d.winrmPassEntry.SetPlaceHolder("WinRM password")
+
+	// Create WinRM container (initially hidden)
+	winrmHeader := container.NewHBox(
+		widget.NewLabel("WinRM Configuration"),
+		widget.NewButton("❓ 配置帮助", func() {
+			d.showWinRMHelpDialog()
+		}),
+	)
+	winrmForm := widget.NewForm(
+		widget.NewFormItem("WinRM Port", d.winrmPortEntry),
+		widget.NewFormItem("", d.winrmHTTPSCheck),
+		widget.NewFormItem("WinRM Username", d.winrmUserEntry),
+		widget.NewFormItem("WinRM Password", d.winrmPassEntry),
+	)
+	// Add help text
+	winrmHelpText := widget.NewLabel("💡 WinRM Host uses Database Host")
+	winrmHelpText.Importance = widget.LowImportance
+	d.winrmContainer = container.NewVBox(widget.NewSeparator(), winrmHeader, winrmForm, winrmHelpText)
+	d.winrmContainer.Hide() // Initially hidden
 
 	// updateDBLabel updates the Database/SID label and default value based on database type.
 	updateDBLabel := func(dbType string, isAddMode bool) {
@@ -451,6 +675,10 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	d.dbTypeSelect = widget.NewSelect([]string{"MySQL", "PostgreSQL", "Oracle", "SQL Server"}, nil)
 	d.dbTypeSelect.SetSelected(displayType) // Set initial selection
 
+	// Variable to store SSH config for loading after updateTestButtons is defined
+	var loadedSSHConfig *connection.SSHTunnelConfig
+	var loadedWinRMConfig *connection.WinRMConfig
+
 	// If editing, populate with existing values
 	if d.isEditMode && d.conn != nil {
 		// For edit mode, load connection with password from keyring
@@ -479,21 +707,9 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
-			// Load SSH config
+			// Store SSH config for loading after UI is fully set up
 			if c.SSH != nil {
-				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
-				d.sshHostEntry.SetText(c.SSH.Host)
-				if c.SSH.Port > 0 {
-					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
-				}
-				d.sshUserEntry.SetText(c.SSH.Username)
-				d.sshPassEntry.SetText(c.SSH.Password)
-				if c.SSH.LocalPort > 0 {
-					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
-				}
-				if c.SSH.Enabled {
-					d.sshContainer.Show()
-				}
+				loadedSSHConfig = c.SSH
 			}
 		case *connection.PostgreSQLConnection:
 			d.hostEntry.SetText(c.Host)
@@ -505,21 +721,9 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
-			// Load SSH config
+			// Store SSH config for loading after UI is fully set up
 			if c.SSH != nil {
-				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
-				d.sshHostEntry.SetText(c.SSH.Host)
-				if c.SSH.Port > 0 {
-					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
-				}
-				d.sshUserEntry.SetText(c.SSH.Username)
-				d.sshPassEntry.SetText(c.SSH.Password)
-				if c.SSH.LocalPort > 0 {
-					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
-				}
-				if c.SSH.Enabled {
-					d.sshContainer.Show()
-				}
+				loadedSSHConfig = c.SSH
 			}
 		case *connection.OracleConnection:
 			d.hostEntry.SetText(c.Host)
@@ -531,21 +735,9 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.SID)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
-			// Load SSH config
+			// Store SSH config for loading after UI is fully set up
 			if c.SSH != nil {
-				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
-				d.sshHostEntry.SetText(c.SSH.Host)
-				if c.SSH.Port > 0 {
-					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
-				}
-				d.sshUserEntry.SetText(c.SSH.Username)
-				d.sshPassEntry.SetText(c.SSH.Password)
-				if c.SSH.LocalPort > 0 {
-					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
-				}
-				if c.SSH.Enabled {
-					d.sshContainer.Show()
-				}
+				loadedSSHConfig = c.SSH
 			}
 		case *connection.SQLServerConnection:
 			d.hostEntry.SetText(c.Host)
@@ -554,6 +746,10 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
 			d.trustServerCertCheck.SetChecked(c.TrustServerCertificate)
+			// Store WinRM config for loading after UI is fully set up
+			if c.WinRM != nil {
+				loadedWinRMConfig = c.WinRM
+			}
 			slog.Info("Connections: Loaded SQL Server connection in edit mode",
 				"host", c.Host,
 				"port", c.Port,
@@ -593,7 +789,6 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		widget.NewFormItem(initialLabelText, d.dbEntry),
 		widget.NewFormItem("Username", d.userEntry),
 		widget.NewFormItem("Password", d.passEntry),
-		widget.NewFormItem("SSH Tunnel", d.sshEnabledCheck),
 	}
 
 	// Store reference to the Database/SID FormItem so we can update its label
@@ -640,15 +835,89 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			}
 		}
 
+		// Show/hide WinRM configuration based on database type
+		// WinRM is only supported for SQL Server
+		if s == "SQL Server" {
+			d.winrmEnabledCheck.Show()
+		} else {
+			d.winrmEnabledCheck.Hide()
+			d.winrmContainer.Hide()
+		}
+
 		form.Refresh() // Refresh the form to show updated label
 	}
 
 	// Create buttons first (before dialog)
-	btnTest := widget.NewButton("Test", func() {
-		slog.Info("Connections: Dialog Test button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected)
-		d.onTestInDialog()
-		// Note: dialog remains open after Test
+	// When SSH is enabled, show two test buttons: "Test SSH" and "Test Database"
+	// When SSH is disabled, show only "Test" button
+	btnTestSSH = widget.NewButton("Test SSH", func() {
+		slog.Info("Connections: Dialog Test SSH button clicked", "name", d.nameEntry.Text)
+		d.onTestSSHConnection()
 	})
+	btnTestSSH.Importance = widget.MediumImportance
+
+	btnTestWinRM = widget.NewButton("Test WinRM", func() {
+		slog.Info("Connections: Dialog Test WinRM button clicked", "name", d.nameEntry.Text)
+		d.onTestWinRMConnection()
+	})
+	btnTestWinRM.Importance = widget.MediumImportance
+
+	btnTestDatabase := widget.NewButton("Test Database", func() {
+		slog.Info("Connections: Dialog Test Database button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected)
+		d.onTestInDialog()
+	})
+	btnTestDatabase.Importance = widget.MediumImportance
+
+	// Container for test buttons (will show either single Test or multiple buttons)
+	testButtonsContainer := container.NewHBox(btnTestDatabase)
+
+	// Function to update test buttons based on SSH/WinRM state
+	updateTestButtons := func() {
+		sshChecked := d.sshEnabledCheck.Checked
+		winrmChecked := d.winrmEnabledCheck.Checked
+		dbType := d.dbTypeSelect.Selected
+
+		// Update SSH container visibility
+		if sshChecked {
+			d.sshContainer.Show()
+		} else {
+			d.sshContainer.Hide()
+		}
+
+		// Update WinRM container visibility
+		if winrmChecked {
+			d.winrmContainer.Show()
+		} else {
+			d.winrmContainer.Hide()
+		}
+
+		// Update test buttons - Test Database first, then Test SSH or Test WinRM
+		testButtonsContainer.Objects = nil
+		testButtonsContainer.Add(btnTestDatabase)
+
+		// SSH is only for MySQL, PostgreSQL, Oracle
+		if sshChecked && dbType != "SQL Server" {
+			testButtonsContainer.Add(btnTestSSH)
+		}
+
+		// WinRM is only for SQL Server
+		if winrmChecked && dbType == "SQL Server" {
+			testButtonsContainer.Add(btnTestWinRM)
+		}
+
+		testButtonsContainer.Refresh()
+	}
+
+	// Watch SSH checkbox changes to update test buttons
+	d.sshEnabledCheck.OnChanged = func(checked bool) {
+		updateTestButtons()
+	}
+
+	// Watch WinRM checkbox changes to update test buttons
+	d.winrmEnabledCheck.OnChanged = func(checked bool) {
+		updateTestButtons()
+	}
+
 	btnSave := widget.NewButton("Save", func() {
 		slog.Info("Connections: Dialog Save button clicked", "name", d.nameEntry.Text, "type", d.dbTypeSelect.Selected, "mode", map[bool]string{true: "edit", false: "add"}[d.isEditMode])
 		success := d.onSave(win)
@@ -662,15 +931,42 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		// Will be set to close dialog after dialog is created
 	})
 
-	buttonContainer := container.NewHBox(btnTest, btnSave, btnCancel)
+	buttonContainer := container.NewHBox(btnSave, btnCancel)
+
+	// Create SSH Tunnel checkbox row (shown before SSH container)
+	sshCheckboxRow := container.NewVBox(
+		d.sshEnabledCheck,
+	)
+
+	// Create WinRM checkbox row (shown before WinRM container)
+	winrmCheckboxRow := container.NewVBox(
+		d.winrmEnabledCheck,
+	)
 
 	// Create dialog content with buttons at bottom
-	// Include SSH container which will be shown/hidden based on checkbox
-	content := container.NewVBox(form, d.sshContainer, widget.NewSeparator(), buttonContainer)
+	// Layout:
+	// 1. Form (database fields)
+	// 2. Test button(s)
+	// 3. SSH Tunnel checkbox and container (for MySQL, PostgreSQL, Oracle)
+	// 4. WinRM checkbox and container (for SQL Server)
+	// 5. Separator
+	// 6. Save/Cancel buttons
+	content := container.NewVBox(
+		form,
+		widget.NewSeparator(),
+		testButtonsContainer,
+		widget.NewSeparator(),
+		sshCheckboxRow,
+		d.sshContainer,
+		winrmCheckboxRow,
+		d.winrmContainer,
+		widget.NewSeparator(),
+		buttonContainer,
+	)
 
 	// Create custom dialog without buttons
 	dlg := dialog.NewCustomWithoutButtons(title, content, win)
-	dlg.Resize(fyne.NewSize(500, 700)) // Increased height to accommodate SSH fields
+	dlg.Resize(fyne.NewSize(500, 750)) // Increased height for SSH layout
 	d.dialog = dlg // Store dialog reference
 
 	// Update Cancel button to close dialog
@@ -678,10 +974,82 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		dlg.Hide()
 	}
 
-	// Initialize SSH visibility based on current database type
+	// Initialize SSH and WinRM visibility based on current database type
 	if displayType == "SQL Server" {
 		d.sshEnabledCheck.Hide()
 		d.sshContainer.Hide()
+		d.winrmEnabledCheck.Show() // Show WinRM for SQL Server
+	} else {
+		// Make sure SSH checkbox is visible for MySQL, PostgreSQL, Oracle
+		d.sshEnabledCheck.Show()
+		d.winrmEnabledCheck.Hide() // Hide WinRM for non-SQL Server
+		d.winrmContainer.Hide()
+	}
+
+	// Load SSH configuration if it was stored earlier (after UI is fully set up)
+	if loadedSSHConfig != nil {
+		d.sshEnabledCheck.SetChecked(loadedSSHConfig.Enabled)
+		if loadedSSHConfig.Port > 0 {
+			d.sshPortEntry.SetText(fmt.Sprintf("%d", loadedSSHConfig.Port))
+		}
+		d.sshUserEntry.SetText(loadedSSHConfig.Username)
+
+		// Try to load SSH password from keyring for edit mode
+		if d.isEditMode && d.conn != nil {
+			ctx := context.Background()
+			sshKey := d.conn.GetID() + ":ssh"
+			sshPassword, err := d.connUC.GetKeyring().Get(ctx, sshKey)
+			if err == nil && sshPassword != "" {
+				d.sshPassEntry.SetText(sshPassword)
+				slog.Info("Connections: Loaded SSH password from keyring",
+					"conn_id", d.conn.GetID())
+			} else {
+				slog.Info("Connections: SSH password not in keyring",
+					"conn_id", d.conn.GetID(),
+					"error", err)
+			}
+		}
+
+		slog.Info("Connections: Loaded SSH config into UI",
+			"enabled", loadedSSHConfig.Enabled,
+			"port", loadedSSHConfig.Port,
+			"username", loadedSSHConfig.Username)
+		// Manually trigger updateTestButtons to show/hide Test SSH button
+		updateTestButtons()
+	}
+
+	// Load WinRM configuration if it was stored earlier (after UI is fully set up)
+	if loadedWinRMConfig != nil {
+		d.winrmEnabledCheck.SetChecked(loadedWinRMConfig.Enabled)
+		if loadedWinRMConfig.Port > 0 {
+			d.winrmPortEntry.SetText(fmt.Sprintf("%d", loadedWinRMConfig.Port))
+		}
+		d.winrmHTTPSCheck.SetChecked(loadedWinRMConfig.UseHTTPS)
+		d.winrmUserEntry.SetText(loadedWinRMConfig.Username)
+
+		// Try to load WinRM password from keyring for edit mode
+		if d.isEditMode && d.conn != nil {
+			ctx := context.Background()
+			winrmKey := d.conn.GetID() + ":winrm"
+			winrmPassword, err := d.connUC.GetKeyring().Get(ctx, winrmKey)
+			if err == nil && winrmPassword != "" {
+				d.winrmPassEntry.SetText(winrmPassword)
+				slog.Info("Connections: Loaded WinRM password from keyring",
+					"conn_id", d.conn.GetID())
+			} else {
+				slog.Info("Connections: WinRM password not in keyring",
+					"conn_id", d.conn.GetID(),
+					"error", err)
+			}
+		}
+
+		slog.Info("Connections: Loaded WinRM config into UI",
+			"enabled", loadedWinRMConfig.Enabled,
+			"port", loadedWinRMConfig.Port,
+			"use_https", loadedWinRMConfig.UseHTTPS,
+			"username", loadedWinRMConfig.Username)
+		// Manually trigger updateTestButtons to show/hide Test WinRM button
+		updateTestButtons()
 	}
 
 	dlg.Show()
@@ -722,7 +1090,6 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 	// Parse SSH configuration
 	var sshConfig *connection.SSHTunnelConfig
 	if d.sshEnabledCheck.Checked && dbType != "SQL Server" {
-		sshHost := strings.TrimSpace(d.sshHostEntry.Text)
 		sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
 		sshPort, sshPortErr := strconv.Atoi(sshPortStr)
 		if sshPortStr == "" || sshPortErr != nil || sshPort <= 0 {
@@ -730,22 +1097,56 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 		}
 		sshUser := strings.TrimSpace(d.sshUserEntry.Text)
 		sshPass := d.sshPassEntry.Text
-		sshLocalPortStr := strings.TrimSpace(d.sshLocalPortEntry.Text)
-		sshLocalPort, _ := strconv.Atoi(sshLocalPortStr)
 
-		if sshHost != "" && sshUser != "" {
+		// SSH Host uses the same host as database
+		if host != "" && sshUser != "" {
 			sshConfig = &connection.SSHTunnelConfig{
 				Enabled:  true,
-				Host:     sshHost,
+				Host:     host, // Use database host
 				Port:     sshPort,
 				Username: sshUser,
 				Password: sshPass,
-				LocalPort: sshLocalPort,
+				LocalPort: 0, // Always auto-assign
 			}
 			slog.Info("Connections: SSH tunnel enabled",
-				"ssh_host", sshHost,
+				"ssh_host", host,
 				"ssh_port", sshPort,
 				"ssh_user", sshUser)
+		}
+	}
+
+	// Parse WinRM configuration (only for SQL Server)
+	var winrmConfig *connection.WinRMConfig
+	if d.winrmEnabledCheck.Checked && dbType == "SQL Server" {
+		winrmPortStr := strings.TrimSpace(d.winrmPortEntry.Text)
+		winrmPort, winrmPortErr := strconv.Atoi(winrmPortStr)
+		if winrmPortStr == "" || winrmPortErr != nil || winrmPort <= 0 {
+			// Default WinRM port based on HTTPS setting
+			if d.winrmHTTPSCheck.Checked {
+				winrmPort = 5986 // HTTPS
+			} else {
+				winrmPort = 5985 // HTTP
+			}
+		}
+		winrmUser := strings.TrimSpace(d.winrmUserEntry.Text)
+		winrmPass := d.winrmPassEntry.Text
+		useHTTPS := d.winrmHTTPSCheck.Checked
+
+		// WinRM Host uses the same host as database
+		if host != "" {
+			winrmConfig = &connection.WinRMConfig{
+				Enabled:  true,
+				Host:     host, // Use database host
+				Port:     winrmPort,
+				Username: winrmUser,
+				Password: winrmPass,
+				UseHTTPS: useHTTPS,
+			}
+			slog.Info("Connections: WinRM enabled",
+				"winrm_host", host,
+				"winrm_port", winrmPort,
+				"use_https", useHTTPS,
+				"winrm_user", winrmUser)
 		}
 	}
 
@@ -881,6 +1282,7 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 			Username:               username,
 			Password:               password,
 			TrustServerCertificate: trustServerCert,
+			WinRM:                  winrmConfig,
 		}
 	default:
 		dialog.ShowError(fmt.Errorf("unsupported type: %s", dbType), win)
@@ -940,35 +1342,9 @@ func (d *connectionDialog) onTestInDialog() {
 	password := d.passEntry.Text
 	dbType := d.dbTypeSelect.Selected
 
-	// Parse SSH configuration for testing
-	var sshConfig *connection.SSHTunnelConfig
-	if d.sshEnabledCheck.Checked && dbType != "SQL Server" {
-		sshHost := strings.TrimSpace(d.sshHostEntry.Text)
-		sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
-		sshPort, sshPortErr := strconv.Atoi(sshPortStr)
-		if sshPortStr == "" || sshPortErr != nil || sshPort <= 0 {
-			sshPort = 22 // Default SSH port
-		}
-		sshUser := strings.TrimSpace(d.sshUserEntry.Text)
-		sshPass := d.sshPassEntry.Text
-		sshLocalPortStr := strings.TrimSpace(d.sshLocalPortEntry.Text)
-		sshLocalPort, _ := strconv.Atoi(sshLocalPortStr)
-
-		if sshHost != "" && sshUser != "" {
-			sshConfig = &connection.SSHTunnelConfig{
-				Enabled:  true,
-				Host:     sshHost,
-				Port:     sshPort,
-				Username: sshUser,
-				Password: sshPass,
-				LocalPort: sshLocalPort,
-			}
-			slog.Info("Connections: SSH tunnel enabled for test",
-				"ssh_host", sshHost,
-				"ssh_port", sshPort,
-				"ssh_user", sshUser)
-		}
-	}
+	// NOTE: Test Database button does NOT test SSH tunnel
+	// It tests the database connection directly
+	// SSH tunnel is tested separately by Test SSH button
 
 	if host == "" {
 		dialog.ShowError(fmt.Errorf("host required"), d.win)
@@ -1011,7 +1387,9 @@ func (d *connectionDialog) onTestInDialog() {
 			"name", name,
 			"host", host,
 			"database", database,
-			"username", username)
+			"username", username,
+			"ssh_enabled", d.sshEnabledCheck.Checked,
+			"note", "Test Database tests direct DB connection, SSH not used")
 
 		portStr := strings.TrimSpace(d.portEntry.Text)
 		port, portErr := strconv.Atoi(portStr)
@@ -1033,7 +1411,8 @@ func (d *connectionDialog) onTestInDialog() {
 			slog.Info("Connections: Using default port for test", "db_type", dbType, "port", port)
 		}
 
-		// Create temporary connection from form values
+		// Create temporary connection from form values WITHOUT SSH config
+		// Test Database button tests direct database connection
 		var conn connection.Connection
 		now := time.Now()
 		switch dbType {
@@ -1051,7 +1430,7 @@ func (d *connectionDialog) onTestInDialog() {
 				Username: username,
 				Password: password,
 				SSLMode:  "disable", // Default, will be removed later
-				SSH:      sshConfig,
+				SSH:      nil, // No SSH for Test Database button
 			}
 		case "PostgreSQL":
 			conn = &connection.PostgreSQLConnection{
@@ -1067,7 +1446,7 @@ func (d *connectionDialog) onTestInDialog() {
 				Username: username,
 				Password: password,
 				SSLMode:  "disable", // Default, will be removed later
-				SSH:      sshConfig,
+				SSH:      nil, // No SSH for Test Database button
 			}
 		case "Oracle":
 			conn = &connection.OracleConnection{
@@ -1082,7 +1461,7 @@ func (d *connectionDialog) onTestInDialog() {
 				SID:      database,
 				Username: username,
 				Password: password,
-				SSH:      sshConfig,
+				SSH:      nil, // No SSH for Test Database button
 			}
 		case "SQL Server":
 			conn = &connection.SQLServerConnection{
@@ -1156,29 +1535,36 @@ type connectionDialog struct {
 	dbTypeSelect         *widget.Select
 
 	// SSH fields
-	sshEnabledCheck  *widget.Check
-	sshHostEntry     *widget.Entry
-	sshPortEntry     *widget.Entry
-	sshUserEntry     *widget.Entry
-	sshPassEntry     *widget.Entry
-	sshLocalPortEntry *widget.Entry
-	sshContainer     *fyne.Container // Container for SSH fields
+	sshEnabledCheck *widget.Check
+	sshPortEntry    *widget.Entry
+	sshUserEntry    *widget.Entry
+	sshPassEntry    *widget.Entry
+	sshContainer    *fyne.Container // Container for SSH fields
+
+	// WinRM fields (only for SQL Server)
+	winrmEnabledCheck *widget.Check
+	winrmPortEntry    *widget.Entry
+	winrmHTTPSCheck   *widget.Check
+	winrmUserEntry    *widget.Entry
+	winrmPassEntry    *widget.Entry
+	winrmContainer    *fyne.Container // Container for WinRM fields
 }
 
 // onTestSSHConnection tests the SSH connection only (without database).
 func (d *connectionDialog) onTestSSHConnection() {
 	ctx := context.Background()
-	sshHost := strings.TrimSpace(d.sshHostEntry.Text)
+	// SSH Host uses the database host
+	host := strings.TrimSpace(d.hostEntry.Text)
+	if host == "" {
+		dialog.ShowError(fmt.Errorf("Database host is required (used as SSH host)"), d.win)
+		return
+	}
 	sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
 	sshPort, err := strconv.Atoi(sshPortStr)
 	sshUser := strings.TrimSpace(d.sshUserEntry.Text)
 	sshPass := d.sshPassEntry.Text
 
 	// Validate SSH fields
-	if sshHost == "" {
-		dialog.ShowError(fmt.Errorf("SSH host is required"), d.win)
-		return
-	}
 	if sshPortStr == "" || err != nil || sshPort <= 0 || sshPort > 65535 {
 		dialog.ShowError(fmt.Errorf("SSH port must be between 1 and 65535"), d.win)
 		return
@@ -1191,7 +1577,7 @@ func (d *connectionDialog) onTestSSHConnection() {
 	// Test SSH connection in background
 	go func() {
 		slog.Info("Connections: Testing SSH connection",
-			"ssh_host", sshHost,
+			"ssh_host", host,
 			"ssh_port", sshPort,
 			"ssh_user", sshUser)
 
@@ -1200,7 +1586,7 @@ func (d *connectionDialog) onTestSSHConnection() {
 		// Create SSH config and test connection
 		sshConfig := &connection.SSHTunnelConfig{
 			Enabled:  true,
-			Host:     sshHost,
+			Host:     host, // Use database host
 			Port:     sshPort,
 			Username: sshUser,
 			Password: sshPass,
@@ -1222,7 +1608,7 @@ func (d *connectionDialog) onTestSSHConnection() {
 		localPort := tunnel.GetLocalPort()
 
 		slog.Info("Connections: SSH test successful",
-			"ssh_host", sshHost,
+			"ssh_host", host,
 			"ssh_port", sshPort,
 			"latency_ms", latency,
 			"local_port", localPort)
@@ -1231,6 +1617,171 @@ func (d *connectionDialog) onTestSSHConnection() {
 			latency, localPort)
 		dialog.ShowInformation("SSH Test", msg, d.win)
 	}()
+}
+
+// onTestWinRMConnection tests the WinRM connection only (without database).
+func (d *connectionDialog) onTestWinRMConnection() {
+	ctx := context.Background()
+	// WinRM Host uses the database host
+	host := strings.TrimSpace(d.hostEntry.Text)
+	if host == "" {
+		dialog.ShowError(fmt.Errorf("Database host is required (used as WinRM host)"), d.win)
+		return
+	}
+	winrmPortStr := strings.TrimSpace(d.winrmPortEntry.Text)
+	winrmPort, err := strconv.Atoi(winrmPortStr)
+	useHTTPS := d.winrmHTTPSCheck.Checked
+	winrmUser := strings.TrimSpace(d.winrmUserEntry.Text)
+	winrmPass := d.winrmPassEntry.Text
+
+	// Validate WinRM fields
+	if winrmPortStr == "" || err != nil || winrmPort <= 0 || winrmPort > 65535 {
+		dialog.ShowError(fmt.Errorf("WinRM port must be between 1 and 65535"), d.win)
+		return
+	}
+
+	// Validate standard ports
+	if useHTTPS && winrmPort != 5986 {
+		dialog.ShowError(fmt.Errorf("HTTPS requires port 5986, got %d", winrmPort), d.win)
+		return
+	}
+	if !useHTTPS && winrmPort != 5985 {
+		dialog.ShowError(fmt.Errorf("HTTP requires port 5985, got %d", winrmPort), d.win)
+		return
+	}
+
+	// Test WinRM connection in background
+	go func() {
+		slog.Info("Connections: Testing WinRM connection",
+			"winrm_host", host,
+			"winrm_port", winrmPort,
+			"use_https", useHTTPS,
+			"winrm_user", winrmUser)
+
+		// Create WinRM config and test connection
+		winrmConfig := &connection.WinRMConfig{
+			Enabled:  true,
+			Host:     host, // Use database host
+			Port:     winrmPort,
+			Username: winrmUser,
+			Password: winrmPass,
+			UseHTTPS: useHTTPS,
+		}
+
+		// Try to connect to WinRM server
+		client, err := connection.NewWinRMClient(ctx, winrmConfig)
+		if err != nil {
+			slog.Error("Connections: WinRM test failed", "error", err)
+			// Show error dialog with help button
+			d.showWinRMErrorDialog(fmt.Errorf("WinRM connection failed: %w", err), true)
+			return
+		}
+		defer client.Close()
+
+		// Test the connection
+		result, err := client.Test(ctx)
+		if err != nil {
+			slog.Error("Connections: WinRM test error", "error", err)
+			d.showWinRMErrorDialog(fmt.Errorf("WinRM test failed: %w", err), true)
+			return
+		}
+
+		if !result.Success {
+			slog.Error("Connections: WinRM test failed", "error", result.Error)
+			d.showWinRMErrorDialog(fmt.Errorf("WinRM connection failed: %s", result.Error), true)
+			return
+		}
+
+		slog.Info("Connections: WinRM test successful",
+			"winrm_host", host,
+			"winrm_port", winrmPort,
+			"latency_ms", result.LatencyMs)
+
+		msg := fmt.Sprintf("WinRM connection successful!\n\nLatency: %dms\n\nYou can now test the database connection.",
+			result.LatencyMs)
+		dialog.ShowInformation("WinRM Test", msg, d.win)
+	}()
+}
+
+// showWinRMHelpDialog 显示 WinRM 配置帮助对话框
+func (d *connectionDialog) showWinRMHelpDialog() {
+	helpText := `WinRM 配置（数据库宿主机开启远程采集用）
+适用：Windows Server 2012/2016/2019/2022
+
+【方案1：HTTP（最简单，测试/内网）】
+宿主机（管理员 PowerShell）执行：
+  Enable-PSRemoting -Force
+验证：
+  Test-WSMan localhost
+说明：端口 5985；多数情况下会自动放行防火墙。
+
+【方案2：HTTPS（更安全，生产）】
+宿主机（管理员 PowerShell）执行：
+  Enable-PSRemoting -Force
+  $cert = New-SelfSignedCertificate -CertStoreLocation Cert:\LocalMachine\My -DnsName $env:COMPUTERNAME
+  New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbprint $cert.Thumbprint -Port 5986 -Force
+验证：
+  Test-WSMan localhost -UseSSL
+
+【可选：工作组/非域时，客户端设置 TrustedHosts（在压测机上执行，不是宿主机）】
+  Set-Item WSMan:\localhost\Client\TrustedHosts -Value "宿主机IP或主机名" -Force
+
+【查看监听】
+  winrm enumerate winrm/config/listener
+
+【关闭 WinRM】
+  Disable-PSRemoting -Force
+`
+
+	// 创建可选择和复制的文本框（自动换行，支持 Ctrl+A）
+	helpEntry := widget.NewMultiLineEntry()
+	helpEntry.SetText(helpText)
+	helpEntry.Wrapping = fyne.TextWrapWord // 自动按单词换行
+
+	// 创建对话框（不需要滚动容器，Entry 自带滚动）
+	dlg := dialog.NewCustom("WinRM 配置帮助", "关闭", helpEntry, d.win)
+	dlg.Resize(fyne.NewSize(650, 450))
+	dlg.Show()
+}
+
+// showWinRMErrorDialog 显示 WinRM 错误对话框，带查看帮助按钮
+func (d *connectionDialog) showWinRMErrorDialog(err error, showHelp bool) {
+	errorMsg := fmt.Sprintf("WinRM 连接失败：%v\n\n可能的原因：\n1. WinRM 服务未在 Windows Server 上启用\n2. 防火墙阻止了连接\n3. 端口配置错误（HTTP: 5985, HTTPS: 5986）\n4. 用户名或密码错误", err)
+
+	// 创建错误标签
+	errorLabel := widget.NewLabel(errorMsg)
+	errorLabel.Importance = widget.MediumImportance
+
+	// 创建按钮
+	btnHelp := widget.NewButton("查看配置帮助", func() {
+		d.showWinRMHelpDialog()
+	})
+	btnHelp.Importance = widget.MediumImportance
+
+	btnOK := widget.NewButton("关闭", func() {
+		// Dialog will be closed
+	})
+	btnOK.Importance = widget.HighImportance
+
+	buttonContainer := container.NewHBox(btnHelp, btnOK)
+
+	// 创建对话框内容
+	content := container.NewVBox(
+		errorLabel,
+		widget.NewSeparator(),
+		buttonContainer,
+	)
+
+	// 创建自定义对话框
+	dlg := dialog.NewCustomWithoutButtons("WinRM 测试失败", content, d.win)
+	dlg.Resize(fyne.NewSize(500, 200))
+
+	// 设置关闭按钮动作
+	btnOK.OnTapped = func() {
+		dlg.Hide()
+	}
+
+	dlg.Show()
 }
 
 // =============================================================================

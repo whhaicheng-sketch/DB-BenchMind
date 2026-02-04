@@ -159,6 +159,9 @@ func (c *SSHTunnelConfig) buildSSHConfig() (*ssh.ClientConfig, error) {
 
 	// Use password auth if password is provided
 	if c.Password != "" {
+		slog.Info("SSH: Using password authentication",
+			"username", c.Username,
+			"password_length", len(c.Password))
 		config.Auth = append(config.Auth, ssh.Password(c.Password))
 	}
 
@@ -173,9 +176,13 @@ func (c *SSHTunnelConfig) buildSSHConfig() (*ssh.ClientConfig, error) {
 
 	// At least one auth method is required
 	if len(config.Auth) == 0 {
+		slog.Error("SSH: No authentication method configured",
+			"has_password", c.Password != "",
+			"has_key", c.KeyPath != "")
 		return nil, fmt.Errorf("SSH requires either password or private key")
 	}
 
+	slog.Info("SSH: Auth methods configured", "count", len(config.Auth))
 	return config, nil
 }
 

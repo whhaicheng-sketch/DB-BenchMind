@@ -1,0 +1,92 @@
+{
+  "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
+  "id": "swingbench-oracle-test",
+  "name": "Swingbench Oracle Test",
+  "description": "Lightweight test template for quick Oracle testing (1GB data, balanced read/write mix)",
+  "tool": "swingbench",
+  "database_types": ["oracle"],
+  "version": "1.0.0",
+  "parameters": {
+    "users": {
+      "type": "integer",
+      "label": "Number of concurrent users/threads",
+      "default": 8,
+      "min": 1,
+      "max": 500
+    },
+    "time": {
+      "type": "integer",
+      "label": "Runtime (minutes)",
+      "default": 10,
+      "min": 1,
+      "max": 1440
+    },
+    "scale": {
+      "type": "integer",
+      "label": "Data size scale (1 = 1GB)",
+      "default": 1,
+      "min": 1,
+      "max": 1000
+    },
+    "username": {
+      "type": "string",
+      "label": "Database schema username",
+      "default": "soe"
+    },
+    "password": {
+      "type": "string",
+      "label": "Database schema password",
+      "default": ""
+    },
+    "dba_username": {
+      "type": "string",
+      "label": "DBA username (for schema creation)",
+      "default": "sys as sysdba"
+    },
+    "dba_password": {
+      "type": "string",
+      "label": "DBA password (for schema creation)",
+      "default": ""
+    },
+    "config_file": {
+      "type": "string",
+      "label": "Charbench configuration file",
+      "default": "/opt/benchtools/swingbench/configs/SOE_TEST.xml"
+    },
+    "threads": {
+      "type": "integer",
+      "label": "Data generation threads (oewizard)",
+      "default": 32,
+      "min": 1,
+      "max": 256
+    }
+  },
+  "command_template": {
+    "prepare": "cd /opt/benchtools/swingbench/bin && ./oewizard -cl -create -generate -cs {connection_string} -u {username} -p {password} -scale {scale} -tc {threads} -dba \"{dba_username}\" -dbap {dba_password}",
+    "run": "cd /opt/benchtools/swingbench/bin && ./charbench -c {config_file} -cs {connection_string} -u {username} -p {password} -uc {users} -rt {time} -v tps,tpm,resp,errs,users",
+    "cleanup": "cd /opt/benchtools/swingbench/bin && ./oewizard -cl -drop -cs {connection_string} -u {username} -p {password} -dba \"{dba_username}\" -dbap {dba_password}"
+  },
+  "output_parser": {
+    "type": "regex",
+    "patterns": {
+      "tps": "Averages:\\s+(\\d+\\.?\\d*)\\s+",
+      "tpm": "Averages:\\s+\\d+\\.?\\d*\\s+(\\d+\\.?\\d*)\\s+",
+      "errors": "Errors\\s+\\d+\\s+",
+      "total_transactions": "Total\\s+Transactions\\s+(\\d+)",
+      "response_time_avg": "Average\\s+:\\s+(\\d+\\.?\\d*)"
+    }
+  },
+  "custom_data": {
+    "transaction_weights": {
+      "Customer_Registration": 10,
+      "Update_Customer_Details": 10,
+      "Browse_Products": 35,
+      "Order_Products": 35,
+      "Process_Orders": 5,
+      "Browse_Orders": 5
+    },
+    "workload_type": "test",
+    "target": "Quick testing - balanced read/write mix",
+    "data_size_gb": 1
+  }
+}
