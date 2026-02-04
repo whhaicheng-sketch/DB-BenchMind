@@ -25,6 +25,9 @@ type PostgreSQLConnection struct {
 	Username string `json:"username"` // Username
 	Password string `json:"-"`        // Password (stored in keyring)
 	SSLMode  string `json:"ssl_mode"` // SSL mode: disable/allow/prefer/require/verify-ca/verify-full
+
+	// SSH tunnel configuration
+	SSH *SSHTunnelConfig `json:"ssh,omitempty"` // SSH tunnel configuration
 }
 
 // GetType returns DatabaseTypePostgreSQL.
@@ -108,6 +111,8 @@ func (c *PostgreSQLConnection) Validate() error {
 
 // Test tests the PostgreSQL connection availability with intelligent SSL detection.
 //
+// If SSH tunnel is enabled, it establishes the tunnel first.
+//
 // It attempts multiple SSL configurations in order:
 // 1. disable (no SSL - fastest)
 // 2. require (SSL without verification)
@@ -116,6 +121,31 @@ func (c *PostgreSQLConnection) Validate() error {
 // Returns: TestResult with success/failure, latency, version, error.
 func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
+
+	// Variables to track connection target
+	targetHost := c.Host
+	targetPort := c.Port
+
+	// Create SSH tunnel if enabled
+	var tunnel *SSHTunnel
+	if c.SSH != nil && c.SSH.Enabled {
+		var err error
+		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
+		if err != nil {
+			slog.Error("PostgreSQL: Failed to create SSH tunnel", "error", err)
+			return &TestResult{
+				Success:   false,
+				LatencyMs: time.Since(start).Milliseconds(),
+				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
+			}, nil
+		}
+		defer tunnel.Close()
+
+		// Use tunnel's local port
+		targetHost = "127.0.0.1"
+		targetPort = tunnel.GetLocalPort()
+		slog.Info("PostgreSQL: Using SSH tunnel", "local_port", targetPort)
+	}
 
 	// SSL modes to try in order (most common first)
 	sslModes := []struct {
@@ -129,11 +159,12 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 
 	var lastErr error
 	for _, sslConfig := range sslModes {
-		dsn := c.buildDSNWithSSL(sslConfig.mode)
+		dsn := c.buildDSNWithSSL(sslConfig.mode, targetHost, targetPort)
 
 		slog.Info("PostgreSQL: Testing connection",
-			"host", c.Host,
-			"port", c.Port,
+			"host", targetHost,
+			"port", targetPort,
+			"ssh_tunnel", tunnel != nil,
 			"sslmode", sslConfig.mode,
 			"username", c.Username)
 
@@ -146,6 +177,7 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		if result.Success {
 			slog.Info("PostgreSQL: Connection successful",
 				"sslmode", sslConfig.mode,
+				"ssh_tunnel", tunnel != nil,
 				"latency_ms", result.LatencyMs,
 				"version", result.DatabaseVersion)
 			return result, nil
@@ -211,10 +243,10 @@ func (c *PostgreSQLConnection) testConnection(ctx context.Context, dsn string, s
 
 // buildDSNWithSSL builds a DSN with the specified SSL mode.
 // Format: postgres://username:password@host:port/database?sslmode=xxx
-func (c *PostgreSQLConnection) buildDSNWithSSL(sslMode string) string {
+func (c *PostgreSQLConnection) buildDSNWithSSL(sslMode string, host string, port int) string {
 	// Build connection URL with SSL mode parameter
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.Username, c.Password, c.Host, c.Port, c.Database, sslMode)
+		c.Username, c.Password, host, port, c.Database, sslMode)
 	return dsn
 }
 

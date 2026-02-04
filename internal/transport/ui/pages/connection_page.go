@@ -31,6 +31,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -324,18 +325,78 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	// Create form fields
 	d.nameEntry = widget.NewEntry()
 	d.hostEntry = widget.NewEntry()
+	// When database host changes, update SSH Host if it's empty or matches the old value
+	d.hostEntry.OnChanged = func(text string) {
+		// Only update SSH Host if SSH is enabled and SSH Host is empty
+		if d.sshEnabledCheck.Checked && d.sshHostEntry.Text == "" {
+			d.sshHostEntry.SetText(text)
+		}
+	}
 	// Don't set default host - let user enter it manually
 	d.portEntry = widget.NewEntry()
 	d.portEntry.SetText("3306")
 	d.dbEntry = widget.NewEntry()
 	d.dbLabel = widget.NewLabel("Database") // Dynamic label, will be updated
 	d.userEntry = widget.NewEntry()
-	d.passEntry = widget.NewPasswordEntry()
+	d.passEntry = widget.NewEntry()
+	d.passEntry.Password = true
 	d.trustServerCertCheck = widget.NewCheck("Trust Server Certificate", func(checked bool) {
 		// Handle trust server certificate change
 	})
 	d.trustServerCertCheck.SetChecked(true) // Default to true for SQL Server (recommended)
 	d.trustServerCertCheck.Hide()          // Initially hidden, only show for SQL Server
+
+	// Create SSH configuration fields
+	d.sshEnabledCheck = widget.NewCheck("Enable SSH Tunnel", func(checked bool) {
+		// Show/hide SSH fields based on checkbox
+		if checked {
+			d.sshContainer.Show()
+			// Auto-fill SSH Host with database Host if empty
+			if d.sshHostEntry.Text == "" {
+				d.sshHostEntry.SetText(d.hostEntry.Text)
+			}
+		} else {
+			d.sshContainer.Hide()
+		}
+	})
+	d.sshHostEntry = widget.NewEntry()
+	d.sshHostEntry.SetPlaceHolder("SSH server host")
+	d.sshPortEntry = widget.NewEntry()
+	d.sshPortEntry.SetText("22")
+	d.sshPortEntry.SetPlaceHolder("Port")
+	d.sshUserEntry = widget.NewEntry()
+	d.sshUserEntry.SetText("root") // Default SSH username
+	d.sshUserEntry.SetPlaceHolder("SSH username")
+	d.sshPassEntry = widget.NewEntry()
+	d.sshPassEntry.Password = true
+	d.sshPassEntry.SetPlaceHolder("SSH password")
+	d.sshLocalPortEntry = widget.NewEntry()
+	d.sshLocalPortEntry.SetText("0")
+	d.sshLocalPortEntry.SetPlaceHolder("0 for auto-assign (recommended)")
+
+	// SSH test button
+	btnTestSSH := widget.NewButton("🔌 Test SSH", func() {
+		d.onTestSSHConnection()
+	})
+
+	// Create SSH container with test button (initially hidden)
+	sshHeader := container.NewHBox(
+		widget.NewLabel("SSH Configuration"),
+		layout.NewSpacer(),
+		btnTestSSH,
+	)
+	sshForm := widget.NewForm(
+		widget.NewFormItem("SSH Host", d.sshHostEntry),
+		widget.NewFormItem("SSH Port", d.sshPortEntry),
+		widget.NewFormItem("SSH Username", d.sshUserEntry),
+		widget.NewFormItem("SSH Password", d.sshPassEntry),
+		widget.NewFormItem("Local Port", d.sshLocalPortEntry),
+	)
+	// Add help text for Local Port
+	sshHelpText := widget.NewLabel("💡 Local Port: 0 = auto-assign (recommended), or specify a free port (1024-65535)")
+	sshHelpText.Importance = widget.LowImportance
+	d.sshContainer = container.NewVBox(widget.NewSeparator(), sshHeader, sshForm, sshHelpText)
+	d.sshContainer.Hide() // Initially hidden
 
 	// updateDBLabel updates the Database/SID label and default value based on database type.
 	updateDBLabel := func(dbType string, isAddMode bool) {
@@ -418,6 +479,22 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
+			// Load SSH config
+			if c.SSH != nil {
+				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
+				d.sshHostEntry.SetText(c.SSH.Host)
+				if c.SSH.Port > 0 {
+					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
+				}
+				d.sshUserEntry.SetText(c.SSH.Username)
+				d.sshPassEntry.SetText(c.SSH.Password)
+				if c.SSH.LocalPort > 0 {
+					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
+				}
+				if c.SSH.Enabled {
+					d.sshContainer.Show()
+				}
+			}
 		case *connection.PostgreSQLConnection:
 			d.hostEntry.SetText(c.Host)
 			if c.Port > 0 {
@@ -428,6 +505,22 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.Database)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
+			// Load SSH config
+			if c.SSH != nil {
+				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
+				d.sshHostEntry.SetText(c.SSH.Host)
+				if c.SSH.Port > 0 {
+					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
+				}
+				d.sshUserEntry.SetText(c.SSH.Username)
+				d.sshPassEntry.SetText(c.SSH.Password)
+				if c.SSH.LocalPort > 0 {
+					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
+				}
+				if c.SSH.Enabled {
+					d.sshContainer.Show()
+				}
+			}
 		case *connection.OracleConnection:
 			d.hostEntry.SetText(c.Host)
 			if c.Port > 0 {
@@ -438,6 +531,22 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 			d.dbEntry.SetText(c.SID)
 			d.userEntry.SetText(c.Username)
 			d.passEntry.SetText(c.Password)
+			// Load SSH config
+			if c.SSH != nil {
+				d.sshEnabledCheck.SetChecked(c.SSH.Enabled)
+				d.sshHostEntry.SetText(c.SSH.Host)
+				if c.SSH.Port > 0 {
+					d.sshPortEntry.SetText(fmt.Sprintf("%d", c.SSH.Port))
+				}
+				d.sshUserEntry.SetText(c.SSH.Username)
+				d.sshPassEntry.SetText(c.SSH.Password)
+				if c.SSH.LocalPort > 0 {
+					d.sshLocalPortEntry.SetText(fmt.Sprintf("%d", c.SSH.LocalPort))
+				}
+				if c.SSH.Enabled {
+					d.sshContainer.Show()
+				}
+			}
 		case *connection.SQLServerConnection:
 			d.hostEntry.SetText(c.Host)
 			d.portEntry.SetText(fmt.Sprintf("%d", c.Port))
@@ -484,6 +593,7 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		widget.NewFormItem(initialLabelText, d.dbEntry),
 		widget.NewFormItem("Username", d.userEntry),
 		widget.NewFormItem("Password", d.passEntry),
+		widget.NewFormItem("SSH Tunnel", d.sshEnabledCheck),
 	}
 
 	// Store reference to the Database/SID FormItem so we can update its label
@@ -517,6 +627,19 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 		case "Oracle":
 			dbFormItem.Text = "SID"
 		}
+
+		// Show/hide SSH configuration based on database type
+		// SSH is not supported for SQL Server
+		if s == "SQL Server" {
+			d.sshEnabledCheck.Hide()
+			d.sshContainer.Hide()
+		} else {
+			d.sshEnabledCheck.Show()
+			if d.sshEnabledCheck.Checked {
+				d.sshContainer.Show()
+			}
+		}
+
 		form.Refresh() // Refresh the form to show updated label
 	}
 
@@ -542,16 +665,23 @@ func showConnectionDialog(connUC *usecase.ConnectionUseCase, win fyne.Window, co
 	buttonContainer := container.NewHBox(btnTest, btnSave, btnCancel)
 
 	// Create dialog content with buttons at bottom
-	content := container.NewVBox(form, widget.NewSeparator(), buttonContainer)
+	// Include SSH container which will be shown/hidden based on checkbox
+	content := container.NewVBox(form, d.sshContainer, widget.NewSeparator(), buttonContainer)
 
 	// Create custom dialog without buttons
 	dlg := dialog.NewCustomWithoutButtons(title, content, win)
-	dlg.Resize(fyne.NewSize(500, 600))
+	dlg.Resize(fyne.NewSize(500, 700)) // Increased height to accommodate SSH fields
 	d.dialog = dlg // Store dialog reference
 
 	// Update Cancel button to close dialog
 	btnCancel.OnTapped = func() {
 		dlg.Hide()
+	}
+
+	// Initialize SSH visibility based on current database type
+	if displayType == "SQL Server" {
+		d.sshEnabledCheck.Hide()
+		d.sshContainer.Hide()
 	}
 
 	dlg.Show()
@@ -588,6 +718,36 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 
 	// Set default TrustServerCertificate for SQL Server
 	trustServerCert := true // Default to true for SQL Server
+
+	// Parse SSH configuration
+	var sshConfig *connection.SSHTunnelConfig
+	if d.sshEnabledCheck.Checked && dbType != "SQL Server" {
+		sshHost := strings.TrimSpace(d.sshHostEntry.Text)
+		sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
+		sshPort, sshPortErr := strconv.Atoi(sshPortStr)
+		if sshPortStr == "" || sshPortErr != nil || sshPort <= 0 {
+			sshPort = 22 // Default SSH port
+		}
+		sshUser := strings.TrimSpace(d.sshUserEntry.Text)
+		sshPass := d.sshPassEntry.Text
+		sshLocalPortStr := strings.TrimSpace(d.sshLocalPortEntry.Text)
+		sshLocalPort, _ := strconv.Atoi(sshLocalPortStr)
+
+		if sshHost != "" && sshUser != "" {
+			sshConfig = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     sshHost,
+				Port:     sshPort,
+				Username: sshUser,
+				Password: sshPass,
+				LocalPort: sshLocalPort,
+			}
+			slog.Info("Connections: SSH tunnel enabled",
+				"ssh_host", sshHost,
+				"ssh_port", sshPort,
+				"ssh_user", sshUser)
+		}
+	}
 
 	// In edit mode, if password field is empty, reload from keyring
 	if d.isEditMode && d.conn != nil && password == "" {
@@ -674,6 +834,7 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 			Username: username,
 			Password: password,
 			SSLMode:  "disable", // Default value
+			SSH:      sshConfig,
 		}
 	case "PostgreSQL":
 		conn = &connection.PostgreSQLConnection{
@@ -689,6 +850,7 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 			Username: username,
 			Password: password,
 			SSLMode:  "disable", // Default value
+			SSH:      sshConfig,
 		}
 	case "Oracle":
 		conn = &connection.OracleConnection{
@@ -703,6 +865,7 @@ func (d *connectionDialog) onSave(win fyne.Window) bool {
 			SID:      database,
 			Username: username,
 			Password: password,
+			SSH:      sshConfig,
 		}
 	case "SQL Server":
 		conn = &connection.SQLServerConnection{
@@ -776,6 +939,36 @@ func (d *connectionDialog) onTestInDialog() {
 	username := strings.TrimSpace(d.userEntry.Text)
 	password := d.passEntry.Text
 	dbType := d.dbTypeSelect.Selected
+
+	// Parse SSH configuration for testing
+	var sshConfig *connection.SSHTunnelConfig
+	if d.sshEnabledCheck.Checked && dbType != "SQL Server" {
+		sshHost := strings.TrimSpace(d.sshHostEntry.Text)
+		sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
+		sshPort, sshPortErr := strconv.Atoi(sshPortStr)
+		if sshPortStr == "" || sshPortErr != nil || sshPort <= 0 {
+			sshPort = 22 // Default SSH port
+		}
+		sshUser := strings.TrimSpace(d.sshUserEntry.Text)
+		sshPass := d.sshPassEntry.Text
+		sshLocalPortStr := strings.TrimSpace(d.sshLocalPortEntry.Text)
+		sshLocalPort, _ := strconv.Atoi(sshLocalPortStr)
+
+		if sshHost != "" && sshUser != "" {
+			sshConfig = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     sshHost,
+				Port:     sshPort,
+				Username: sshUser,
+				Password: sshPass,
+				LocalPort: sshLocalPort,
+			}
+			slog.Info("Connections: SSH tunnel enabled for test",
+				"ssh_host", sshHost,
+				"ssh_port", sshPort,
+				"ssh_user", sshUser)
+		}
+	}
 
 	if host == "" {
 		dialog.ShowError(fmt.Errorf("host required"), d.win)
@@ -858,6 +1051,7 @@ func (d *connectionDialog) onTestInDialog() {
 				Username: username,
 				Password: password,
 				SSLMode:  "disable", // Default, will be removed later
+				SSH:      sshConfig,
 			}
 		case "PostgreSQL":
 			conn = &connection.PostgreSQLConnection{
@@ -873,6 +1067,7 @@ func (d *connectionDialog) onTestInDialog() {
 				Username: username,
 				Password: password,
 				SSLMode:  "disable", // Default, will be removed later
+				SSH:      sshConfig,
 			}
 		case "Oracle":
 			conn = &connection.OracleConnection{
@@ -887,6 +1082,7 @@ func (d *connectionDialog) onTestInDialog() {
 				SID:      database,
 				Username: username,
 				Password: password,
+				SSH:      sshConfig,
 			}
 		case "SQL Server":
 			conn = &connection.SQLServerConnection{
@@ -958,6 +1154,83 @@ type connectionDialog struct {
 	passEntry            *widget.Entry
 	trustServerCertCheck *widget.Check // For SQL Server
 	dbTypeSelect         *widget.Select
+
+	// SSH fields
+	sshEnabledCheck  *widget.Check
+	sshHostEntry     *widget.Entry
+	sshPortEntry     *widget.Entry
+	sshUserEntry     *widget.Entry
+	sshPassEntry     *widget.Entry
+	sshLocalPortEntry *widget.Entry
+	sshContainer     *fyne.Container // Container for SSH fields
+}
+
+// onTestSSHConnection tests the SSH connection only (without database).
+func (d *connectionDialog) onTestSSHConnection() {
+	ctx := context.Background()
+	sshHost := strings.TrimSpace(d.sshHostEntry.Text)
+	sshPortStr := strings.TrimSpace(d.sshPortEntry.Text)
+	sshPort, err := strconv.Atoi(sshPortStr)
+	sshUser := strings.TrimSpace(d.sshUserEntry.Text)
+	sshPass := d.sshPassEntry.Text
+
+	// Validate SSH fields
+	if sshHost == "" {
+		dialog.ShowError(fmt.Errorf("SSH host is required"), d.win)
+		return
+	}
+	if sshPortStr == "" || err != nil || sshPort <= 0 || sshPort > 65535 {
+		dialog.ShowError(fmt.Errorf("SSH port must be between 1 and 65535"), d.win)
+		return
+	}
+	if sshUser == "" {
+		dialog.ShowError(fmt.Errorf("SSH username is required"), d.win)
+		return
+	}
+
+	// Test SSH connection in background
+	go func() {
+		slog.Info("Connections: Testing SSH connection",
+			"ssh_host", sshHost,
+			"ssh_port", sshPort,
+			"ssh_user", sshUser)
+
+		start := time.Now()
+
+		// Create SSH config and test connection
+		sshConfig := &connection.SSHTunnelConfig{
+			Enabled:  true,
+			Host:     sshHost,
+			Port:     sshPort,
+			Username: sshUser,
+			Password: sshPass,
+			LocalPort: 0, // Auto-assign for testing
+		}
+
+		// Try to connect to SSH server
+		// We'll use a dummy target (localhost:22) to just test SSH connection
+		// The actual tunnel won't be used, we just want to verify SSH auth works
+		tunnel, err := connection.NewSSHTunnel(ctx, sshConfig, "localhost", 22)
+		if err != nil {
+			slog.Error("Connections: SSH test failed", "error", err)
+			dialog.ShowError(fmt.Errorf("SSH connection failed: %w", err), d.win)
+			return
+		}
+		defer tunnel.Close()
+
+		latency := time.Since(start).Milliseconds()
+		localPort := tunnel.GetLocalPort()
+
+		slog.Info("Connections: SSH test successful",
+			"ssh_host", sshHost,
+			"ssh_port", sshPort,
+			"latency_ms", latency,
+			"local_port", localPort)
+
+		msg := fmt.Sprintf("SSH connection successful!\n\nLatency: %dms\nLocal Port: %d (auto-assigned)\n\nYou can now test the database connection.",
+			latency, localPort)
+		dialog.ShowInformation("SSH Test", msg, d.win)
+	}()
 }
 
 // =============================================================================

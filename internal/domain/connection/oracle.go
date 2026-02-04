@@ -25,6 +25,9 @@ type OracleConnection struct {
 	SID         string `json:"sid"`          // SID (alternative to ServiceName)
 	Username    string `json:"username"`     // Username
 	Password    string `json:"-"`            // Password (stored in keyring)
+
+	// SSH tunnel configuration
+	SSH *SSHTunnelConfig `json:"ssh,omitempty"` // SSH tunnel configuration
 }
 
 // GetType returns DatabaseTypeOracle.
@@ -112,6 +115,8 @@ func (c *OracleConnection) Validate() error {
 
 // Test tests the Oracle connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
 //
+// If SSH tunnel is enabled, it establishes the tunnel first.
+//
 // It attempts to connect to the Oracle database and returns:
 // - Success: Whether the connection succeeded
 // - LatencyMs: Time taken to establish connection
@@ -122,14 +127,40 @@ func (c *OracleConnection) Validate() error {
 func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
+	// Variables to track connection target
+	targetHost := c.Host
+	targetPort := c.Port
+
+	// Create SSH tunnel if enabled
+	var tunnel *SSHTunnel
+	if c.SSH != nil && c.SSH.Enabled {
+		var err error
+		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
+		if err != nil {
+			slog.Error("Oracle: Failed to create SSH tunnel", "error", err)
+			return &TestResult{
+				Success:   false,
+				LatencyMs: time.Since(start).Milliseconds(),
+				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
+			}, nil
+		}
+		defer tunnel.Close()
+
+		// Use tunnel's local port
+		targetHost = "127.0.0.1"
+		targetPort = tunnel.GetLocalPort()
+		slog.Info("Oracle: Using SSH tunnel", "local_port", targetPort)
+	}
+
 	// Log connection parameters for debugging
 	identifier := c.SID
 	if identifier == "" {
 		identifier = c.ServiceName
 	}
 	slog.Info("Oracle: Testing connection",
-		"host", c.Host,
-		"port", c.Port,
+		"host", targetHost,
+		"port", targetPort,
+		"ssh_tunnel", tunnel != nil,
 		"sid", c.SID,
 		"service_name", c.ServiceName,
 		"identifier", identifier,
@@ -137,7 +168,7 @@ func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 		"password_set", c.Password != "")
 
 	// Build DSN with password
-	dsn := c.GetDSNWithPassword()
+	dsn := c.GetDSNWithPasswordForHost(targetHost, targetPort)
 	slog.Info("Oracle: Generated DSN", "dsn", dsn)
 
 	// Try to open connection
@@ -191,4 +222,14 @@ func (c *OracleConnection) SetPassword(password string) {
 // GetPassword returns the password (used by keyring provider).
 func (c *OracleConnection) GetPassword() string {
 	return c.Password
+}
+
+// GetDSNWithPasswordForHost generates a complete connection string with password for a specific host/port.
+// Format: oracle://username:password@host:port/service_name or oracle://username:password@host:port/sid
+func (c *OracleConnection) GetDSNWithPasswordForHost(host string, port int) string {
+	identifier := c.SID
+	if c.ServiceName != "" {
+		identifier = c.ServiceName
+	}
+	return fmt.Sprintf("oracle://%s:%s@%s:%d/%s", c.Username, c.Password, host, port, identifier)
 }

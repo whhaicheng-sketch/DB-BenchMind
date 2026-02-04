@@ -27,6 +27,9 @@ type MySQLConnection struct {
 
 	// SSL configuration
 	SSLMode string `json:"ssl_mode"` // SSL mode: disabled/preferred/required
+
+	// SSH tunnel configuration
+	SSH *SSHTunnelConfig `json:"ssh,omitempty"` // SSH tunnel configuration
 }
 
 // GetType returns DatabaseTypeMySQL.
@@ -108,6 +111,8 @@ func (c *MySQLConnection) Validate() error {
 
 // Test tests the MySQL connection availability with intelligent SSL detection.
 //
+// If SSH tunnel is enabled, it establishes the tunnel first.
+//
 // It attempts multiple SSL configurations in order:
 // 1. disabled (no SSL - fastest)
 // 2. preferred (auto-detect, fallback to no SSL)
@@ -117,16 +122,42 @@ func (c *MySQLConnection) Validate() error {
 func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
+	// Variables to track connection target
+	targetHost := c.Host
+	targetPort := c.Port
+
+	// Create SSH tunnel if enabled
+	var tunnel *SSHTunnel
+	if c.SSH != nil && c.SSH.Enabled {
+		var err error
+		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
+		if err != nil {
+			slog.Error("MySQL: Failed to create SSH tunnel", "error", err)
+			return &TestResult{
+				Success:   false,
+				LatencyMs: time.Since(start).Milliseconds(),
+				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
+			}, nil
+		}
+		defer tunnel.Close()
+
+		// Use tunnel's local port
+		targetHost = "127.0.0.1"
+		targetPort = tunnel.GetLocalPort()
+		slog.Info("MySQL: Using SSH tunnel", "local_port", targetPort)
+	}
+
 	// SSL modes to try in order (most common first)
 	sslModes := []string{"disabled", "preferred", "required"}
 
 	var lastErr error
 	for _, sslMode := range sslModes {
-		dsn := c.buildDSNWithSSL(sslMode)
+		dsn := c.buildDSNWithSSL(sslMode, targetHost, targetPort)
 
 		slog.Info("MySQL: Testing connection",
-			"host", c.Host,
-			"port", c.Port,
+			"host", targetHost,
+			"port", targetPort,
+			"ssh_tunnel", tunnel != nil,
 			"ssl_mode", sslMode,
 			"username", c.Username)
 
@@ -139,6 +170,7 @@ func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		if result.Success {
 			slog.Info("MySQL: Connection successful",
 				"ssl_mode", sslMode,
+				"ssh_tunnel", tunnel != nil,
 				"latency_ms", result.LatencyMs,
 				"version", result.DatabaseVersion)
 			return result, nil
@@ -205,16 +237,16 @@ func (c *MySQLConnection) testConnection(ctx context.Context, dsn string, start 
 // buildDSNWithSSL builds a DSN with the specified SSL mode.
 // Format: username:password@tcp(host:port)/database?tls=xxx
 // If database is empty: username:password@tcp(host:port)/?tls=xxx
-func (c *MySQLConnection) buildDSNWithSSL(sslMode string) string {
+func (c *MySQLConnection) buildDSNWithSSL(sslMode string, host string, port int) string {
 	var dsn string
 	if c.Database == "" {
 		// No database specified
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=%s",
-			c.Username, c.Password, c.Host, c.Port, sslMode)
+			c.Username, c.Password, host, port, sslMode)
 	} else {
 		// With database
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?tls=%s",
-			c.Username, c.Password, c.Host, c.Port, c.Database, sslMode)
+			c.Username, c.Password, host, port, c.Database, sslMode)
 	}
 	return dsn
 }
