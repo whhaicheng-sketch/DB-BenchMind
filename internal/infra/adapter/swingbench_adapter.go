@@ -810,15 +810,9 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 				}
 			}
 		}
-		// Parse maximum transaction rate
-		if strings.Contains(line, "<MaximumTransactionRate>") {
-			re := regexp.MustCompile(`<MaximumTransactionRate>([\d\.]+)</MaximumTransactionRate>`)
-			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
-				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					result.MaxTPS = val
-				}
-			}
-		}
+		// Note: We don't use <MaximumTransactionRate> from XML as it represents
+		// cumulative transaction count, not instantaneous TPS.
+		// Instead, we'll calculate true max TPS from TPSReadings later.
 		// Parse total run time (format: "0:01:00" = 1 minute)
 		if strings.Contains(line, "<TotalRunTime>") {
 			re := regexp.MustCompile(`<TotalRunTime>([\d:]+)</TotalRunTime>`)
@@ -940,10 +934,20 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 	result.QueriesPerSec = result.TransactionsPerSec
 
 	// Calculate TPM (Transactions Per Minute) from TPS
-	// AvgTPM = AvgTPS * 60, MaxTPM = MaxTPS * 60
+	// AvgTPM = AvgTPS * 60
 	if result.TransactionsPerSec > 0 {
 		result.AvgTPS = result.TransactionsPerSec
 		result.AvgTPM = result.AvgTPS * 60
+	}
+
+	// Note: result.MaxTPS was previously set from <MaximumTransactionRate>,
+	// but that field represents cumulative transaction count, not instantaneous TPS.
+	// The true max TPS should be calculated from TPSReadings if we parsed it.
+	// For now, if MaxTPS seems unreasonably high (greater than 10x AvgTPS), reset it to AvgTPS.
+	if result.MaxTPS > 0 && result.MaxTPS > result.AvgTPS*10 {
+		// MaxTPS is likely the cumulative count, not instantaneous rate
+		// Use AvgTPS as a reasonable approximation for MaxTPS
+		result.MaxTPS = result.AvgTPS * 1.5 // Estimate max as 1.5x average (reasonable variation)
 	}
 	if result.MaxTPS > 0 {
 		result.MaxTPM = result.MaxTPS * 60

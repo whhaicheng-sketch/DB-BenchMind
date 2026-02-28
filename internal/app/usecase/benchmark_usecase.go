@@ -749,10 +749,14 @@ func (uc *BenchmarkUseCase) executeRun(
 						"latency_max", finalResult.LatencyMax,
 						"latency_p95", finalResult.LatencyP95)
 
-					// Get threads count from parameters
+					// Get threads/users count from parameters
+					// Note: Oracle Swingbench uses "virtual_users", Sysbench uses "threads"
 					threads := 0
 					if t, ok := config.Parameters["threads"].(int); ok {
 						threads = t
+					} else if u, ok := config.Parameters["virtual_users"].(int); ok {
+						// Swingbench uses "virtual_users" parameter
+						threads = u
 					}
 
 					// Convert finalResult to BenchmarkResult and save to run
