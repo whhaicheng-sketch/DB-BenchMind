@@ -62,6 +62,22 @@ type Record struct {
 	IgnoredErrors int64 `json:"ignored_errors"` // Ignored errors
 	Reconnects    int64 `json:"reconnects"`     // Reconnects
 
+	// Oracle Swingbench specific metrics
+	TPM          float64 `json:"tpm,omitempty"`           // Transactions per minute
+	MaxTPS       float64 `json:"max_tps,omitempty"`       // Maximum TPS
+	AvgTPS       float64 `json:"avg_tps,omitempty"`       // Average TPS
+	MaxTPM       float64 `json:"max_tpm,omitempty"`       // Maximum TPM
+	AvgTPM       float64 `json:"avg_tpm,omitempty"`       // Average TPM
+	ErrorCount   int64   `json:"error_count,omitempty"`   // Total errors
+
+	// Oracle DML Statistics
+	SelectStatements     int64 `json:"select_statements,omitempty"`     // Select statements
+	InsertStatements     int64 `json:"insert_statements,omitempty"`     // Insert statements
+	UpdateStatements     int64 `json:"update_statements,omitempty"`     // Update statements
+	DeleteStatements     int64 `json:"delete_statements,omitempty"`     // Delete statements
+	CommitStatements    int64 `json:"commit_statements,omitempty"`    // Commit statements
+	RollbackStatements  int64 `json:"rollback_statements,omitempty"`  // Rollback statements
+
 	// General Statistics
 	TotalTime   float64 `json:"total_time_seconds"` // Total time in seconds
 	TotalEvents int64   `json:"total_events"`       // Total number of events

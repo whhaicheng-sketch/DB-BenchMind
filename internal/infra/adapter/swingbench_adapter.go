@@ -842,6 +842,55 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 				}
 			}
 		}
+		// Parse DML Results (Oracle Swingbench)
+		if strings.Contains(line, "<SelectStatements>") {
+			re := regexp.MustCompile(`<SelectStatements>(\d+)</SelectStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.SelectStatements = val
+				}
+			}
+		}
+		if strings.Contains(line, "<InsertStatements>") {
+			re := regexp.MustCompile(`<InsertStatements>(\d+)</InsertStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.InsertStatements = val
+				}
+			}
+		}
+		if strings.Contains(line, "<UpdateStatements>") {
+			re := regexp.MustCompile(`<UpdateStatements>(\d+)</UpdateStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.UpdateStatements = val
+				}
+			}
+		}
+		if strings.Contains(line, "<DeleteStatements>") {
+			re := regexp.MustCompile(`<DeleteStatements>(\d+)</DeleteStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.DeleteStatements = val
+				}
+			}
+		}
+		if strings.Contains(line, "<CommitStatements>") {
+			re := regexp.MustCompile(`<CommitStatements>(\d+)</CommitStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.CommitStatements = val
+				}
+			}
+		}
+		if strings.Contains(line, "<RollbackStatements>") {
+			re := regexp.MustCompile(`<RollbackStatements>(\d+)</RollbackStatements>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.RollbackStatements = val
+				}
+			}
+		}
 		// Parse per-transaction response times
 		// We need to get AverageResponse, MaximumResponse, TransactionCount together
 		// to calculate weighted average

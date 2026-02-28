@@ -91,6 +91,22 @@ func (uc *HistoryUseCase) SaveRunToHistory(ctx context.Context, run *execution.R
 		IgnoredErrors: run.Result.IgnoredErrors,
 		Reconnects:    run.Result.Reconnects,
 
+		// Oracle Swingbench specific metrics
+		TPM:        run.Result.TPMCalculated,
+		MaxTPS:     run.Result.MaxTPS,
+		AvgTPS:     run.Result.AvgTPS,
+		MaxTPM:     run.Result.MaxTPM,
+		AvgTPM:     run.Result.AvgTPM,
+		ErrorCount: run.Result.ErrorCount,
+
+		// Oracle DML Statistics
+		SelectStatements:     run.Result.SelectStatements,
+		InsertStatements:     run.Result.InsertStatements,
+		UpdateStatements:     run.Result.UpdateStatements,
+		DeleteStatements:     run.Result.DeleteStatements,
+		CommitStatements:    run.Result.CommitStatements,
+		RollbackStatements:  run.Result.RollbackStatements,
+
 		// General Statistics
 		TotalTime:   run.Result.TotalTime,
 		TotalEvents: run.Result.TotalEvents,

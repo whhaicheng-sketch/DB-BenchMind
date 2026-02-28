@@ -31,6 +31,22 @@ All notable changes to DB-BenchMind will be documented in this file.
   - Calculate weighted average response time across all transaction types
   - Extract minimum and maximum response times
 
+### Added - Oracle History Support
+- **Oracle DML Statistics in History**
+  - Save Swingbench DML statistics to history:
+    - Select/Insert/Update/Delete statements
+    - Commit/Rollback statements
+  - Added fields to `history.Record`: TPM, MaxTPS, AvgTPS, MaxTPM, AvgTPM, ErrorCount
+  - Added DML fields: SelectStatements, InsertStatements, UpdateStatements, DeleteStatements, CommitStatements, RollbackStatements
+
+- **Database-Specific History Details**
+  - Oracle/SQL Server: Display Swingbench-style details
+    - Throughput Metrics (TPS/TPM Max & Average)
+    - DML Statistics breakdown
+    - Response Time (Min/Avg/Max)
+  - MySQL/PostgreSQL: Keep Sysbench-style format
+  - Dynamic details dialog based on `record.DatabaseType`
+
 ### Fixed
 - **TPS/TPM Calculation Bug**
   - Fixed incorrect parsing of `TPSReadings` field (was treating it as TPM)
@@ -59,12 +75,18 @@ All notable changes to DB-BenchMind will be documented in this file.
   - Added `-a` flag for automatic mode (enables stdout output)
   - Verbose output: `-v users,tpm,tps,errs,vresp`
   - Proper XML result file parsing from `/tmp/soe_*.xml`
-  - Real-time collection from tabular stdout output
+  - Parse DML Results section for statement statistics
 
 - **Benchmark Result Extensions**
   - Added `TPM`, `MaxTPS`, `AvgTPS`, `MaxTPM`, `AvgTPM` to `FinalResult`
   - Added `TPM`, `LatencyMax`, `Errors` to `Sample`
   - Extended `BenchmarkResult` with Swingbench-specific metrics
+  - Added Oracle DML fields: SelectStatements, InsertStatements, UpdateStatements, DeleteStatements, CommitStatements, RollbackStatements
+
+- **History Record Extensions**
+  - Extended `history.Record` with Oracle-specific fields
+  - Extended `execution.BenchmarkResult` with DML statistics
+  - Database-specific detail view in History page
 
 ### Performance
 - Oracle Swingbench can handle 4+ concurrent users

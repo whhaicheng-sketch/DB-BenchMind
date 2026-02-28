@@ -67,6 +67,14 @@ type BenchmarkResult struct {
 	IgnoredErrors int64 `json:"ignored_errors,omitempty"` // Ignored errors
 	Reconnects    int64 `json:"reconnects,omitempty"`     // Reconnects
 
+	// Oracle DML Statistics (Swingbench)
+	SelectStatements     int64 `json:"select_statements,omitempty"`     // Select statements
+	InsertStatements     int64 `json:"insert_statements,omitempty"`     // Insert statements
+	UpdateStatements     int64 `json:"update_statements,omitempty"`     // Update statements
+	DeleteStatements     int64 `json:"delete_statements,omitempty"`     // Delete statements
+	CommitStatements    int64 `json:"commit_statements,omitempty"`    // Commit statements
+	RollbackStatements  int64 `json:"rollback_statements,omitempty"`  // Rollback statements
+
 	// General Statistics
 	TotalTime   float64 `json:"total_time_seconds,omitempty"` // Total time in seconds
 	TotalEvents int64   `json:"total_events,omitempty"`       // Total number of events

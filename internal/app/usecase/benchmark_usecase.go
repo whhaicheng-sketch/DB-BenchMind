@@ -782,6 +782,14 @@ func (uc *BenchmarkUseCase) executeRun(
 						IgnoredErrors: finalResult.IgnoredErrors,
 						Reconnects:    finalResult.Reconnects,
 
+						// Oracle DML Statistics (Swingbench)
+						SelectStatements:    finalResult.SelectStatements,
+						InsertStatements:    finalResult.InsertStatements,
+						UpdateStatements:    finalResult.UpdateStatements,
+						DeleteStatements:    finalResult.DeleteStatements,
+						CommitStatements:   finalResult.CommitStatements,
+						RollbackStatements: finalResult.RollbackStatements,
+
 						// General Statistics
 						TotalTime:   finalResult.TotalTime,
 						TotalEvents: finalResult.TotalEvents,

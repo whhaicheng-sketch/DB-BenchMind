@@ -238,81 +238,137 @@ func (p *HistoryRecordPage) onViewDetails() {
 	}
 	record := p.records[p.selected]
 
-	// Calculate per-second rates
-	durationSec := record.Duration.Seconds()
-	qps := 0.0
-	if durationSec > 0 && record.TotalQueries > 0 {
-		qps = float64(record.TotalQueries) / durationSec
-	}
-	ignoredErrorsPerSec := 0.0
-	if durationSec > 0 {
-		ignoredErrorsPerSec = float64(record.IgnoredErrors) / durationSec
-	}
-	reconnectsPerSec := 0.0
-	if durationSec > 0 {
-		reconnectsPerSec = float64(record.Reconnects) / durationSec
-	}
+	var details string
 
-	// Build detailed statistics message in sysbench format
-	details := fmt.Sprintf(
-		"Connection: %s\n"+
-			"Template: %s\n"+
-			"Database Type: %s\n"+
-			"Threads: %d\n"+
-			"Start Time: %s\n"+
-			"Duration: %v\n\n"+
-			"SQL statistics:\n"+
-			"    queries performed:\n"+
-			"        read:                            %d\n"+
-			"        write:                           %d\n"+
-			"        other:                           %d\n"+
-			"        total:                           %d\n"+
-			"    transactions:                        %d  (%.2f per sec.)\n"+
-			"    queries:                             %d (%.2f per sec.)\n"+
-			"    ignored errors:                      %d      (%.2f per sec.)\n"+
-			"    reconnects:                          %d      (%.2f per sec.)\n\n"+
-			"General statistics:\n"+
-			"    total time:                          %.4fs\n"+
-			"    total number of events:              %d\n\n"+
-			"Latency (ms):\n"+
-			"         min:                                    %.2f\n"+
-			"         avg:                                   %.2f\n"+
-			"         max:                                   %.2f\n"+
-			"         95th percentile:                       %.2f\n"+
-			"         99th percentile:                       %.2f\n\n"+
-			"Threads fairness:\n"+
-			"    events (avg/stddev):           %.4f/%.2f\n"+
-			"    execution time (avg/stddev):   %.4f/%.2f",
-		record.ConnectionName,
-		record.TemplateName,
-		record.DatabaseType,
-		record.Threads,
-		record.StartTime.Format("2006-01-02 15:04:05"),
-		record.Duration,
-		record.ReadQueries,
-		record.WriteQueries,
-		record.OtherQueries,
-		record.TotalQueries,
-		record.TotalTransactions,
-		record.TPSCalculated,
-		record.TotalQueries,
-		qps,
-		record.IgnoredErrors,
-		ignoredErrorsPerSec,
-		record.Reconnects,
-		reconnectsPerSec,
-		record.TotalTime,
-		record.TotalEvents,
-		record.LatencyMin,
-		record.LatencyAvg,
-		record.LatencyMax,
-		record.LatencyP95,
-		record.LatencyP99,
-		record.EventsAvg,
-		record.EventsStddev,
-		record.ExecTimeAvg,
-		record.ExecTimeStddev,
-	)
+	// Build details based on database type
+	if record.DatabaseType == "oracle" || record.DatabaseType == "sqlserver" {
+		// Oracle Swingbench format
+		details = fmt.Sprintf(
+			"Connection: %s\n"+
+				"Template: %s\n"+
+				"Database Type: %s\n"+
+				"Threads: %d\n"+
+				"Start Time: %s\n"+
+				"Duration: %v\n\n"+
+				"Throughput Metrics:\n"+
+				"  TPS (Transactions/Second):\n"+
+				"    - Maximum: %.0f\n"+
+				"    - Average: %.0f\n\n"+
+				"  TPM (Transactions/Minute):\n"+
+				"    - Maximum: %.0f\n"+
+				"    - Average: %.0f\n\n"+
+				"Total Transactions: %d\n"+
+				"Errors: %d\n\n"+
+				"DML Statistics:\n"+
+				"  Select Statements:     %d\n"+
+				"  Insert Statements:     %d\n"+
+				"  Update Statements:     %d\n"+
+				"  Delete Statements:     %d\n"+
+				"  Commit Statements:    %d\n"+
+				"  Rollback Statements:  %d\n\n"+
+				"Response Time (ms):\n"+
+				"  - Minimum: %.2f\n"+
+				"  - Average: %.2f\n"+
+				"  - Maximum: %.2f",
+			record.ConnectionName,
+			record.TemplateName,
+			record.DatabaseType,
+			record.Threads,
+			record.StartTime.Format("2006-01-02 15:04:05"),
+			record.Duration,
+			record.MaxTPS,
+			record.AvgTPS,
+			record.MaxTPM,
+			record.AvgTPM,
+			record.TotalTransactions,
+			record.ErrorCount,
+			record.SelectStatements,
+			record.InsertStatements,
+			record.UpdateStatements,
+			record.DeleteStatements,
+			record.CommitStatements,
+			record.RollbackStatements,
+			record.LatencyMin,
+			record.LatencyAvg,
+			record.LatencyMax)
+	} else {
+		// MySQL/PostgreSQL Sysbench format
+		// Calculate per-second rates
+		durationSec := record.Duration.Seconds()
+		qps := 0.0
+		if durationSec > 0 && record.TotalQueries > 0 {
+			qps = float64(record.TotalQueries) / durationSec
+		}
+		ignoredErrorsPerSec := 0.0
+		if durationSec > 0 {
+			ignoredErrorsPerSec = float64(record.IgnoredErrors) / durationSec
+		}
+		reconnectsPerSec := 0.0
+		if durationSec > 0 {
+			reconnectsPerSec = float64(record.Reconnects) / durationSec
+		}
+
+		// Build detailed statistics message in sysbench format
+		details = fmt.Sprintf(
+			"Connection: %s\n"+
+				"Template: %s\n"+
+				"Database Type: %s\n"+
+				"Threads: %d\n"+
+				"Start Time: %s\n"+
+				"Duration: %v\n\n"+
+				"SQL statistics:\n"+
+				"    queries performed:\n"+
+				"        read:                            %d\n"+
+				"        write:                           %d\n"+
+				"        other:                           %d\n"+
+				"        total:                           %d\n"+
+				"    transactions:                        %d  (%.2f per sec.)\n"+
+				"    queries:                             %d (%.2f per sec.)\n"+
+				"    ignored errors:                      %d      (%.2f per sec.)\n"+
+				"    reconnects:                          %d      (%.2f per sec.)\n\n"+
+				"General statistics:\n"+
+				"    total time:                          %.4fs\n"+
+				"    total number of events:              %d\n\n"+
+				"Latency (ms):\n"+
+				"         min:                                    %.2f\n"+
+				"         avg:                                   %.2f\n"+
+				"         max:                                   %.2f\n"+
+				"         95th percentile:                       %.2f\n"+
+				"         99th percentile:                       %.2f\n\n"+
+				"Threads fairness:\n"+
+				"    events (avg/stddev):           %.4f/%.2f\n"+
+				"    execution time (avg/stddev):   %.4f/%.2f",
+			record.ConnectionName,
+			record.TemplateName,
+			record.DatabaseType,
+			record.Threads,
+			record.StartTime.Format("2006-01-02 15:04:05"),
+			record.Duration,
+			record.ReadQueries,
+			record.WriteQueries,
+			record.OtherQueries,
+			record.TotalQueries,
+			record.TotalTransactions,
+			record.TPSCalculated,
+			record.TotalQueries,
+			qps,
+			record.IgnoredErrors,
+			ignoredErrorsPerSec,
+			record.Reconnects,
+			reconnectsPerSec,
+			record.TotalTime,
+			record.TotalEvents,
+			record.LatencyMin,
+			record.LatencyAvg,
+			record.LatencyMax,
+			record.LatencyP95,
+			record.LatencyP99,
+			record.EventsAvg,
+			record.EventsStddev,
+			record.ExecTimeAvg,
+			record.ExecTimeStddev,
+		)
+	}
 
 	dialog.ShowInformation("Run Details", details, p.win)
 }

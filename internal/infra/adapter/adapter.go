@@ -148,6 +148,14 @@ type FinalResult struct {
 	MaxTPM float64 // Maximum TPM
 	AvgTPM float64 // Average TPM
 
+	// Oracle DML Statistics (Swingbench)
+	SelectStatements     int64
+	InsertStatements     int64
+	UpdateStatements     int64
+	DeleteStatements     int64
+	CommitStatements    int64
+	RollbackStatements  int64
+
 	// Latency (ms)
 	LatencyMin float64
 	LatencyAvg float64
