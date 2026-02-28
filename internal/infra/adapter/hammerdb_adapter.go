@@ -89,6 +89,70 @@ func (a *HammerDBAdapter) buildScript(ctx context.Context, conn connection.Conne
 
 	script.WriteString(fmt.Sprintf("dbtype %s\n", dbType))
 	script.WriteString(fmt.Sprintf("disconn %s\n", connectionStr))
+
+	// SQL Server specific parameters
+	if conn.GetType() == connection.DatabaseTypeSQLServer {
+		a.buildSQLServerScript(&script, config, phase)
+	} else {
+		a.buildGenericScript(&script, config)
+	}
+
+	return script.String()
+}
+
+// buildSQLServerScript builds SQL Server specific TCL script.
+func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *Config, phase string) {
+	// Get HammerDB parameters with defaults
+	warehouses := a.getIntParam(config.Parameters, "warehouses", 1)
+	users := a.getIntParam(config.Parameters, "virtual_users", 1) // Get from Tasks page
+	buildUsers := a.getIntParam(config.Parameters, "build_users", 1)
+	rampUp := a.getIntParam(config.Parameters, "rampup", 1)
+	duration := a.getIntParam(config.Parameters, "duration", 1)
+	iterations := a.getIntParam(config.Parameters, "iterations", 1000000)
+	driver := a.getStringParam(config.Parameters, "driver", "timed")
+	allWarehouse := a.getBoolParam(config.Parameters, "all_warehouse", "false")
+
+	// Set benchmark to TPC-C
+	script.WriteString("dbset bm TPC-C\n")
+
+	// Phase-specific configuration
+	switch phase {
+	case "prepare":
+		// Build schema phase
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
+		script.WriteString("buildschema\n")
+		script.WriteString("waittocomplete\n")
+
+	case "run":
+		// Run benchmark phase
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_driver %s\n", driver))
+
+		// Ramp up is only used in timed mode
+		if driver == "timed" {
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_rampup %d\n", rampUp))
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_duration %d\n", duration))
+		} else {
+			// Iterations mode
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_iterations %d\n", iterations))
+		}
+
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_allwarehouse %s\n", allWarehouse))
+
+		script.WriteString("loadscript\n")
+		script.WriteString(fmt.Sprintf("vuset vu %d\n", users))
+		script.WriteString("vucreate\n")
+		script.WriteString("vurun\n")
+		script.WriteString("vudestroy\n")
+
+	case "cleanup":
+		// Cleanup phase - no specific cleanup for SQL Server
+		script.WriteString("delete virtualmachine\n")
+	}
+}
+
+// buildGenericScript builds generic TCL script for non-SQL Server databases.
+func (a *HammerDBAdapter) buildGenericScript(script *strings.Builder, config *Config) {
 	script.WriteString(fmt.Sprintf("vu %d\n", a.getIntParam(config.Parameters, "virtual_users", 1)))
 	script.WriteString(fmt.Sprintf("vucount %d\n", a.getIntParam(config.Parameters, "vu_count", 1)))
 	script.WriteString(fmt.Sprintf("vuverbose %s\n", a.getBoolParam(config.Parameters, "vu_verbose", "false")))
@@ -106,25 +170,6 @@ func (a *HammerDBAdapter) buildScript(ctx context.Context, conn connection.Conne
 	script.WriteString(fmt.Sprintf("hwmem %s\n", a.getBoolParam(config.Parameters, "hwmem", "false")))
 	script.WriteString(fmt.Sprintf("clearlog %s\n", a.getBoolParam(config.Parameters, "clear_log", "true")))
 	script.WriteString(fmt.Sprintf("logtotemp %s\n", a.getBoolParam(config.Parameters, "log_to_temp", "false")))
-
-	// Phase-specific commands
-	switch phase {
-	case "prepare":
-		script.WriteString("loadscript\n")
-		script.WriteString("create virtualmachine\n")
-		script.WriteString("vucreate\n")
-		script.WriteString("vurun\n")
-	case "run":
-		script.WriteString("loadscript\n")
-		script.WriteString("create virtualmachine\n")
-		script.WriteString("vucreate\n")
-		script.WriteString("vurun\n")
-		script.WriteString("vudestroy\n")
-	case "cleanup":
-		script.WriteString("delete virtualmachine\n")
-	}
-
-	return script.String()
 }
 
 // ParseRunOutput parses the output from a hammerdb run.

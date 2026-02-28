@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"log/slog"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,6 +87,7 @@ type TaskMonitorPage struct {
 	win          fyne.Window
 	isRunning    bool
 	currentRunID string // Current benchmark run ID
+	currentDBType string // Current database type (mysql, postgresql, oracle, sqlserver)
 	// Use cases
 	connUC      *usecase.ConnectionUseCase
 	benchmarkUC *usecase.BenchmarkUseCase
@@ -94,10 +96,12 @@ type TaskMonitorPage struct {
 	// Task configuration widgets
 	connSelect     *widget.Select
 	templateSelect *widget.Select
+	formContainer  *fyne.Container // Dynamic parameter form container
 	// General parameters
 	threadsEntry  *widget.Entry
 	durationEntry *widget.Entry
 	dbNameEntry   *widget.Entry
+	dryRunCheck   *widget.Check // Dry run mode (show command only)
 	// Monitor widgets
 	statusLabel     *widget.Label
 	tpsLabel        *widget.Label
@@ -106,6 +110,11 @@ type TaskMonitorPage struct {
 	errorsLabel     *widget.Label
 	threadsLabel    *widget.Label
 	progressBar     *widget.ProgressBar
+	// Metric label names (for dynamic updates based on DB type)
+	tpsNameLabel    *widget.Label
+	qpsNameLabel    *widget.Label
+	latencyNameLabel *widget.Label // "95% Latency" or "Response Time"
+	errorsNameLabel *widget.Label
 	// Real-time log for sysbench output
 	logEntry     *widget.Entry
 	maxLogLines  int
@@ -164,13 +173,18 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 
 	// Create general parameter entries
 	page.threadsEntry = widget.NewEntry()
-	page.threadsEntry.SetText("1")
+	page.threadsEntry.SetText("4")  // Default 4 threads for better performance
 
 	page.durationEntry = widget.NewEntry()
 	page.durationEntry.SetText("60")
 
 	page.dbNameEntry = widget.NewEntry()
 	page.dbNameEntry.SetText("sbtest")
+
+	// Create Dry Run checkbox
+	page.dryRunCheck = widget.NewCheck("Dry Run (Show Command Only)", func(checked bool) {
+		slog.Info("Tasks: Dry Run checkbox changed", "checked", checked)
+	})
 
 	// Create refresh button for templates
 	btnRefreshTemplate := widget.NewButton("🔄 Refresh Templates", func() {
@@ -207,16 +221,92 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	// Use Border layout to stretch templateSelect to fill available space before the button
 	templateRow := container.NewBorder(nil, nil, nil, btnRefreshTemplate, page.templateSelect)
 
-	// Create simplified form with general parameters
-	form := &widget.Form{
+	// Create dynamic form container for parameter fields
+	page.formContainer = container.NewVBox()
+
+	// Create base form with Connection and Template (static fields)
+	baseForm := &widget.Form{
 		Items: []*widget.FormItem{
 			widget.NewFormItem("Connection", page.connSelect),
 			widget.NewFormItem("Template", templateRow),
-			widget.NewFormItem("Threads", page.threadsEntry),
-			widget.NewFormItem("Duration (seconds)", page.durationEntry),
-			widget.NewFormItem("Database Name", page.dbNameEntry),
 		},
 	}
+
+	// Function to update parameter form based on selected template
+	updateParameterForm := func() {
+		slog.Info("Tasks: Updating parameter form", "selected_template", page.templateSelect.Selected)
+
+		// Clear current parameter form
+		page.formContainer.Objects = nil
+
+		// Find selected template
+		var selectedTemplate *templateInfo
+		for i := range page.templates {
+			if page.templates[i].Name == page.templateSelect.Selected {
+				selectedTemplate = &page.templates[i]
+				break
+			}
+		}
+
+		if selectedTemplate == nil {
+			// No template selected, show Sysbench parameters by default
+			slog.Info("Tasks: No template selected, showing default Sysbench parameters")
+			paramForm := &widget.Form{
+				Items: []*widget.FormItem{
+					widget.NewFormItem("Threads", page.threadsEntry),
+					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+					widget.NewFormItem("Database Name", page.dbNameEntry),
+					widget.NewFormItem("Options", page.dryRunCheck),
+				},
+			}
+			page.formContainer.Add(paramForm)
+		} else if selectedTemplate.Tool == "swingbench" {
+			// Oracle Swingbench parameters
+			slog.Info("Tasks: Showing Swingbench parameters for Oracle")
+			paramForm := &widget.Form{
+				Items: []*widget.FormItem{
+					widget.NewFormItem("Threads", page.threadsEntry),
+					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+					widget.NewFormItem("Options", page.dryRunCheck),
+				},
+			}
+			page.formContainer.Add(paramForm)
+		} else if selectedTemplate.Tool == "hammerdb" {
+			// SQL Server HammerDB parameters
+			slog.Info("Tasks: Showing HammerDB parameters for SQL Server")
+			paramForm := &widget.Form{
+				Items: []*widget.FormItem{
+					widget.NewFormItem("Threads (Virtual Users)", page.threadsEntry),
+					widget.NewFormItem("Duration (minutes)", page.durationEntry),
+					widget.NewFormItem("Options", page.dryRunCheck),
+				},
+			}
+			page.formContainer.Add(paramForm)
+		} else {
+			// Sysbench parameters (default)
+			slog.Info("Tasks: Showing Sysbench parameters", "tool", selectedTemplate.Tool)
+			paramForm := &widget.Form{
+				Items: []*widget.FormItem{
+					widget.NewFormItem("Threads", page.threadsEntry),
+					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+					widget.NewFormItem("Database Name", page.dbNameEntry),
+					widget.NewFormItem("Options", page.dryRunCheck),
+				},
+			}
+			page.formContainer.Add(paramForm)
+		}
+
+		page.formContainer.Refresh()
+	}
+
+	// Set up callback for template selection changes
+	page.templateSelect.OnChanged = func(selected string) {
+		slog.Info("Tasks: Template selection changed", "template", selected)
+		updateParameterForm()
+	}
+
+	// Initialize form with default parameters
+	updateParameterForm()
 
 	// Create monitor widgets
 	page.statusLabel = widget.NewLabel("Idle")
@@ -232,7 +322,7 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	page.progressBar.SetValue(0)
 
 	// Initialize log entry for sysbench output
-	page.maxLogLines = 60 // Keep max 60 lines history
+	page.maxLogLines = 150 // Keep max 150 lines history (increased for Oracle output)
 	page.logEntry = widget.NewMultiLineEntry()
 	page.logEntry.Disable()
 	page.logEntry.SetText("Waiting for benchmark data...\n")
@@ -262,19 +352,27 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	toolbar := container.NewHBox(page.btnPrepare, page.btnRun, page.btnCleanup, page.btnStop)
 
 	// Task configuration card (top section)
-	taskCard := widget.NewCard("Task Configuration", "", container.NewPadded(form))
+	// Combine static form (Connection, Template) with dynamic parameter form
+	taskFormContent := container.NewVBox(baseForm, page.formContainer)
+	taskCard := widget.NewCard("Task Configuration", "", container.NewPadded(taskFormContent))
 
 	// Monitor metrics card (middle section)
+	// Create label references for dynamic updates
+	page.tpsNameLabel = widget.NewLabel("TPS:")
+	page.qpsNameLabel = widget.NewLabel("QPS:")
+	page.latencyNameLabel = widget.NewLabel("95% Latency:")
+	page.errorsNameLabel = widget.NewLabel("Errors/s:")
+
 	metricsGrid := container.NewGridWithColumns(4,
-		widget.NewLabel("TPS:"),
+		page.tpsNameLabel,
 		page.tpsLabel,
-		widget.NewLabel("QPS:"),
+		page.qpsNameLabel,
 		page.qpsLabel,
-		widget.NewLabel("95% Latency:"),
+		page.latencyNameLabel,
 		page.latencyP95Label,
 		widget.NewLabel("Threads:"),
 		page.threadsLabel,
-		widget.NewLabel("Errors/s:"),
+		page.errorsNameLabel,
 		page.errorsLabel,
 	)
 
@@ -374,8 +472,33 @@ func (p *TaskMonitorPage) onConnectionChanged() {
 
 	slog.Info("Tasks: Connection changed", "connection", selectedName, "db_type", normalizedDBType)
 
+	// Update metric labels based on database type
+	p.updateMetricLabels(dbType)
+
 	// Load templates for this database type
 	p.loadTemplatesForDBType(normalizedDBType)
+}
+
+// updateMetricLabels updates metric labels based on database type.
+// Oracle/SQL Server: Show TPM, TPS, and Response Time
+// MySQL/PostgreSQL: Show all metrics (TPS, QPS, 95% Latency)
+func (p *TaskMonitorPage) updateMetricLabels(dbType string) {
+	fyne.Do(func() {
+		if dbType == "oracle" || dbType == "sqlserver" {
+			// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
+			p.tpsNameLabel.SetText("TPS:")
+			p.qpsNameLabel.SetText("TPM:")
+			p.latencyNameLabel.SetText("Response Time:")
+			p.errorsNameLabel.SetText("Errors:")
+		} else {
+			// MySQL/PostgreSQL with Sysbench: Show all metrics
+			p.tpsNameLabel.SetText("TPS:")
+			p.qpsNameLabel.SetText("QPS:")
+			p.latencyNameLabel.SetText("95% Latency:")
+			p.errorsNameLabel.SetText("Errors/s:")
+		}
+		slog.Info("Tasks: Metric labels updated", "db_type", dbType)
+	})
 }
 
 // loadTemplatesForDBType loads templates for a specific database type.
@@ -447,7 +570,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 	builtinTemplates := []templateInfo{
 		// MySQL templates
 		{
-			ID:          "sysbench-mysql-test",
+			ID:          "sysbench-oltp-read-write", // Matches oltp_read_write.lua
 			Name:        "Test (Sysbench)",
 			Description: "Lightweight test template for quick MySQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
@@ -457,7 +580,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-mysql-cpu-bound",
+			ID:          "sysbench-oltp-read-write-mysql-cpu", // Unique ID for MySQL CPU bound
 			Name:        "CPU Bound (Sysbench)",
 			Description: "CPU-bound test template for MySQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
@@ -467,7 +590,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-mysql-disk-bound",
+			ID:          "sysbench-oltp-read-write-mysql-disk", // Unique ID for MySQL disk bound
 			Name:        "Disk Bound (Sysbench)",
 			Description: "Disk-bound test template for MySQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",
@@ -478,7 +601,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 		},
 		// PostgreSQL templates
 		{
-			ID:          "sysbench-postgresql-test",
+			ID:          "sysbench-oltp-read-write-pg-test", // Unique ID for PostgreSQL test
 			Name:        "Test (Sysbench)",
 			Description: "Lightweight test template for quick PostgreSQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
@@ -488,7 +611,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-postgresql-cpu-bound",
+			ID:          "sysbench-oltp-read-write-pg-cpu", // Unique ID for PostgreSQL CPU bound
 			Name:        "CPU Bound (Sysbench)",
 			Description: "CPU-bound test template for PostgreSQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
@@ -498,7 +621,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-postgresql-disk-bound",
+			ID:          "sysbench-oltp-read-write-pg-disk", // Unique ID for PostgreSQL disk bound
 			Name:        "Disk Bound (Sysbench)",
 			Description: "Disk-bound test template for PostgreSQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",
@@ -506,6 +629,103 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			IsBuiltin:   true,
 			IsDefault:   false,
 			Parameters:  diskBoundParams,
+		},
+		// Oracle templates (Swingbench)
+		{
+			ID:          "swingbench-oracle-test",
+			Name:        "Test (Swingbench)",
+			Description: "Lightweight test template for quick Oracle testing (100MB data, balanced read/write mix)",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  nil,
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 10,
+				UpdateCustomer:       10,
+				BrowseProducts:       35,
+				OrderProducts:        35,
+				ProcessOrders:        5,
+				BrowseOrders:         5,
+				Scale:                0.1, // 100MB
+			},
+		},
+		{
+			ID:          "swingbench-oracle-cpu-bound",
+			Name:        "CPU Bound (Swingbench)",
+			Description: "CPU-bound test template for Oracle - 85% read (Browse Products), 15% write operations. Uses 1GB data size.",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil,
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 1,
+				UpdateCustomer:       1,
+				BrowseProducts:       85,
+				OrderProducts:        5,
+				ProcessOrders:        3,
+				BrowseOrders:         5,
+				Scale:                1, // 1GB
+			},
+		},
+		{
+			ID:          "swingbench-oracle-disk-bound",
+			Name:        "Disk Bound (Swingbench)",
+			Description: "Disk-bound test template for Oracle - Balanced read/write mix (35% Order Products, 35% Browse Products, 10% each for Customer operations). Uses 100GB data size.",
+			Tool:        "swingbench",
+			DBType:      "Oracle",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil,
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 10,
+				UpdateCustomer:       10,
+				BrowseProducts:       35,
+				OrderProducts:        35,
+				ProcessOrders:        5,
+				BrowseOrders:         5,
+				Scale:                100, // 100GB
+			},
+		},
+		// SQL Server templates (HammerDB)
+		{
+			ID:          "hammerdb-sqlserver-test",
+			Name:        "Test (HammerDB)",
+			Description: "Lightweight test template for quick SQL Server testing (1 warehouse, 1+1 min test)",
+			Tool:        "hammerdb",
+			DBType:      "SQL Server",
+			IsBuiltin:   true,
+			IsDefault:   true,
+			Parameters:  nil,
+			HammerParams: &HammerDBParameters{
+				Warehouses:   1,
+				BuildUsers:   1,
+				RampUp:       1,
+				Duration:     1,
+				Iterations:   1000000,
+				Driver:       "timed",
+				AllWarehouse: false,
+			},
+		},
+		{
+			ID:          "hammerdb-sqlserver-tproc-c",
+			Name:        "TPROC-C (HammerDB)",
+			Description: "Standard TPROC-C test template for SQL Server - 100 warehouses, 2+10 min test with full warehouse access",
+			Tool:        "hammerdb",
+			DBType:      "SQL Server",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil,
+			HammerParams: &HammerDBParameters{
+				Warehouses:   100,
+				BuildUsers:   4,
+				RampUp:       2,
+				Duration:     10,
+				Iterations:   1000000,
+				Driver:       "timed",
+				AllWarehouse: true,
+			},
 		},
 	}
 
@@ -529,14 +749,14 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 		}
 	}
 
-	// Adjust built-in templates' default flag
+	// Adjust built-in templates' default flag only if there's a custom default
 	for i := range builtinTemplates {
 		dbType := builtinTemplates[i].DBType
 		if dbTypesWithCustomDefault[dbType] {
+			// If there's a custom default, unset built-in defaults for this DB type
 			builtinTemplates[i].IsDefault = false
-		} else {
-			builtinTemplates[i].IsDefault = true
 		}
+		// Otherwise, preserve the original IsDefault setting from template definition
 	}
 
 	// Combine built-in and custom templates
@@ -690,6 +910,10 @@ func (p *TaskMonitorPage) validateAndExecutePhase(phase string) {
 			return
 		}
 
+		// Save current database type for real-time monitor customization
+		p.currentDBType = string(conn.GetType())
+		slog.Info("Tasks: Set current database type", "db_type", p.currentDBType)
+
 		slog.Info("Tasks: Testing connection before benchmark execution", "connection", connName, "connection_id", conn.GetID())
 
 		// Test connection（静默测试，不弹窗）
@@ -720,6 +944,32 @@ func (p *TaskMonitorPage) validateAndExecutePhase(phase string) {
 	}
 
 	slog.Info("Tasks: Task built successfully", "task_id", task.ID, "connection_id", task.ConnectionID, "template_id", task.TemplateID)
+
+	// Check Dry Run mode
+	if p.dryRunCheck.Checked {
+		slog.Info("Tasks: Dry Run mode enabled, showing command only")
+
+		// Build command preview message
+		var cmdMsg strings.Builder
+		cmdMsg.WriteString(fmt.Sprintf("🔍 DRY RUN MODE - Command Preview\n\n"))
+		cmdMsg.WriteString(fmt.Sprintf("Phase: %s\n", strings.Title(phase)))
+		cmdMsg.WriteString(fmt.Sprintf("Connection: %s\n", p.connSelect.Selected))
+		cmdMsg.WriteString(fmt.Sprintf("Template: %s\n", p.templateSelect.Selected))
+		cmdMsg.WriteString(fmt.Sprintf("\nParameters:\n"))
+
+		// Pretty print parameters
+		for key, value := range task.Parameters {
+			cmdMsg.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		}
+
+		cmdMsg.WriteString(fmt.Sprintf("\n✅ This is a DRY RUN - no actual execution will occur.\n"))
+		cmdMsg.WriteString(fmt.Sprintf("✅ Uncheck 'Dry Run' to execute the benchmark."))
+
+		// Show command preview dialog
+		dialog.ShowInformation("Dry Run - Command Preview", cmdMsg.String(), p.win)
+		return
+	}
+
 	// Check if BenchmarkUseCase is available
 	if p.benchmarkUC == nil {
 		slog.Error("Tasks: BenchmarkUseCase is nil")
@@ -840,38 +1090,107 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 
 	dbName := strings.TrimSpace(p.dbNameEntry.Text)
 
-	// Get OLTP parameters and template ID from selected template
-	var tables, tableSize int
-	var templateID string
-	for _, tmpl := range p.templates {
-		if tmpl.Name == p.templateSelect.Selected {
-			templateID = tmpl.ID
-			if tmpl.Parameters != nil {
-				tables = tmpl.Parameters.Tables
-				tableSize = tmpl.Parameters.TableSize
-			}
+	// Get selected template to determine tool type
+	var selectedTemplate *templateInfo
+	for i := range p.templates {
+		if p.templates[i].Name == p.templateSelect.Selected {
+			selectedTemplate = &p.templates[i]
 			break
 		}
 	}
-	// Default values if no template selected
-	if tables == 0 {
-		tables = 10
-	}
-	if tableSize == 0 {
-		tableSize = 10000
-	}
-	// Default template ID
-	if templateID == "" {
-		templateID = "sysbench-oltp-read-write"
+
+	if selectedTemplate == nil {
+		return nil, fmt.Errorf("no template selected")
 	}
 
-	// Build parameters map for sysbench
-	parameters := map[string]interface{}{
-		"threads":    threads,
-		"time":       duration,
-		"tables":     tables,
-		"table_size": tableSize,
-		"db_name":    dbName,
+	// Build parameters map based on tool type
+	var parameters map[string]interface{}
+	var templateID string
+
+	templateID = selectedTemplate.ID
+
+	switch selectedTemplate.Tool {
+	case "swingbench":
+		// Oracle Swingbench parameters
+		slog.Info("Tasks: Building Swingbench parameters", "template", selectedTemplate.Name)
+
+		// Get weights from template
+		weights := selectedTemplate.Weights
+		if weights == nil {
+			return nil, fmt.Errorf("Swingbench template has no weights")
+		}
+
+		// Generate a temporary Swingbench config file
+		configFile, err := p.generateSwingbenchConfig(conn, threads, duration, weights)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate Swingbench config: %w", err)
+		}
+		slog.Info("Tasks: Generated Swingbench config file", "path", configFile)
+
+		parameters = map[string]interface{}{
+			"virtual_users": threads, // For Swingbench, threads = virtual users
+			"time":          duration,
+			"customer_registration": weights.CustomerRegistration,
+			"update_customer":        weights.UpdateCustomer,
+			"browse_products":        weights.BrowseProducts,
+			"order_products":         weights.OrderProducts,
+			"process_orders":         weights.ProcessOrders,
+			"browse_orders":          weights.BrowseOrders,
+			"scale":                  weights.Scale,
+			"config_file":            configFile, // Path to generated config file
+			// Advanced delay options (milliseconds, default 0)
+			"inter_min_delay":        0, // Min delay between transactions (inter-transaction)
+			"inter_max_delay":        0, // Max delay between transactions
+			"intra_min_delay":        0, // Min delay within transactions (intra-transaction)
+			"intra_max_delay":        0, // Max delay within transactions
+		}
+
+	case "hammerdb":
+		// SQL Server HammerDB parameters
+		slog.Info("Tasks: Building HammerDB parameters", "template", selectedTemplate.Name)
+
+		// Get HammerDB params from template
+		hammerParams := selectedTemplate.HammerParams
+		if hammerParams == nil {
+			return nil, fmt.Errorf("HammerDB template has no parameters")
+		}
+
+		parameters = map[string]interface{}{
+			"virtual_users": threads, // For HammerDB, threads = virtual users
+			"warehouses":     hammerParams.Warehouses,
+			"build_users":    hammerParams.BuildUsers,
+			"rampup":         hammerParams.RampUp,
+			"duration":       hammerParams.Duration,
+			"iterations":     hammerParams.Iterations,
+			"driver":         hammerParams.Driver,
+			"all_warehouse":  hammerParams.AllWarehouse,
+		}
+
+	default: // "sysbench"
+		// Sysbench OLTP parameters
+		slog.Info("Tasks: Building Sysbench parameters", "template", selectedTemplate.Name)
+
+		var tables, tableSize int
+		if selectedTemplate.Parameters != nil {
+			tables = selectedTemplate.Parameters.Tables
+			tableSize = selectedTemplate.Parameters.TableSize
+		}
+
+		// Default values if not set
+		if tables == 0 {
+			tables = 10
+		}
+		if tableSize == 0 {
+			tableSize = 10000
+		}
+
+		parameters = map[string]interface{}{
+			"threads":    threads,
+			"time":       duration,
+			"tables":     tables,
+			"table_size": tableSize,
+			"db_name":    dbName,
+		}
 	}
 
 	// Build task options
@@ -908,6 +1227,143 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 		"db_name", dbName)
 
 	return task, nil
+}
+
+// generateSwingbenchConfig generates a temporary Swingbench configuration file.
+// Returns the path to the generated config file.
+func (p *TaskMonitorPage) generateSwingbenchConfig(conn connection.Connection, users, runtimeMinutes int, weights *SwingbenchWeights) (string, error) {
+	// Get Oracle connection
+	oracleConn, ok := conn.(*connection.OracleConnection)
+	if !ok {
+		return "", fmt.Errorf("not an Oracle connection")
+	}
+
+	// Use SID or ServiceName (SID is preferred in our UI)
+	identifier := oracleConn.SID
+	if identifier == "" {
+		identifier = oracleConn.ServiceName
+	}
+	if identifier == "" {
+		return "", fmt.Errorf("neither SID nor ServiceName is set")
+	}
+
+	slog.Info("Tasks: Generating Swingbench config",
+		"host", oracleConn.Host,
+		"port", oracleConn.Port,
+		"sid", oracleConn.SID,
+		"service_name", oracleConn.ServiceName,
+		"identifier", identifier,
+		"username", oracleConn.Username,
+		"password_set", oracleConn.Password != "")
+
+	// Calculate hours and minutes for RunTime (format: hours:minutes:seconds)
+	// Swingbench requires minutes < 60, so we need to convert runtime to hours:minutes
+	hours := runtimeMinutes / 60
+	minutes := runtimeMinutes % 60
+	runTimeStr := fmt.Sprintf("%d:%d:00", hours, minutes)
+
+	// Generate unique temp file name
+	configFile := fmt.Sprintf("/tmp/swingbench-config-%d.xml", time.Now().UnixNano())
+
+	// Build config XML content
+	configXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SwingBenchConfiguration xmlns="http://www.dominicgiles.com/swingbench/config">
+    <Name>DB-BenchMind Generated Config</Name>
+    <Comment>Auto-generated configuration for DB-BenchMind benchmark tool</Comment>
+    <Connection>
+        <UserName>%s</UserName>
+        <Password>%s</Password>
+        <ConnectString>//%s:%d/%s</ConnectString>
+        <DriverType>Oracle jdbc Driver</DriverType>
+        <Properties>
+            <Property Key="StatementCaching">120</Property>
+            <Property Key="FetchSize">20</Property>
+        </Properties>
+    </Connection>
+    <Load>
+        <NumberOfUsers>%d</NumberOfUsers>
+        <MinDelay>0</MinDelay>
+        <MaxDelay>0</MaxDelay>
+        <InterMinDelay>0</InterMinDelay>
+        <InterMaxDelay>0</InterMaxDelay>
+        <QueryTimeout>120</QueryTimeout>
+        <MaxTransactions>-1</MaxTransactions>
+        <RunTime>%s</RunTime>
+        <LogonGroupCount>1</LogonGroupCount>
+        <LogonDelay>20</LogonDelay>
+        <LogOutPostTransaction>false</LogOutPostTransaction>
+        <WaitTillAllLogon>false</WaitTillAllLogon>
+        <StatsCollectionStart>0:0</StatsCollectionStart>
+        <StatsCollectionEnd>0:0</StatsCollectionEnd>
+        <ConnectionRefresh>0</ConnectionRefresh>
+        <TransactionList>
+            <Transaction>
+                <Id>Customer Registration</Id>
+                <ShortName>NCR</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.NewCustomerProcessV2</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+            <Transaction>
+                <Id>Update Customer Details</Id>
+                <ShortName>UCD</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.UpdateCustomerDetailsV2</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+            <Transaction>
+                <Id>Browse Products</Id>
+                <ShortName>BP</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.BrowseProducts</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+            <Transaction>
+                <Id>Order Products</Id>
+                <ShortName>OP</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.NewOrderProcess</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+            <Transaction>
+                <Id>Process Orders</Id>
+                <ShortName>PO</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.ProcessOrders</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+            <Transaction>
+                <Id>Browse Orders</Id>
+                <ShortName>BO</ShortName>
+                <ClassName>com.dom.benchmarking.swingbench.plsqltransactions.BrowseAndUpdateOrders</ClassName>
+                <Weight>%d</Weight>
+                <Enabled>true</Enabled>
+            </Transaction>
+        </TransactionList>
+    </Load>
+</SwingBenchConfiguration>`,
+		"soe", // Benchmark user (created during prepare phase)
+		"soe", // Benchmark password (set during prepare phase)
+		oracleConn.Host,
+		oracleConn.Port,
+		identifier, // Use SID or ServiceName (whichever is set)
+		users,
+		runTimeStr, // RunTime in format "hours:minutes:seconds"
+		weights.CustomerRegistration,
+	 weights.UpdateCustomer,
+		weights.BrowseProducts,
+		weights.OrderProducts,
+		weights.ProcessOrders,
+		weights.BrowseOrders,
+	)
+
+	// Write config file
+	if err := os.WriteFile(configFile, []byte(configXML), 0644); err != nil {
+		return "", fmt.Errorf("write config file: %w", err)
+	}
+
+	slog.Info("Tasks: Swingbench config file generated", "path", configFile)
+	return configFile, nil
 }
 
 // startBenchmarkPhase starts a specific benchmark phase (prepare/run/cleanup).
@@ -972,7 +1428,7 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 
 	// Set realtime callback to receive samples directly (streaming, no polling)
 	// This provides zero-delay UI updates compared to database polling
-	if phase == "run" {
+	if phase == "run" || phase == "prepare" {
 		p.benchmarkUC.SetRealtimeCallback(func(runID string, sample execution.MetricSample) {
 			// Update UI in main thread using fyne.Do
 			fyne.Do(func() {
@@ -980,46 +1436,113 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 					return // Don't update if benchmark stopped
 				}
 
-				// Update metrics labels
-				if sample.TPS > 0 {
-					p.tpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPS))
-				}
-				if sample.QPS > 0 {
-					p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.QPS))
-				}
-				if sample.LatencyP95 > 0 {
-					p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyP95))
-				}
-				p.errorsLabel.SetText(fmt.Sprintf("%.2f", sample.ErrorRate))
-
-				// Update thread count from form
-				threads := p.threadsEntry.Text
-				if threads != "" {
-					p.threadsLabel.SetText(threads)
+				// Update progress bar from percentage (for prepare/cleanup phases)
+				if sample.Percentage > 0 {
+					progress := sample.Percentage / 100.0 // Convert 0-100 to 0-1 range
+					if progress > 0.95 {
+						progress = 0.95 // Cap at 95% until completion
+					}
+					p.progressBar.SetValue(progress)
+					slog.Debug("Tasks: Progress updated from percentage", "percentage", sample.Percentage, "progress", progress, "run_id", runID)
 				}
 
-				// Update log with raw output line (with deduplication)
-				if sample.RawLine != "" {
-					// Extract second from raw line to prevent duplicates
-					// Format: "[ 28s ] thds: 1 tps: ..."
-					re := regexp.MustCompile(`\[\s*(\d+)s\s*\]`)
-					matches := re.FindStringSubmatch(sample.RawLine)
-					if len(matches) > 1 {
-						secondKey := matches[1] + "s"
-						if !p.addedSeconds[secondKey] {
-							p.appendLogLine(sample.RawLine)
-							p.addedSeconds[secondKey] = true
-							slog.Info("Tasks: Realtime sample added", "second", secondKey, "run_id", runID)
+				// Update metrics labels (only for run phase)
+				if phase == "run" {
+					// Customize metrics display based on database type
+					// Oracle/SQL Server: Show TPM, TPS, and Response Time
+					// MySQL/PostgreSQL: Show all metrics
+					if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
+						// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
+						if sample.TPM > 0 {
+							p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPM)) // QPS label shows TPM
+						} else {
+							p.qpsLabel.SetText("--")
 						}
+						if sample.TPS > 0 {
+							p.tpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPS))
+						} else {
+							p.tpsLabel.SetText("--")
+						}
+						// Show Response Time (average latency)
+						if sample.LatencyAvg > 0 {
+							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyAvg))
+						} else if sample.LatencyP95 > 0 {
+							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyP95))
+						} else {
+							p.latencyP95Label.SetText("--")
+						}
+						// Show error count
+						p.errorsLabel.SetText(fmt.Sprintf("%d", sample.Errors))
 					} else {
-						// No second marker, just add it
-						p.appendLogLine(sample.RawLine)
+						// MySQL/PostgreSQL with Sysbench: Show all metrics
+						if sample.TPS > 0 {
+							p.tpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPS))
+						}
+						if sample.QPS > 0 {
+							p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.QPS))
+						}
+						if sample.LatencyP95 > 0 {
+							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyP95))
+						}
+						p.errorsLabel.SetText(fmt.Sprintf("%.2f", sample.ErrorRate))
+					}
+
+					// Update thread count from form
+					threads := p.threadsEntry.Text
+					if threads != "" {
+						p.threadsLabel.SetText(threads)
+					}
+				}
+
+				// Update log with raw output line
+				if sample.RawLine != "" {
+					if phase == "prepare" {
+						// For prepare phase, show all meaningful lines
+						// Clean the line: remove any remaining control characters
+						cleanLine := strings.TrimSpace(sample.RawLine)
+
+						// Debug: log raw line length to detect issues
+						if len(cleanLine) > 200 {
+							slog.Debug("Tasks: Long log line detected", "length", len(cleanLine), "run_id", runID, "preview", cleanLine[:100])
+						}
+
+						// Remove all control characters except tabs
+						cleanLine = strings.Map(func(r rune) rune {
+							// Keep tabs and printable characters (ASCII 32-126, and Unicode 128+)
+							if r == '\t' || (r >= 32 && r <= 126) || (r >= 128) {
+								return r
+							}
+							return -1 // Remove control characters
+						}, cleanLine)
+
+						// Skip lines that are too long (likely garbage)
+						if len(cleanLine) > 300 {
+							slog.Debug("Tasks: Skipping excessively long line", "length", len(cleanLine), "run_id", runID)
+						} else if cleanLine != "" {
+							p.appendLogLine(cleanLine)
+						}
+					} else if phase == "run" {
+						// Extract second from raw line to prevent duplicates
+						// Format: "[ 28s ] thds: 1 tps: ..."
+						re := regexp.MustCompile(`\[\s*(\d+)s\s*\]`)
+						matches := re.FindStringSubmatch(sample.RawLine)
+						if len(matches) > 1 {
+							secondKey := matches[1] + "s"
+							if !p.addedSeconds[secondKey] {
+								p.appendLogLine(sample.RawLine)
+								p.addedSeconds[secondKey] = true
+								slog.Info("Tasks: Realtime sample added", "second", secondKey, "run_id", runID)
+							}
+						} else {
+							// No second marker, just add it
+							p.appendLogLine(sample.RawLine)
+						}
 					}
 				}
 			})
 		})
 	} else {
-		// Clear callback for non-run phases
+		// Clear callback for other phases
 		p.benchmarkUC.SetRealtimeCallback(nil)
 	}
 
@@ -1080,9 +1603,6 @@ func (p *TaskMonitorPage) monitorBenchmarkProgress(ctx context.Context, runID st
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	// For prepare and cleanup, only set progress once to avoid Fyne warnings
-	progressSet := false
-
 	for p.isRunning {
 		select {
 		case <-ticker.C:
@@ -1097,8 +1617,9 @@ func (p *TaskMonitorPage) monitorBenchmarkProgress(ctx context.Context, runID st
 			slog.Info("Tasks: Monitoring tick", "run_id", runID, "phase", phase, "state", run.State)
 
 			// Check if run completed or failed
-			if run.State == execution.StateCompleted {
-				slog.Info("Tasks: State completed detected, calling handleBenchmarkCompleted", "run_id", runID)
+			// For prepare-only mode, StatePrepared is a terminal state
+			if run.State == execution.StateCompleted || run.State == execution.StatePrepared {
+				slog.Info("Tasks: State completed detected, calling handleBenchmarkCompleted", "run_id", runID, "state", run.State)
 				p.handleBenchmarkCompleted(ctx, run, phase)
 				return
 			}
@@ -1109,7 +1630,7 @@ func (p *TaskMonitorPage) monitorBenchmarkProgress(ctx context.Context, runID st
 			}
 
 			// Update progress bar based on time (only for run phase)
-			// Note: Metrics are updated via realtime callback, not here
+			// Note: Metrics and percentage are updated via realtime callback, not here
 			fyne.Do(func() {
 				if phase == "run" && run.StartedAt != nil {
 					elapsed := time.Since(*run.StartedAt).Seconds()
@@ -1122,11 +1643,9 @@ func (p *TaskMonitorPage) monitorBenchmarkProgress(ctx context.Context, runID st
 						progress = 0.95
 					}
 					p.progressBar.SetValue(progress)
-				} else if phase != "run" && !progressSet {
-					// For prepare and cleanup, only set progress once
-					p.progressBar.SetValue(0.5) // Halfway to show activity
-					progressSet = true
 				}
+				// For prepare phase, progress is updated via realtime callback from percentage
+				// For cleanup phase, no percentage is available, keep at 0
 			})
 
 		case <-ctx.Done():
@@ -1171,35 +1690,43 @@ func (p *TaskMonitorPage) handleBenchmarkCompleted(ctx context.Context, run *exe
 			if run.Result != nil {
 				// Show detailed final statistics
 				result := run.Result
-				qps := 0.0
-				if result.TotalTransactions > 0 {
-					qps = result.TPSCalculated * float64(result.TotalQueries) / float64(result.TotalTransactions)
-				}
-				latencySumMs := 0.0
-				if result.Duration > 0 {
-					latencySumMs = result.Duration.Seconds() * 1000
-				}
 
-				message = fmt.Sprintf("Benchmark completed successfully!\n\n"+
-					"Duration: %s\n\n"+
-					"Transactions: %20d  (%.2f per sec.)\n"+
-					"Queries:      %20d  (%.2f per sec.)\n\n"+
-					"Latency (ms):\n"+
-					"     min:      %25.2f\n"+
-					"     avg:      %25.2f\n"+
-					"     max:      %25.2f\n"+
-					"     95th percentile: %15.2f\n"+
-					"     sum:      %25.2f",
-					duration,
-					result.TotalTransactions,
-					result.TPSCalculated,
-					result.TotalQueries,
-					qps,
-					result.LatencyMin,
-					result.LatencyAvg,
-					result.LatencyMax,
-					result.LatencyP95,
-					latencySumMs)
+				// Build message based on database type
+				if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
+					// Oracle Swingbench / SQL Server - simplified message with no details
+					message = "Benchmark completed successfully!"
+				} else {
+					// MySQL/PostgreSQL Sysbench format
+					qps := 0.0
+					if result.TotalTransactions > 0 {
+						qps = result.TPSCalculated * float64(result.TotalQueries) / float64(result.TotalTransactions)
+					}
+					latencySumMs := 0.0
+					if result.Duration > 0 {
+						latencySumMs = result.Duration.Seconds() * 1000
+					}
+
+					message = fmt.Sprintf("Benchmark completed successfully!\n\n"+
+						"Duration: %s\n\n"+
+						"Transactions: %20d  (%.2f per sec.)\n"+
+						"Queries:      %20d  (%.2f per sec.)\n\n"+
+						"Latency (ms):\n"+
+						"     min:      %25.2f\n"+
+						"     avg:      %25.2f\n"+
+						"     max:      %25.2f\n"+
+						"     95th percentile: %15.2f\n"+
+						"     sum:      %25.2f",
+						duration,
+						result.TotalTransactions,
+						result.TPSCalculated,
+						result.TotalQueries,
+						qps,
+						result.LatencyMin,
+						result.LatencyAvg,
+						result.LatencyMax,
+						result.LatencyP95,
+						latencySumMs)
+				}
 			} else {
 				// No result available, show simple message
 				message = fmt.Sprintf("Benchmark completed successfully!\n\nDuration: %s\n\n(Note: Final statistics not available)", duration)
@@ -1268,9 +1795,30 @@ func (p *TaskMonitorPage) handleBenchmarkStopped(ctx context.Context, run *execu
 	fyne.DoAndWait(func() {
 		p.statusLabel.SetText(fmt.Sprintf("Status: %s", run.State))
 
-		// Check if there's a user-friendly message to display
-		if run.Message != "" {
-			dialog.ShowError(fmt.Errorf("%s", run.Message), p.win)
+		// Only show error dialog for failed state, not for user-initiated cancellation
+		if run.State == execution.StateFailed {
+			// Show error dialog if there's an error message
+			// Priority: ErrorMessage > Message > generic state message
+			var errorMsg string
+			if run.ErrorMessage != "" {
+				errorMsg = run.ErrorMessage
+			} else if run.Message != "" {
+				errorMsg = run.Message
+			} else {
+				errorMsg = fmt.Sprintf("Benchmark failed: %s phase did not complete successfully", strings.Title(phase))
+			}
+
+			if errorMsg != "" {
+				slog.Info("Tasks: Showing error dialog", "state", run.State, "error", errorMsg)
+				dialog.ShowError(fmt.Errorf("%s", errorMsg), p.win)
+			}
+		} else if run.State == execution.StateCancelled {
+			// User clicked Stop button - just log, don't show error dialog
+			slog.Info("Tasks: Benchmark cancelled by user", "run_id", run.ID, "phase", phase)
+		} else if run.State == execution.StateForceStopped {
+			// Force stopped (timeout or other reason)
+			slog.Info("Tasks: Benchmark force stopped", "run_id", run.ID, "phase", phase)
+			dialog.ShowInformation("Stopped", "⚠ Benchmark was stopped\n\nThe benchmark run was terminated.", p.win)
 		}
 
 		// Re-enable all phase buttons, disable stop

@@ -31,28 +31,56 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 		Port:        1521,
 		ServiceName: "ORCL",
 		Username:    "testuser",
+		Password:    "testpass",
 	}
 
 	config := &Config{
 		Connection: conn,
 		Parameters: map[string]interface{}{
-			"scale":         1,
-			"threads":       32,
-			"dba_username":  "sys as sysdba",
-			"dba_password":  "testpass",
+			"scale":        0.1, // Test with float scale (100MB)
+			"threads":      32,
+			"dba_username": "sys as sysdba",
+			"dba_password": "testpass",
 		},
 		WorkDir: "/tmp/test",
 	}
 
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
-	assert.Contains(t, cmd.CmdLine, "oewizard")
-	assert.Contains(t, cmd.CmdLine, "-cl")
-	assert.Contains(t, cmd.CmdLine, "-create")
-	assert.Contains(t, cmd.CmdLine, "-generate")
-	assert.Contains(t, cmd.CmdLine, "-scale 1")
-	assert.Contains(t, cmd.CmdLine, "-tc 32")
-	assert.Contains(t, cmd.CmdLine, "//localhost:1521/ORCL")
+
+	// Should return a command sequence with 4 steps
+	assert.Equal(t, "oracle_prepare_sequence", cmd.CmdLine)
+	assert.Len(t, cmd.Commands, 4, "Prepare should have 4 steps")
+
+	// Step 1: Connection probe (using DBA user)
+	step1 := cmd.Commands[0]
+	assert.Equal(t, "Connection Probe", step1.StepName)
+	assert.Contains(t, step1.CmdLine, "sqlplus")
+	assert.Contains(t, step1.CmdLine, "sys as sysdba") // Uses DBA credentials
+
+	// Step 2: Schema existence check
+	step2 := cmd.Commands[1]
+	assert.Equal(t, "Schema Check", step2.StepName)
+	assert.Contains(t, step2.CmdLine, "sqlplus")
+	assert.Contains(t, step2.CmdLine, "SOE_SCHEMA_EXISTS")
+
+	// Step 3: Create tablespaces (with datafile paths)
+	step3 := cmd.Commands[2]
+	assert.Equal(t, "Create Tablespaces", step3.StepName)
+	assert.Contains(t, step3.CmdLine, "sqlplus")
+	assert.Contains(t, step3.CmdLine, "create tablespace SOE")
+
+	// Step 4: oewizard -create
+	step4 := cmd.Commands[3]
+	assert.Equal(t, "Initialize Data", step4.StepName)
+	assert.Contains(t, step4.CmdLine, "oewizard")
+	assert.Contains(t, step4.CmdLine, "-c oewizard.xml")
+	assert.Contains(t, step4.CmdLine, "-cl")
+	assert.Contains(t, step4.CmdLine, "-create")
+	assert.Contains(t, step4.CmdLine, "-version")
+	assert.Contains(t, step4.CmdLine, "-scale 0.1")
+	assert.Contains(t, step4.CmdLine, "-tc")
+	assert.Contains(t, step4.CmdLine, "//localhost:1521/ORCL")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.
@@ -80,9 +108,9 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Password:    "testpass",
 			},
 			params: map[string]interface{}{
-				"users":       10,
-				"time":        10,
-				"config_file": "/opt/benchtools/swingbench/configs/SOE_CPU_Bound.xml",
+				"virtual_users": 10,
+				"time":          10,
+				"config_file":   "/opt/benchtools/swingbench/configs/SOE_CPU_Bound.xml",
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.NoError(t, err)
@@ -107,13 +135,14 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Password: "testpass",
 			},
 			params: map[string]interface{}{
-				"users":       20,
-				"time":        5,
-				"config_file": "/opt/benchtools/swingbench/configs/SOE_Disk_Bound.xml",
+				"virtual_users": 20,
+				"time":          5,
+				"config_file":   "/opt/benchtools/swingbench/configs/SOE_Disk_Bound.xml",
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.NoError(t, err)
-				assert.Contains(t, cmd.CmdLine, "192.168.1.100:1521:ORCLSID")
+				// The connection string uses service name format //host:port/SID
+				assert.Contains(t, cmd.CmdLine, "//192.168.1.100:1521/ORCLSID")
 			},
 		},
 		{
@@ -129,7 +158,7 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				Username:    "testuser",
 			},
 			params: map[string]interface{}{
-				"users": 5,
+				"virtual_users": 5,
 			},
 			validate: func(t *testing.T, cmd *Command, err error) {
 				require.Error(t, err)
@@ -209,6 +238,16 @@ func TestSwingbenchAdapter_BuildCleanupCommand(t *testing.T) {
 	assert.Contains(t, cmd.CmdLine, "oewizard")
 	assert.Contains(t, cmd.CmdLine, "-cl")
 	assert.Contains(t, cmd.CmdLine, "-drop")
+	assert.Contains(t, cmd.CmdLine, "-version 2.0")
+	assert.Contains(t, cmd.CmdLine, "-dt thin")
+	assert.Contains(t, cmd.CmdLine, "-dba sys as sysdba")
+	assert.Contains(t, cmd.CmdLine, "-dbap testpass")
+	assert.Contains(t, cmd.CmdLine, "-u soe")
+	assert.Contains(t, cmd.CmdLine, "-p soe")
+	assert.Contains(t, cmd.CmdLine, "-ts SOE")
+	assert.Contains(t, cmd.CmdLine, "-v")
+	assert.Contains(t, cmd.CmdLine, "-debug")
+	assert.Contains(t, cmd.CmdLine, "-debugf /tmp/oewizard_drop_debug.log")
 	assert.Contains(t, cmd.CmdLine, "//localhost:1521/ORCL")
 }
 

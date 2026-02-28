@@ -642,6 +642,31 @@ func (a *SysbenchAdapter) getScriptName(template *domaintemplate.Template) strin
 	scriptName := template.ID
 	if strings.HasPrefix(scriptName, "sysbench-") {
 		scriptName = strings.TrimPrefix(scriptName, "sysbench-")
+
+		// Extract the base script name (before any database-specific suffix)
+		// e.g., "oltp-read-write-mysql-cpu" -> "oltp-read-write"
+		//      "oltp-read-write-pg-test" -> "oltp-read-write"
+		basePatterns := []string{
+			"oltp-read-write",
+			"oltp-read-only",
+			"oltp-write-only",
+			"oltp-point-select",
+			"oltp-insert",
+			"oltp-delete",
+			"oltp-update-index",
+			"oltp-update-non-index",
+			"bulk-insert",
+			"select-random-points",
+			"select-random-ranges",
+		}
+
+		for _, pattern := range basePatterns {
+			if strings.HasPrefix(scriptName, pattern) {
+				scriptName = pattern
+				break
+			}
+		}
+
 		// Replace hyphens with underscores for Lua script names
 		scriptName = strings.ReplaceAll(scriptName, "-", "_")
 		return filepath.Join(sysbenchScriptPath, scriptName+".lua")
@@ -708,8 +733,10 @@ func (a *SysbenchAdapter) buildConnectionArgs(conn connection.Connection, config
 			// Password is set via environment variable for security
 			fmt.Sprintf("--mysql-db=%s", dbName),
 		)
-		if c.SSLMode != "" && c.SSLMode != "disabled" {
-			args = append(args, "--mysql-ssl=ON")
+		// Add SSL flag if enabled AND not using SSH tunnel (SSH tunnel already provides encryption)
+		// When using SSH tunnel, the connection to MySQL is from localhost and doesn't need SSL
+		if c.SSLMode != "" && c.SSLMode != "disabled" && c.SSH == nil {
+			args = append(args, "--mysql-ssl")
 		}
 
 	case *connection.PostgreSQLConnection:
@@ -731,8 +758,10 @@ func (a *SysbenchAdapter) buildConnectionArgs(conn connection.Connection, config
 			// Password is set via environment variable for security
 			fmt.Sprintf("--pgsql-db=%s", dbName),
 		)
-		if c.SSLMode != "" && c.SSLMode != "disable" {
-			args = append(args, "--pgsql-ssl=ON")
+		// Add SSL flag if enabled AND not using SSH tunnel (SSH tunnel already provides encryption)
+		// When using SSH tunnel, the connection to PostgreSQL is from localhost and doesn't need SSL
+		if c.SSLMode != "" && c.SSLMode != "disable" && c.SSH == nil {
+			args = append(args, "--pgsql-ssl")
 		}
 	}
 

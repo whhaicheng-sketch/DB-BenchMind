@@ -94,6 +94,8 @@ func main() {
 	// Create adapter registry
 	adapterReg := adapter.NewAdapterRegistry()
 	adapterReg.Register(adapter.NewSysbenchAdapter())
+	adapterReg.Register(adapter.NewSwingbenchAdapter())
+	adapterReg.Register(adapter.NewHammerDBAdapter())
 	// Register other adapters as needed
 
 	// Create run repository

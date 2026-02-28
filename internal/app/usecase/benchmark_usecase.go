@@ -208,6 +208,9 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		// and go directly to StateCompleted
 		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
 
+		// Update state to preparing before executing command
+		uc.updateState(ctx, run.ID, execution.StatePreparing)
+
 		cmd, err := adapt.BuildPrepareCommand(ctx, config)
 		if err != nil {
 			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("build prepare command: %v", err))
@@ -222,38 +225,44 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			if strings.Contains(errMsg, "1050") || strings.Contains(errMsg, "already exists") ||
 				strings.Contains(errMsg, "Duplicate key") || strings.Contains(errMsg, "Table.*already exists") ||
 				strings.Contains(errMsg, "Table '") && strings.Contains(errMsg, "already exists") {
-				slog.Info("Benchmark: Prepare phase - data already exists, treating as success",
+				slog.Info("Benchmark: Prepare phase - table already exists, treating as error",
 					"error", err, "run_id", run.ID)
 
-				// Set user-friendly message for UI popup
-				run.Message = "✓ Table data already exists\n\nThe benchmark tables are already prepared and ready to use."
+				// Set user-friendly error message for UI popup
+				userMsg := "✗ Error: Benchmark tables already exist\n\nThe benchmark tables are already prepared.\n\nIf you want to re-create the tables:\n1. First run the '🧹 Cleanup' phase to drop existing tables\n2. Then run the '📦 Prepare' phase to create fresh tables\n\nOr you can directly run the '▶ Run' benchmark with existing data."
+
+				run.Message = userMsg
+				run.ErrorMessage = userMsg
 				uc.runRepo.Save(ctx, run)
 
-				// Save log entries
-				msg1 := "✓ Table data already exists - skipping prepare phase"
-				msg2 := "Info: The benchmark tables are already prepared and ready to use."
+				// Mark as failed
+				uc.markAsFailed(ctx, run.ID, userMsg)
+
+				// Save error to logs
 				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "info",
+					Stream:    "error",
 					Content:   strings.Repeat("=", 60),
 				})
 				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "info",
-					Content:   msg1,
+					Stream:    "error",
+					Content:   "✗ Error: Table already exists",
 				})
 				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "info",
-					Content:   msg2,
+					Stream:    "error",
+					Content:   userMsg,
 				})
 				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "info",
+					Stream:    "error",
 					Content:   strings.Repeat("=", 60),
 				})
-				// Data already exists, this is OK for prepare phase - continue to mark as completed
+
+				return // executeBenchmark is void, can't return error
 			} else {
+				// Other prepare errors
 				uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
 				return
 			}
@@ -297,6 +306,9 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		// For cleanup-only mode, we bypass executePhase to avoid StatePrepared
 		// and go directly to StateCompleted
 		slog.Info("Benchmark: Executing cleanup phase (cleanup-only mode)", "run_id", run.ID)
+
+		// Update state to running before executing command
+		uc.updateState(ctx, run.ID, execution.StateRunning)
 
 		cmd, err := adapt.BuildCleanupCommand(ctx, config)
 		if err != nil {
@@ -476,6 +488,29 @@ func (uc *BenchmarkUseCase) executePhase(
 	uc.updateState(ctx, run.ID, targetState)
 	slog.Info("Benchmark: Starting phase", "phase", phase, "run_id", run.ID)
 
+	// Load password from keyring for Oracle connections
+	// This is needed because OracleConnection.Password is not stored in JSON (security)
+	conn := config.Connection
+	if oracleConn, ok := conn.(*connection.OracleConnection); ok {
+		if oracleConn.Password == "" {
+			password, err := uc.connUseCase.GetPassword(ctx, oracleConn.ID)
+			if err != nil {
+				return fmt.Errorf("get password from keyring: %w", err)
+			}
+			oracleConn.Password = password
+			slog.Info("Benchmark: Loaded password from keyring for Oracle phase",
+				"phase", phase,
+				"run_id", run.ID,
+				"conn_id", oracleConn.ID,
+				"username", oracleConn.Username)
+		}
+	}
+
+	slog.Info("Benchmark: Starting phase with connection",
+		"phase", phase,
+		"run_id", run.ID,
+		"connection_type", conn.GetType())
+
 	var cmd *adapter.Command
 	var err error
 
@@ -560,6 +595,27 @@ func (uc *BenchmarkUseCase) executeRun(
 	run.StartedAt = &now
 	uc.runRepo.Save(ctx, run)
 
+	// Load password from keyring for Oracle connections
+	// This is needed because OracleConnection.Password is not stored in JSON (security)
+	if oracleConn, ok := conn.(*connection.OracleConnection); ok {
+		if oracleConn.Password == "" {
+			password, err := uc.connUseCase.GetPassword(ctx, oracleConn.ID)
+			if err != nil {
+				return fmt.Errorf("get password from keyring: %w", err)
+			}
+			oracleConn.Password = password
+			slog.Info("Benchmark: Loaded password from keyring for Oracle",
+				"run_id", run.ID,
+				"conn_id", oracleConn.ID,
+				"username", oracleConn.Username)
+		}
+	}
+
+	// Log connection type
+	slog.Info("Benchmark: Starting benchmark with connection",
+		"run_id", run.ID,
+		"connection_type", conn.GetType())
+
 	// Build run command
 	cmd, err := adapt.BuildRunCommand(ctx, config)
 	if err != nil {
@@ -575,7 +631,7 @@ func (uc *BenchmarkUseCase) executeRun(
 	}
 
 	// Start command
-	process, stdout, _, err := uc.startCommand(runCtx, cmd)
+	process, stdout, stderr, err := uc.startCommand(runCtx, cmd)
 	if err != nil {
 		return fmt.Errorf("start command: %w", err)
 	}
@@ -618,37 +674,61 @@ func (uc *BenchmarkUseCase) executeRun(
 				// Now wait for process to complete
 				processErr := <-done
 				if processErr != nil {
+					// Read stderr to get actual error message from sysbench
+					stderrBytes, _ := io.ReadAll(stderr)
+					stderrStr := string(stderrBytes)
+
+					// Also check stdoutBuf - sysbench sometimes outputs errors to stdout
+					stdoutStr := stdoutBuf.String()
+
 					errMsg := processErr.Error()
-					slog.Info("Benchmark: Run process failed", "run_id", run.ID, "error", errMsg)
 
-					// Check if tables exist by querying the database
-					// This is more reliable than parsing stderr
-					tablesExist := uc.checkTablesExist(ctx, config.Connection, config.Parameters)
+					slog.Info("Benchmark: Run process failed",
+						"run_id", run.ID,
+						"error", errMsg,
+						"stderr", stderrStr,
+						"stdout", stdoutStr)
 
-					if !tablesExist {
-						// Table does not exist - set user-friendly message
-						slog.Info("Benchmark: Run phase - tables do not exist", "run_id", run.ID)
-						run.Message = "✗ Error: Benchmark tables do not exist\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button."
-						uc.runRepo.Save(ctx, run)
-
-						// Save error to logs
-						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-							Timestamp: time.Now().Format(time.RFC3339),
-							Stream:    "error",
-							Content:   "============================================================",
-						})
-						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-							Timestamp: time.Now().Format(time.RFC3339),
-							Stream:    "error",
-							Content:   run.Message,
-						})
-						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-							Timestamp: time.Now().Format(time.RFC3339),
-							Stream:    "error",
-							Content:   "============================================================",
-						})
+					// Parse error based on tool type - try stderr first, then stdout
+					errorOutput := stderrStr
+					if errorOutput == "" {
+						errorOutput = stdoutStr
 					}
-					return fmt.Errorf("process error: %w", processErr)
+
+					var userMsg string
+					if tmpl.Tool == "swingbench" {
+						userMsg = uc.parseSwingbenchError(errorOutput, stdoutBuf.String())
+					} else {
+						// Default to sysbench error parsing
+						userMsg = uc.parseSysbenchError(errorOutput)
+					}
+
+					// Set both Message (for UI dialog) and ErrorMessage (for error tracking)
+					run.Message = userMsg
+					run.ErrorMessage = userMsg
+					uc.runRepo.Save(ctx, run)
+
+					// Mark run as failed
+					uc.markAsFailed(ctx, run.ID, userMsg)
+
+					// Save error to logs
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   "============================================================",
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   userMsg,
+					})
+					uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Stream:    "error",
+						Content:   "============================================================",
+					})
+
+					return fmt.Errorf("run failed: %w", processErr)
 				}
 
 				// Process completed successfully, parse final results
@@ -680,6 +760,11 @@ func (uc *BenchmarkUseCase) executeRun(
 					result := &execution.BenchmarkResult{
 						RunID:             run.ID,
 						TPSCalculated:     finalResult.TransactionsPerSec,
+						TPMCalculated:     finalResult.AvgTPM,
+						MaxTPS:            finalResult.MaxTPS,
+						AvgTPS:            finalResult.AvgTPS,
+						MaxTPM:            finalResult.MaxTPM,
+						AvgTPM:            finalResult.AvgTPM,
 						LatencyAvg:        finalResult.LatencyAvg,
 						LatencyMin:        finalResult.LatencyMin,
 						LatencyMax:        finalResult.LatencyMax,
@@ -738,10 +823,14 @@ func (uc *BenchmarkUseCase) executeRun(
 					Phase:      "run",
 					TPS:        sample.TPS,
 					QPS:        sample.QPS,
+					TPM:        sample.TPM,
 					LatencyAvg: sample.LatencyAvg,
 					LatencyP95: sample.LatencyP95,
 					LatencyP99: sample.LatencyP99,
+					LatencyMax: sample.LatencyMax,
 					ErrorRate:  sample.ErrorRate,
+					Errors:     sample.Errors,
+					Percentage: sample.Percentage,
 					RawLine:    sample.RawLine,
 				}
 				if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
@@ -883,7 +972,36 @@ func (uc *BenchmarkUseCase) executeCleanup(
 }
 
 // executeCommand executes a command and saves logs.
+// For Swingbench, uses startCommand+Wait to properly handle background Java processes.
+// For other tools, uses CombinedOutput for simpler synchronous execution.
+// If the command contains a sequence of sub-commands, executes them in order.
 func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.Run, cmd *adapter.Command) error {
+	// Check if this is a command sequence
+	if len(cmd.Commands) > 0 {
+		slog.Info("Benchmark: Executing command sequence",
+			"run_id", run.ID,
+			"steps", len(cmd.Commands),
+			"description", cmd.Description)
+		return uc.executeCommandSequence(ctx, run, cmd)
+	}
+
+	// Check if this is a Swingbench command (uses java with LauncherBootstrap)
+	// We detect Swingbench by looking for LauncherBootstrap class name
+	isSwingbench := strings.Contains(cmd.CmdLine, "LauncherBootstrap") ||
+		(strings.Contains(cmd.CmdLine, "oewizard") || strings.Contains(cmd.CmdLine, "charbench"))
+
+	if isSwingbench {
+		// Use startCommand+Wait for Swingbench to properly track background processes
+		return uc.executeCommandSwingbench(ctx, run, cmd)
+	}
+
+	// For other tools (sysbench, hammerdb), use CombinedOutput
+	return uc.executeCommandSync(ctx, run, cmd)
+}
+
+// executeCommandSync executes a command synchronously using CombinedOutput.
+// Used for sysbench, hammerdb, and other tools that don't spawn background processes.
+func (uc *BenchmarkUseCase) executeCommandSync(ctx context.Context, run *execution.Run, cmd *adapter.Command) error {
 	// Parse command line
 	parts, err := parseCommandLine(cmd.CmdLine)
 	if err != nil {
@@ -908,7 +1026,7 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 	}
 
 	// Log the actual command that will be executed
-	slog.Info("Benchmark: === EXECUTING COMMAND ===",
+	slog.Info("Benchmark: === EXECUTING COMMAND (SYNC) ===",
 		"run_id", run.ID,
 		"binary", parts[0],
 		"arguments", parts[1:],
@@ -960,6 +1078,230 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 	return nil
 }
 
+// executeCommandSwingbench executes a Swingbench command using startCommand+Wait.
+// This properly handles Swingbench's background Java process architecture.
+func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *execution.Run, cmd *adapter.Command) error {
+	slog.Info("Benchmark: === EXECUTING COMMAND (SWINGBENCH) ===",
+		"run_id", run.ID,
+		"cmd_line", cmd.CmdLine,
+		"work_dir", cmd.WorkDir)
+
+	// Get swingbench adapter for realtime collection
+	adapt := uc.adapterReg.Get(adapter.AdapterTypeSwingbench)
+	if adapt == nil {
+		return fmt.Errorf("swingbench adapter not found")
+	}
+
+	// Start the command
+	process, stdout, stderr, err := uc.startCommand(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("start command: %w", err)
+	}
+
+	// Save process reference for potential stop operation
+	uc.runningProcessesMu.Lock()
+	uc.runningProcesses[run.ID] = process
+	uc.runningProcessesMu.Unlock()
+
+	// Clean up process reference when done
+	defer func() {
+		uc.runningProcessesMu.Lock()
+		delete(uc.runningProcesses, run.ID)
+		uc.runningProcessesMu.Unlock()
+	}()
+
+	defer stdout.Close()
+	defer stderr.Close()
+
+	// Start realtime sample collection from stdout
+	sampleCh, errCh, _ := adapt.StartRealtimeCollection(ctx, stdout)
+
+	// Also capture stderr to log entries
+	var stderrBuf strings.Builder
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n")
+
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "stderr",
+				Content:   line,
+			})
+
+			slog.Info("Benchmark: swingbench stderr", "run_id", run.ID, "line", line)
+		}
+	}()
+
+	// Wait for process to complete
+	done := make(chan error, 1)
+	go func() {
+		done <- process.Wait()
+	}()
+
+	// Collect samples and monitor for completion
+	for {
+		select {
+		case sample, ok := <-sampleCh:
+			if !ok {
+				// Channel closed - wait briefly for any remaining samples
+				slog.Info("Benchmark: Sample channel closed", "run_id", run.ID)
+				time.Sleep(500 * time.Millisecond)
+				// Wait for process to complete
+				processErr := <-done
+				<-stderrDone
+				if processErr != nil {
+					return processErr
+				}
+				return nil
+			}
+
+			// Save sample to repository
+			metricSample := execution.MetricSample{
+				Timestamp:  sample.Timestamp,
+				Phase:      "prepare", // Swingbench prepare/cleanup phase
+				TPS:        sample.TPS,
+				QPS:        sample.QPS,
+				TPM:        sample.TPM,
+				LatencyAvg: sample.LatencyAvg,
+				LatencyP95: sample.LatencyP95,
+				LatencyP99: sample.LatencyP99,
+				ErrorRate:  sample.ErrorRate,
+				Errors:     sample.Errors,
+				Percentage: sample.Percentage,
+				RawLine:    sample.RawLine,
+			}
+
+			// Save to log entry for visibility in UI
+			if sample.RawLine != "" {
+				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+					Timestamp: sample.Timestamp.Format(time.RFC3339),
+					Stream:    "stdout",
+					Content:   sample.RawLine,
+				})
+
+				// Log to slog for visibility
+				slog.Info("Benchmark: swingbench output", "run_id", run.ID, "stream", "stdout", "line", sample.RawLine)
+			}
+
+			if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
+				slog.Error("Benchmark: Failed to save metric sample", "run_id", run.ID, "error", err)
+			}
+
+			// Invoke realtime callback if set (for UI streaming)
+			uc.realtimeCallbackMu.RLock()
+			callback := uc.realtimeCallback
+			uc.realtimeCallbackMu.RUnlock()
+
+			if callback != nil {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("Benchmark: Panic in realtime callback", "run_id", run.ID, "panic", r)
+						}
+					}()
+					callback(run.ID, metricSample)
+				}()
+			}
+
+		case err, ok := <-errCh:
+			if !ok {
+				continue
+			}
+			slog.Error("Benchmark: Error from sample collector", "run_id", run.ID, "error", err)
+
+		case <-ctx.Done():
+			slog.Info("Benchmark: Context cancelled", "run_id", run.ID)
+			if process.Process != nil {
+				process.Process.Signal(syscall.SIGKILL)
+			}
+			return ctx.Err()
+		}
+	}
+}
+
+// executeCommandSequence executes a sequence of commands in order.
+// Each step must succeed before the next one runs.
+// Implements multi-phase operations like Oracle prepare (tablespace creation + probe + oewizard).
+func (uc *BenchmarkUseCase) executeCommandSequence(ctx context.Context, run *execution.Run, cmd *adapter.Command) error {
+	for i, step := range cmd.Commands {
+		stepNum := i + 1
+		totalSteps := len(cmd.Commands)
+
+		// Log step start
+		stepDesc := step.StepName
+		if stepDesc == "" {
+			stepDesc = fmt.Sprintf("Step %d", stepNum)
+		}
+		slog.Info("Benchmark: === EXECUTING SEQUENCE STEP ===",
+			"run_id", run.ID,
+			"step", stepNum,
+			"total", totalSteps,
+			"step_name", stepDesc,
+			"description", step.Description)
+
+		// Add separator log entry for UI
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("=== %s (%d/%d) ===", stepDesc, stepNum, totalSteps),
+		})
+		if step.Description != "" {
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   step.Description,
+			})
+		}
+
+		// Execute the step command
+		var err error
+		isSwingbench := strings.Contains(step.CmdLine, "LauncherBootstrap") ||
+			(strings.Contains(step.CmdLine, "oewizard") || strings.Contains(step.CmdLine, "charbench"))
+
+		if isSwingbench {
+			err = uc.executeCommandSwingbench(ctx, run, step)
+		} else {
+			err = uc.executeCommandSync(ctx, run, step)
+		}
+
+		if err != nil {
+			// Step failed - log and return error
+			slog.Error("Benchmark: Command sequence step failed",
+				"run_id", run.ID,
+				"step", stepNum,
+				"total", totalSteps,
+				"step_name", stepDesc,
+				"error", err)
+			return fmt.Errorf("step %d (%s) failed: %w", stepNum, stepDesc, err)
+		}
+
+		// Step succeeded
+		slog.Info("Benchmark: Command sequence step completed",
+			"run_id", run.ID,
+			"step", stepNum,
+			"total", totalSteps,
+			"step_name", stepDesc)
+
+		// Add success log entry
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("✓ %s completed", stepDesc),
+		})
+	}
+
+	// All steps succeeded
+	slog.Info("Benchmark: Command sequence completed successfully",
+		"run_id", run.ID,
+		"total_steps", len(cmd.Commands))
+
+	return nil
+}
+
 // startCommand starts a command and returns the process and pipes.
 func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Command) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
 	parts, err := parseCommandLine(cmd.CmdLine)
@@ -968,7 +1310,18 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	}
 
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
-	execCmd.Dir = cmd.WorkDir
+
+	// For Swingbench, set working directory to swingbench bin directory
+	// This is needed because Swingbench expects to run from its bin directory
+	if strings.Contains(cmd.CmdLine, "swingbench") || strings.Contains(cmd.CmdLine, "LauncherBootstrap") {
+		execCmd.Dir = "/opt/benchtools/swingbench/bin"
+		slog.Info("Benchmark: Setting Swingbench working directory",
+			"work_dir", execCmd.Dir,
+			"reason", "Swingbench requires running from bin directory")
+	} else {
+		execCmd.Dir = cmd.WorkDir
+	}
+
 	execCmd.Env = append(os.Environ(), cmd.Env...)
 
 	// Debug: Log command execution with environment details
@@ -1140,11 +1493,25 @@ func (uc *BenchmarkUseCase) markAsCompleted(ctx context.Context, runID string, d
 
 	now := time.Now()
 
-	// For prepare-only and cleanup-only modes, we bypass normal state machine
-	// because StatePending cannot directly transition to StateCompleted
-	// We force the state transition for these special cases
+	// For prepare-only mode: StatePreparing should transition to StatePrepared
+	// This is a special case because prepare-only doesn't run the full benchmark
+	if run.State == execution.StatePreparing {
+		slog.Info("Benchmark: Prepare-only mode completed, transitioning to prepared state", "run_id", runID)
+		run.State = execution.StatePrepared
+		run.CompletedAt = &now
+		run.Duration = &duration
+		if err := uc.runRepo.Save(ctx, run); err != nil {
+			slog.Error("Benchmark: markAsCompleted failed to save", "run_id", runID, "error", err)
+		} else {
+			slog.Info("Benchmark: markAsCompleted saved successfully (prepare -> prepared)", "run_id", runID, "state", run.State)
+		}
+		return
+	}
+
+	// For cleanup-only mode: StatePending should transition to StateCompleted
+	// This bypasses normal state machine validation for cleanup-only operations
 	if run.State == execution.StatePending {
-		slog.Info("Benchmark: Forcing state transition from pending to completed (prepare/cleanup-only mode)", "run_id", runID)
+		slog.Info("Benchmark: Cleanup-only mode completed, forcing state transition", "run_id", runID)
 		run.State = execution.StateCompleted
 		run.CompletedAt = &now
 		run.Duration = &duration
@@ -1157,6 +1524,7 @@ func (uc *BenchmarkUseCase) markAsCompleted(ctx context.Context, runID string, d
 	}
 
 	// Normal path: use SetState with validation
+	// For StateRunning -> StateCompleted transitions (full benchmark execution)
 	if err := run.SetState(execution.StateCompleted); err == nil {
 		run.State = execution.StateCompleted
 		run.CompletedAt = &now
@@ -1244,8 +1612,13 @@ func (uc *BenchmarkUseCase) checkMySQLTablesExist(ctx context.Context, conn *con
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'sbtest1'", dbName).Scan(&count)
 	if err != nil {
+		// Check if error is "database doesn't exist" (Error 1049)
+		if strings.Contains(err.Error(), "Error 1049") || strings.Contains(err.Error(), "Unknown database") {
+			slog.Info("checkMySQLTablesExist: Database does not exist", "database", dbName, "error", err)
+			return false // Database doesn't exist, so tables don't exist
+		}
 		slog.Warn("checkMySQLTablesExist: Failed to query table", "error", err)
-		return true // Assume tables exist if query fails
+		return true // Assume tables exist for other errors
 	}
 
 	return count > 0
@@ -1426,4 +1799,193 @@ func (e *BenchmarkExecutor) GetStatus() execution.RunState {
 func (e *BenchmarkExecutor) GetResult() (*adapter.Result, error) {
 	// TODO: Parse and return result
 	return &adapter.Result{}, nil
+}
+
+// parseSysbenchError parses sysbench stderr and generates a user-friendly error message.
+// This function extracts the actual error from sysbench output and translates it to
+// a clear action message for the user.
+func (uc *BenchmarkUseCase) parseSysbenchError(stderr string) string {
+	// Common sysbench error patterns and their translations
+	// Order matters: more specific patterns should come first
+	errorPatterns := []struct {
+		pattern    string
+		userMsg    string
+		suggestion string
+	}{
+		{
+			pattern:    "1146",
+			userMsg:    "✗ Error: Benchmark tables do not exist",
+			suggestion: "The benchmark tables do not exist (Table 'sbtest.sbtest1' doesn't exist).\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "Table.*doesn't exist",
+			userMsg:    "✗ Error: Benchmark tables do not exist",
+			suggestion: "The benchmark tables have not been created yet.\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "Unknown database",
+			userMsg:    "✗ Error: Database does not exist",
+			suggestion: "The database does not exist.\n\nPlease run the Prepare phase first to create the database and tables.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "1049",
+			userMsg:    "✗ Error: Database does not exist",
+			suggestion: "The database does not exist (Error 1049).\n\nPlease run the Prepare phase first to create the database and tables.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "Table.*Unknown",
+			userMsg:    "✗ Error: Benchmark tables do not exist",
+			suggestion: "The benchmark tables do not exist.\n\nPlease run the Prepare phase first to create the tables and load data.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "Access denied",
+			userMsg:    "✗ Error: Authentication failed",
+			suggestion: "Could not connect to the database - access denied.\n\nPlease check your username and password in the connection settings.\n\nGo to Connections page and verify the credentials.",
+		},
+		{
+			pattern:    "Can't connect to MySQL server",
+			userMsg:    "✗ Error: Cannot connect to database",
+			suggestion: "Could not connect to the database server.\n\nPlease check:\n1. The database is running\n2. Host and port are correct\n3. Network connectivity\n\nGo to Connections page and verify the connection settings.",
+		},
+		{
+			pattern:    "connection refused",
+			userMsg:    "✗ Error: Connection refused",
+			suggestion: "The database server refused the connection.\n\nPlease check:\n1. The database is running\n2. Host and port are correct\n3. Firewall settings\n\nGo to Connections page and verify the connection settings.",
+		},
+		{
+			pattern:    "no such file or directory",
+			userMsg:    "✗ Error: File not found",
+			suggestion: "A required file could not be found.\n\nThis may be a configuration issue. Please check your benchmark settings.",
+		},
+	}
+
+	// Try to match error patterns
+	for _, ep := range errorPatterns {
+		if strings.Contains(stderr, ep.pattern) {
+			// Return the user-friendly message (no format strings, just direct text)
+			return ep.userMsg + "\n\n" + ep.suggestion
+		}
+	}
+
+	// If no pattern matched, try to extract the actual error from FATAL lines
+	lines := strings.Split(stderr, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "FATAL:") {
+			// Found a FATAL error line
+			if len(line) > 200 {
+				line = line[:200] + "..."
+			}
+			return "✗ Error: " + strings.TrimPrefix(line, "FATAL:") + "\n\nCheck the logs for more details."
+		}
+		if line != "" && !strings.HasPrefix(line, "sysbench") && !strings.Contains(line, "Running the test") {
+			// Found the actual error line
+			if len(line) > 200 {
+				line = line[:200] + "..."
+			}
+			return "✗ Error: " + line + "\n\nCheck the logs for more details."
+		}
+	}
+
+	// Fallback to generic error message
+	return "✗ Error: Benchmark execution failed\n\nPlease check the logs for more details."
+}
+
+// parseSwingbenchError parses Swingbench/oewizard stderr and generates a user-friendly error message.
+// This function extracts Oracle/Swingbench specific errors and translates them to
+// clear action messages for the user.
+func (uc *BenchmarkUseCase) parseSwingbenchError(stderr, stdout string) string {
+	// Combine both stderr and stdout for error detection
+	// Swingbench may output errors to either stream
+	errorOutput := stderr
+	if errorOutput == "" {
+		errorOutput = stdout
+	}
+
+	// Swingbench/oewizard error patterns
+	errorPatterns := []struct {
+		pattern    string
+		userMsg    string
+		suggestion string
+	}{
+		{
+			pattern:    "ORA-01920", // user name 'SOE' conflicts with another user
+			userMsg:    "✗ Error: SOE schema already exists",
+			suggestion: "The SOE user/schema already exists in the database.\n\nIf you want to recreate the schema, run the Cleanup phase first to drop the existing schema.\n\nGo to Task Configuration and click the '🗑️ Cleanup' button, then run Prepare again.",
+		},
+		{
+			pattern:    "schema already exists",
+			userMsg:    "✗ Error: SOE schema already exists",
+			suggestion: "The SOE user/schema already exists in the database.\n\nIf you want to recreate the schema, run the Cleanup phase first to drop the existing schema.\n\nGo to Task Configuration and click the '🗑️ Cleanup' button, then run Prepare again.",
+		},
+		{
+			pattern:    "ORA-00942", // table or view does not exist
+			userMsg:    "✗ Error: SOE schema tables do not exist",
+			suggestion: "The SOE schema tables have not been created yet.\n\nPlease run the Prepare phase first to create the SOE user, tablespace, and tables.\n\nGo to Task Configuration and click the '📦 Prepare' button.",
+		},
+		{
+			pattern:    "ORA-01017", // invalid username/password
+			userMsg:    "✗ Error: Authentication failed",
+			suggestion: "Could not connect to the database - invalid username or password.\n\nPlease check:\n1. The connection credentials are correct\n2. The SOE user exists (run Prepare first)\n\nGo to Connections page and verify the connection settings.",
+		},
+		{
+			pattern:    "ORA-12154", // TNS:could not resolve the connect identifier
+			userMsg:    "✗ Error: Cannot connect to database",
+			suggestion: "Could not resolve the database connection identifier.\n\nPlease check:\n1. The connection string (SID/Service Name) is correct\n2. Host and port are correct\n\nGo to Connections page and verify the connection settings.",
+		},
+		{
+			pattern:    "ORA-12541", // TNS:no listener
+			userMsg:    "✗ Error: Database listener not running",
+			suggestion: "The Oracle database listener is not running.\n\nPlease start the Oracle database and listener on the target server.",
+		},
+		{
+			pattern:    "ORA-02236", // invalid file name
+			userMsg:    "✗ Error: Tablespace datafile creation failed",
+			suggestion: "Could not create the tablespace datafile.\n\nThe datafile path may be incorrect or the directory may not exist.\n\nPlease check the Oracle data directory configuration.",
+		},
+		{
+			pattern:    "Unable to parse config file",
+			userMsg:    "✗ Error: Invalid Swingbench configuration",
+			suggestion: "The Swingbench configuration file is invalid.\n\nPlease check the template configuration or try a different template.",
+		},
+		{
+			pattern:    "NumberFormatException",
+			userMsg:    "✗ Error: Invalid parameter value",
+			suggestion: "An invalid parameter was passed to Swingbench.\n\nPlease check the template parameters and try again.",
+		},
+	}
+
+	// Try to match error patterns
+	for _, ep := range errorPatterns {
+		if strings.Contains(errorOutput, ep.pattern) {
+			return ep.userMsg + "\n\n" + ep.suggestion
+		}
+	}
+
+	// Check for ORA errors specifically
+	lines := strings.Split(errorOutput, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Look for ORA- errors
+		if strings.Contains(line, "ORA-") {
+			// Extract the ORA error code and message
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				if len(line) > 300 {
+					line = line[:300] + "..."
+				}
+				return "✗ Oracle Error: " + line + "\n\nPlease check the logs for more details."
+			}
+		}
+		// Look for ERROR lines
+		if strings.HasPrefix(line, "ERROR :") || strings.HasPrefix(line, "SEVERE:") {
+			if len(line) > 300 {
+				line = line[:300] + "..."
+			}
+			return "✗ Error: " + line + "\n\nPlease check the logs for more details."
+		}
+	}
+
+	// Fallback to generic error message
+	return "✗ Error: Swingbench execution failed\n\nPlease check the logs for more details."
 }

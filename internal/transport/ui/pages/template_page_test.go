@@ -18,25 +18,25 @@ func TestTemplateInfo_BuiltinTemplates(t *testing.T) {
 	}{
 		{
 			name:           "MySQL built-in template",
-			templateID:     "sysbench-oltp-mysql",
+			templateID:     "sysbench-oltp-read-write",
 			expectedDBType: "MySQL",
 			isBuiltin:      true,
 		},
 		{
 			name:           "PostgreSQL built-in template",
-			templateID:     "sysbench-oltp-postgresql",
+			templateID:     "sysbench-oltp-read-write-pg-test",
 			expectedDBType: "PostgreSQL",
 			isBuiltin:      true,
 		},
 		{
 			name:           "Oracle built-in template",
-			templateID:     "sysbench-oltp-oracle",
+			templateID:     "swingbench-oracle-test",
 			expectedDBType: "Oracle",
 			isBuiltin:      true,
 		},
 		{
 			name:           "SQL Server built-in template",
-			templateID:     "sysbench-oltp-sqlserver",
+			templateID:     "hammerdb-sqlserver-test",
 			expectedDBType: "SQL Server",
 			isBuiltin:      true,
 		},

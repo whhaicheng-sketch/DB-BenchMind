@@ -50,6 +50,26 @@ type Command struct {
 	WorkDir string `json:"work_dir"`
 	// Environment variables
 	Env []string `json:"env,omitempty"`
+	// SSH tunnel (if needed for this command)
+	// The tunnel will be kept alive while the command is running
+	SSHTunnel *SSHTunnelHolder `json:"ssh_tunnel,omitempty"`
+	// Commands is a sequence of commands to execute in order.
+	// If non-empty, these commands are executed sequentially instead of CmdLine.
+	// Each step must succeed before the next one runs.
+	// This is used for multi-phase operations like Oracle prepare.
+	Commands []*Command `json:"commands,omitempty"`
+	// Description describes what this command does (for logging)
+	Description string `json:"description,omitempty"`
+	// StepName identifies the step within a sequence (for logging)
+	StepName string `json:"step_name,omitempty"`
+	// ResultFile is the path to the file where results are saved (e.g., XML results for Swingbench)
+	ResultFile string `json:"result_file,omitempty"`
+}
+
+// SSHTunnelHolder holds an SSH tunnel reference.
+// This is needed because we can't directly store *connection.SSHTunnel in JSON.
+type SSHTunnelHolder struct {
+	Tunnel *connection.SSHTunnel
 }
 
 // Result represents the parsed result of a benchmark execution.
@@ -70,6 +90,9 @@ type Result struct {
 	Duration          time.Duration `json:"duration"`           // Actual run duration
 	TotalTransactions int64         `json:"total_transactions"` // Total transactions
 
+	// Progress (for prepare/cleanup phases)
+	ProgressPercentage float64 `json:"progress_percentage,omitempty"` // Progress percentage (0-100)
+
 	// Raw output for debugging
 	RawOutput string `json:"raw_output,omitempty"`
 }
@@ -83,9 +106,25 @@ type Sample struct {
 	LatencyAvg  float64   `json:"latency_avg_ms"`
 	LatencyP95  float64   `json:"latency_p95_ms"`
 	LatencyP99  float64   `json:"latency_p99_ms"`
+	LatencyMax  float64   `json:"latency_max_ms,omitempty"`
 	ErrorRate   float64   `json:"error_rate"`
 	ThreadCount int       `json:"thread_count,omitempty"`
-	RawLine     string    `json:"raw_line"` // Original output line from sysbench
+	Percentage  float64   `json:"percentage,omitempty"` // Progress percentage (0-100), for prepare/cleanup phases
+	RawLine     string    `json:"raw_line"`             // Original output line from sysbench
+
+	// Swingbench specific fields
+	Users       string  `json:"users,omitempty"`       // User count e.g., "16/16"
+	TPM         float64 `json:"tpm,omitempty"`         // Transactions per minute
+	Errors      int64   `json:"errors,omitempty"`      // Error count
+	NCR         int64   `json:"ncr,omitempty"`         // New Customer Order
+	UCD         int64   `json:"ucd,omitempty"`         // Update Customer Detail
+	BP          int64   `json:"bp,omitempty"`          // Browse Products
+	OP          int64   `json:"op,omitempty"`          // Order Products
+	PO          int64   `json:"po,omitempty"`          // Process Payment
+	BO          int64   `json:"bo,omitempty"`          // Browse Orders
+	SQ          int64   `json:"sq,omitempty"`          // Search Products
+	WQ          int64   `json:"wq,omitempty"`          // Warehouse Query
+	WA          int64   `json:"wa,omitempty"`          // Warehouse Admin
 }
 
 // FinalResult represents the final benchmark results.
@@ -101,6 +140,13 @@ type FinalResult struct {
 	OtherQueries       int64
 	IgnoredErrors      int64
 	Reconnects         int64
+
+	// Swingbench-specific metrics
+	TPM    float64 // Transactions per minute
+	MaxTPS float64 // Maximum TPS
+	AvgTPS float64 // Average TPS
+	MaxTPM float64 // Maximum TPM
+	AvgTPM float64 // Average TPM
 
 	// Latency (ms)
 	LatencyMin float64

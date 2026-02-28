@@ -41,6 +41,11 @@ type BenchmarkResult struct {
 
 	// Core metrics (spec.md 3.5.2)
 	TPSCalculated float64 `json:"tps_calculated"`     // Calculated TPS
+	TPMCalculated float64 `json:"tpm_calculated"`     // Calculated TPM (Swingbench)
+	MaxTPS        float64 `json:"max_tps"`            // Maximum TPS (Swingbench)
+	AvgTPS        float64 `json:"avg_tps"`            // Average TPS (Swingbench)
+	MaxTPM        float64 `json:"max_tpm"`            // Maximum TPM (Swingbench)
+	AvgTPM        float64 `json:"avg_tpm"`            // Average TPM (Swingbench)
 	LatencyAvg    float64 `json:"latency_avg_ms"`     // Average latency (ms)
 	LatencyMin    float64 `json:"latency_min_ms"`     // Minimum latency (ms)
 	LatencyMax    float64 `json:"latency_max_ms"`     // Maximum latency (ms)
@@ -90,10 +95,14 @@ type MetricSample struct {
 	Phase      string    `json:"phase"`              // Phase: warmup/run/cooldown
 	TPS        float64   `json:"tps"`                // Transactions per second
 	QPS        float64   `json:"qps,omitempty"`      // Queries per second
+	TPM        float64   `json:"tpm,omitempty"`      // Transactions per minute (Swingbench)
 	LatencyAvg float64   `json:"latency_avg_ms"`     // Average latency (ms)
 	LatencyP95 float64   `json:"latency_p95_ms"`     // 95th percentile latency (ms)
 	LatencyP99 float64   `json:"latency_p99_ms"`     // 99th percentile latency (ms)
+	LatencyMax float64   `json:"latency_max_ms"`     // Maximum latency (ms)
 	ErrorRate  float64   `json:"error_rate_percent"` // Error rate (%)
+	Errors     int64     `json:"errors,omitempty"`   // Error count (Swingbench)
+	Percentage float64   `json:"percentage,omitempty"` // Progress percentage (0-100), used for prepare/cleanup phases
 	RawLine    string    `json:"raw_line,omitempty"` // Original output line
 }
 

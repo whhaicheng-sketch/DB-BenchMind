@@ -21,10 +21,10 @@ var (
 	customTemplatesMutex sync.RWMutex
 	// Default template IDs for each database type (persists Set Default operations)
 	defaultTemplateIDs   = map[string]string{
-		"MySQL":      "sysbench-mysql-test",
-		"PostgreSQL": "sysbench-postgresql-test",
+		"MySQL":      "sysbench-oltp-read-write",
+		"PostgreSQL": "sysbench-oltp-read-write-pg-test",
 		"Oracle":     "swingbench-oracle-test",
-		"SQL Server": "", // No SQL Server templates yet
+		"SQL Server": "hammerdb-sqlserver-test",
 	}
 )
 
@@ -39,14 +39,27 @@ type TemplateManagementPage struct {
 
 // templateInfo represents display info for a template.
 type templateInfo struct {
-	ID          string
-	Name        string
-	Description string
-	Tool        string
-	DBType      string // Database type: MySQL, PostgreSQL, Oracle, SQL Server
-	IsBuiltin   bool
-	IsDefault   bool
-	Parameters  *OLTPParameters // OLTP parameters for sysbench
+	ID            string
+	Name          string
+	Description   string
+	Tool          string
+	DBType        string // Database type: MySQL, PostgreSQL, Oracle, SQL Server
+	IsBuiltin     bool
+	IsDefault     bool
+	Parameters    *OLTPParameters       // OLTP parameters for sysbench
+	Weights      *SwingbenchWeights    // Transaction weights for Swingbench (Oracle)
+	HammerParams  *HammerDBParameters   // HammerDB TPROC-C parameters for SQL Server
+}
+
+// SwingbenchWeights represents transaction weights for Swingbench Oracle templates.
+type SwingbenchWeights struct {
+	CustomerRegistration int     `json:"customer_registration"`
+	UpdateCustomer       int     `json:"update_customer"`
+	BrowseProducts       int     `json:"browse_products"`
+	OrderProducts        int     `json:"order_products"`
+	ProcessOrders        int     `json:"process_orders"`
+	BrowseOrders         int     `json:"browse_orders"`
+	Scale                float64 `json:"scale"` // Data size in GB (e.g., 0.1=100MB, 1=1GB, 100=100GB)
 }
 
 // OLTPParameters represents sysbench OLTP test parameters.
@@ -54,6 +67,17 @@ type templateInfo struct {
 type OLTPParameters struct {
 	Tables    int `json:"tables"`     // Number of tables to create
 	TableSize int `json:"table_size"` // Number of rows per table
+}
+
+// HammerDBParameters represents HammerDB TPROC-C test parameters for SQL Server.
+type HammerDBParameters struct {
+	Warehouses   int    `json:"warehouses"`    // Number of warehouses (mssqls_count_ware)
+	BuildUsers   int    `json:"build_users"`   // Virtual users for schema build (mssqls_num_vu)
+	RampUp       int    `json:"rampup"`        // Ramp up time in minutes
+	Duration     int    `json:"duration"`      // Test duration in minutes (for timed mode)
+	Iterations   int    `json:"iterations"`    // Number of transactions (for iterations mode)
+	Driver       string `json:"driver"`        // Driver mode: "timed" or "iterations"
+	AllWarehouse bool   `json:"all_warehouse"` // Access all warehouses (mssqls_allwarehouse)
 }
 
 // NewTemplateManagementPage creates a new template management page.
@@ -124,7 +148,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 	builtinTemplates := []templateInfo{
 		// MySQL templates
 		{
-			ID:          "sysbench-mysql-test",
+			ID:          "sysbench-oltp-read-write", // Matches oltp_read_write.lua
 			Name:        "Test (Sysbench)",
 			Description: "Lightweight test template for quick MySQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
@@ -134,7 +158,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-mysql-cpu-bound",
+			ID:          "sysbench-oltp-read-write-mysql-cpu", // Unique ID for MySQL CPU bound
 			Name:        "CPU Bound (Sysbench)",
 			Description: "CPU-bound test template for MySQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
@@ -144,7 +168,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-mysql-disk-bound",
+			ID:          "sysbench-oltp-read-write-mysql-disk", // Unique ID for MySQL disk bound
 			Name:        "Disk Bound (Sysbench)",
 			Description: "Disk-bound test template for MySQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",
@@ -155,7 +179,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 		},
 		// PostgreSQL templates
 		{
-			ID:          "sysbench-postgresql-test",
+			ID:          "sysbench-oltp-read-write-pg-test", // Unique ID for PostgreSQL test
 			Name:        "Test (Sysbench)",
 			Description: "Lightweight test template for quick PostgreSQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
@@ -165,7 +189,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-postgresql-cpu-bound",
+			ID:          "sysbench-oltp-read-write-pg-cpu", // Unique ID for PostgreSQL CPU bound
 			Name:        "CPU Bound (Sysbench)",
 			Description: "CPU-bound test template for PostgreSQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
@@ -175,7 +199,7 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-postgresql-disk-bound",
+			ID:          "sysbench-oltp-read-write-pg-disk", // Unique ID for PostgreSQL disk bound
 			Name:        "Disk Bound (Sysbench)",
 			Description: "Disk-bound test template for PostgreSQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",
@@ -188,12 +212,21 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 		{
 			ID:          "swingbench-oracle-test",
 			Name:        "Test (Swingbench)",
-			Description: "Lightweight test template for quick Oracle testing (1GB data, balanced read/write mix)",
+			Description: "Lightweight test template for quick Oracle testing (100MB data, balanced read/write mix)",
 			Tool:        "swingbench",
 			DBType:      "Oracle",
 			IsBuiltin:   true,
 			IsDefault:   false, // Will be set based on defaultTemplateIDs
 			Parameters:  nil, // Swingbench uses different parameters
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 10,
+				UpdateCustomer:       10,
+				BrowseProducts:       35,
+				OrderProducts:        35,
+				ProcessOrders:        5,
+				BrowseOrders:         5,
+				Scale:                0.1, // 100MB
+			},
 		},
 		{
 			ID:          "swingbench-oracle-cpu-bound",
@@ -204,16 +237,71 @@ func (p *TemplateManagementPage) loadTemplatesData() []templateInfo {
 			IsBuiltin:   true,
 			IsDefault:   false,
 			Parameters:  nil, // Swingbench uses different parameters
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 1,
+				UpdateCustomer:       1,
+				BrowseProducts:       85,
+				OrderProducts:        5,
+				ProcessOrders:        3,
+				BrowseOrders:         5,
+				Scale:                1, // 1GB
+			},
 		},
 		{
 			ID:          "swingbench-oracle-disk-bound",
 			Name:        "Disk Bound (Swingbench)",
-			Description: "Disk-bound test template for Oracle - Balanced read/write mix (35% Order Products, 35% Browse Products, 10% each for Customer operations). Uses 1GB data size.",
+			Description: "Disk-bound test template for Oracle - Balanced read/write mix (35% Order Products, 35% Browse Products, 10% each for Customer operations). Uses 100GB data size.",
 			Tool:        "swingbench",
 			DBType:      "Oracle",
 			IsBuiltin:   true,
 			IsDefault:   false,
 			Parameters:  nil, // Swingbench uses different parameters
+			Weights: &SwingbenchWeights{
+				CustomerRegistration: 10,
+				UpdateCustomer:       10,
+				BrowseProducts:       35,
+				OrderProducts:        35,
+				ProcessOrders:        5,
+				BrowseOrders:         5,
+				Scale:                100, // 100GB
+			},
+		},
+		// SQL Server templates (HammerDB)
+		{
+			ID:          "hammerdb-sqlserver-test",
+			Name:        "Test (HammerDB)",
+			Description: "Lightweight test template for quick SQL Server testing (1 warehouse, 1+1 min test)",
+			Tool:        "hammerdb",
+			DBType:      "SQL Server",
+			IsBuiltin:   true,
+			IsDefault:   false, // Will be set based on defaultTemplateIDs
+			Parameters:  nil, // HammerDB uses different parameters
+			HammerParams: &HammerDBParameters{
+				Warehouses:   1,
+				BuildUsers:   1,
+				RampUp:       1,
+				Duration:     1,
+				Driver:       "timed",
+				AllWarehouse: false,
+			},
+		},
+		{
+			ID:          "hammerdb-sqlserver-tproc-c",
+			Name:        "TPROC-C (HammerDB)",
+			Description: "Standard TPROC-C test template for SQL Server - 100 warehouses, 2+10 min test with full warehouse access",
+			Tool:        "hammerdb",
+			DBType:      "SQL Server",
+			IsBuiltin:   true,
+			IsDefault:   false,
+			Parameters:  nil, // HammerDB uses different parameters
+			HammerParams: &HammerDBParameters{
+				Warehouses:   100,
+				BuildUsers:   4,
+				RampUp:       2,
+				Duration:     10,
+				Driver:       "timed",
+				AllWarehouse: true,
+			},
 		},
 	}
 
@@ -385,19 +473,29 @@ func (p *TemplateManagementPage) createTemplateGroup(dbType string, templates []
 // onAddTemplate adds a new custom template.
 func (p *TemplateManagementPage) onAddTemplate() {
 	slog.Info("Templates: Add Template button clicked")
-	showTemplateDialog(p.win, "Add Template", nil, "", func(params *OLTPParameters, name string, dbType string) {
+	showTemplateDialog(p.win, "Add Template", nil, "", func(params *OLTPParameters, weights *SwingbenchWeights, hammerParams *HammerDBParameters, name string, dbType string) {
 		slog.Info("Templates: Creating new template", "name", name, "db_type", dbType)
+
+		// Determine tool based on database type
+		tool := "sysbench"
+		if dbType == "Oracle" {
+			tool = "swingbench"
+		} else if dbType == "SQL Server" {
+			tool = "hammerdb"
+		}
 
 		// Create new template
 		newTemplate := templateInfo{
-			ID:          fmt.Sprintf("custom-%d", time.Now().UnixNano()),
-			Name:        name,
-			Description: "Custom template",
-			Tool:        "sysbench",
-			DBType:      dbType, // Set database type
-			IsBuiltin:   false,
-			IsDefault:   false,
-			Parameters:  params,
+			ID:           fmt.Sprintf("custom-%d", time.Now().UnixNano()),
+			Name:         name,
+			Description:  "Custom template",
+			Tool:         tool,
+			DBType:       dbType,
+			IsBuiltin:    false,
+			IsDefault:    false,
+			Parameters:   params,
+			Weights:      weights,
+			HammerParams: hammerParams,
 		}
 
 		// Save to global storage
@@ -428,8 +526,8 @@ func (p *TemplateManagementPage) onEditTemplate(tmpl templateInfo) {
 
 	slog.Info("Templates: Editing template", "name", tmpl.Name, "db_type", tmpl.DBType)
 
-	// Show dialog with existing parameters and DB type
-	showTemplateDialogWithDBType(p.win, "Edit Template", tmpl.Parameters, tmpl.Name, tmpl.DBType, func(params *OLTPParameters, newName string, newDBType string) {
+	// Show dialog with existing parameters, weights, HammerDB params, and DB type
+	showTemplateDialogWithDBType(p.win, "Edit Template", tmpl.Parameters, tmpl.Weights, tmpl.HammerParams, tmpl.Name, tmpl.DBType, func(params *OLTPParameters, weights *SwingbenchWeights, hammerParams *HammerDBParameters, newName string, newDBType string) {
 		slog.Info("Templates: Updating template", "old_name", tmpl.Name, "new_name", newName, "old_db_type", tmpl.DBType, "new_db_type", newDBType)
 
 		// Update in global storage
@@ -438,7 +536,17 @@ func (p *TemplateManagementPage) onEditTemplate(tmpl templateInfo) {
 			if ct.ID == tmpl.ID {
 				customTemplates[i].Name = newName
 				customTemplates[i].Parameters = params
+				customTemplates[i].Weights = weights
+				customTemplates[i].HammerParams = hammerParams
 				customTemplates[i].DBType = newDBType // Update DB type
+				// Update tool based on DB type
+				if newDBType == "Oracle" {
+					customTemplates[i].Tool = "swingbench"
+				} else if newDBType == "SQL Server" {
+					customTemplates[i].Tool = "hammerdb"
+				} else {
+					customTemplates[i].Tool = "sysbench"
+				}
 				slog.Info("Templates: Updated in global storage", "id", tmpl.ID, "new_name", newName, "new_db_type", newDBType)
 				break
 			}
@@ -473,7 +581,12 @@ func (p *TemplateManagementPage) onDeleteTemplate(tmpl templateInfo) {
 				return
 			}
 
-			slog.Info("Templates: Deleting custom template", "name", tmpl.Name)
+			slog.Info("Templates: Deleting custom template", "name", tmpl.Name, "db_type", tmpl.DBType, "is_default", tmpl.IsDefault)
+
+			// Check if this template is set as default for its database type
+			dbType := tmpl.DBType
+			currentDefaultID := defaultTemplateIDs[dbType]
+			isDefaultTemplate := (currentDefaultID == tmpl.ID)
 
 			// Delete from global storage
 			customTemplatesMutex.Lock()
@@ -485,10 +598,30 @@ func (p *TemplateManagementPage) onDeleteTemplate(tmpl templateInfo) {
 			}
 			customTemplatesMutex.Unlock()
 
+			// If the deleted template was the default, reset to built-in Test template
+			if isDefaultTemplate {
+				// Map each database type to its built-in Test template ID
+				testTemplateIDs := map[string]string{
+					"MySQL":      "sysbench-oltp-read-write",
+					"PostgreSQL": "sysbench-oltp-read-write-pg-test",
+					"Oracle":     "swingbench-oracle-test",
+				}
+
+				if testID, ok := testTemplateIDs[dbType]; ok {
+					defaultTemplateIDs[dbType] = testID
+					slog.Info("Templates: Reset default to Test template", "db_type", dbType, "template_id", testID)
+				}
+			}
+
 			// Reload
 			p.loadTemplates()
 
-			dialog.ShowInformation("Deleted", "Template deleted", p.win)
+			// Show appropriate message
+			msg := "Template deleted"
+			if isDefaultTemplate {
+				msg = fmt.Sprintf("Template deleted\n\nDefault template for %s has been reset to Test", dbType)
+			}
+			dialog.ShowInformation("Deleted", msg, p.win)
 		},
 		p.win,
 	)
@@ -585,16 +718,76 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 	// Show transaction weights for Oracle Swingbench templates
 	if tmpl.Tool == "swingbench" && tmpl.DBType == "Oracle" {
 		sb.WriteString("---\n\n")
-		sb.WriteString("### Transaction Mix (Proportions)\n\n")
+		sb.WriteString("### Configuration\n\n")
 
-		// Load the actual template to get transaction weights
-		weights := p.getTransactionWeights(tmpl.ID)
+		// Use weights from template field (works for both builtin and custom)
+		var weights map[string]int
+		var dataScale float64
+
+		if tmpl.Weights != nil {
+			weights = map[string]int{
+				"Customer_Registration":  tmpl.Weights.CustomerRegistration,
+				"Update_Customer_Details": tmpl.Weights.UpdateCustomer,
+				"Browse_Products":        tmpl.Weights.BrowseProducts,
+				"Order_Products":         tmpl.Weights.OrderProducts,
+				"Process_Orders":         tmpl.Weights.ProcessOrders,
+				"Browse_Orders":          tmpl.Weights.BrowseOrders,
+			}
+			dataScale = tmpl.Weights.Scale
+		}
+
+		// Always show transaction distribution if weights are available
 		if weights != nil {
 			sb.WriteString("**Transaction Distribution:**\n\n")
 			for name, weight := range weights {
 				sb.WriteString(fmt.Sprintf("- %s：**%d**\n", name, weight))
 			}
+			sb.WriteString("\n")
 		}
+
+		// Always show data size if scale is available
+		if dataScale > 0 {
+			sb.WriteString("**Data Size:**\n\n")
+			if dataScale < 1 {
+				// Show in MB for small values
+				mb := dataScale * 1024
+				sb.WriteString(fmt.Sprintf("- Scale: **%.1f** (约 **%.0f MB**)\n", dataScale, mb))
+			} else {
+				// Show in GB for larger values
+				sb.WriteString(fmt.Sprintf("- Scale: **%.1f** (约 **%.1f GB**)\n", dataScale, dataScale))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Add note about additional parameters
+		sb.WriteString("**Note:** Additional parameters (users, runtime, config file) are configured in the Tasks page when running the benchmark.\n")
+	}
+
+	// Show HammerDB parameters for SQL Server templates
+	if tmpl.Tool == "hammerdb" && tmpl.DBType == "SQL Server" {
+		sb.WriteString("---\n\n")
+		sb.WriteString("### Configuration\n\n")
+
+		if tmpl.HammerParams != nil {
+			sb.WriteString("**TPROC-C Parameters:**\n\n")
+			sb.WriteString(fmt.Sprintf("- **Warehouses:** %d (data scale)\n", tmpl.HammerParams.Warehouses))
+			sb.WriteString(fmt.Sprintf("- **Build Users:** %d (parallel build workers)\n", tmpl.HammerParams.BuildUsers))
+			sb.WriteString(fmt.Sprintf("- **Ramp Up:** %d minutes\n", tmpl.HammerParams.RampUp))
+			sb.WriteString(fmt.Sprintf("- **Driver:** %s\n", tmpl.HammerParams.Driver))
+
+			if tmpl.HammerParams.Driver == "timed" {
+				sb.WriteString(fmt.Sprintf("- **Duration:** %d minutes\n", tmpl.HammerParams.Duration))
+			} else {
+				sb.WriteString(fmt.Sprintf("- **Iterations:** %d transactions\n", tmpl.HammerParams.Iterations))
+			}
+
+			sb.WriteString(fmt.Sprintf("- **All Warehouse:** %v\n", tmpl.HammerParams.AllWarehouse))
+			sb.WriteString("\n")
+			sb.WriteString("**Note:** Virtual users are configured in the Tasks page (similar to Sysbench threads).\n\n")
+		}
+
+		// Add note about additional parameters
+		sb.WriteString("**Note:** The build schema phase creates the TPC-C schema and loads data. Additional parameters (virtual users, runtime) are configured in the Tasks page when running the benchmark.\n")
 	}
 
 	content := widget.NewRichTextFromMarkdown(sb.String())
@@ -659,7 +852,7 @@ func (p *TemplateManagementPage) GetDefaultTemplate() *templateInfo {
 // templateDialog represents the template add/edit dialog.
 type templateDialog struct {
 	win                 fyne.Window
-	onSuccess           func(*OLTPParameters, string, string) // Added dbType parameter
+	onSuccess           func(*OLTPParameters, *SwingbenchWeights, *HammerDBParameters, string, string) // params, weights, hammerParams, name, dbType
 	isEditMode          bool
 	originalName        string // For edit mode - original template name
 	templateID          string // For edit mode - template ID
@@ -692,15 +885,35 @@ type templateDialog struct {
 	dbaPasswordEntry    *widget.Entry
 	configFileEntry     *widget.Entry
 	threadsEntry        *widget.Entry
+
+	// Swingbench transaction weights (for Oracle custom templates)
+	customerRegistrationEntry *widget.Entry
+	updateCustomerEntry       *widget.Entry
+	browseProductsEntry       *widget.Entry
+	orderProductsEntry        *widget.Entry
+	processOrdersEntry        *widget.Entry
+	browseOrdersEntry         *widget.Entry
+	dataSizeEntry             *widget.Entry // Data size in GB (e.g., 0.1, 1, 100)
+
+	// HammerDB parameters (for SQL Server custom templates)
+	warehousesEntry      *widget.Entry // Number of warehouses
+	buildUsersEntry      *widget.Entry // Virtual users for schema build
+	hammerRampUpEntry    *widget.Entry // Ramp up time in minutes
+	hammerDurationEntry  *widget.Entry // Test duration in minutes (for timed mode)
+	hammerIterationsEntry *widget.Entry // Number of transactions (for iterations mode)
+	hammerDriverEntry    *widget.Select // Driver mode: timed or iterations
+	allWarehouseCheck    *widget.Check // Access all warehouses
+	hammerDurationContainer *fyne.Container // Container for duration field
+	hammerIterationsContainer *fyne.Container // Container for iterations field
 }
 
 // showTemplateDialog shows the template add/edit dialog.
-func showTemplateDialog(win fyne.Window, title string, existingParams *OLTPParameters, existingName string, onSuccess func(*OLTPParameters, string, string)) {
-	showTemplateDialogWithDBType(win, title, existingParams, existingName, "MySQL", onSuccess)
+func showTemplateDialog(win fyne.Window, title string, existingParams *OLTPParameters, existingName string, onSuccess func(*OLTPParameters, *SwingbenchWeights, *HammerDBParameters, string, string)) {
+	showTemplateDialogWithDBType(win, title, existingParams, nil, nil, existingName, "MySQL", onSuccess)
 }
 
-// showTemplateDialogWithDBType shows the template add/edit dialog with initial DB type.
-func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams *OLTPParameters, existingName string, initialDBType string, onSuccess func(*OLTPParameters, string, string)) {
+// showTemplateDialogWithDBType shows the template add/edit dialog with initial DB type, weights, and HammerDB params.
+func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams *OLTPParameters, existingWeights *SwingbenchWeights, existingHammerParams *HammerDBParameters, existingName string, initialDBType string, onSuccess func(*OLTPParameters, *SwingbenchWeights, *HammerDBParameters, string, string)) {
 	slog.Info("Templates: Showing template dialog", "title", title, "is_edit_mode", existingParams != nil, "existing_name", existingName, "initial_db_type", initialDBType)
 	d := &templateDialog{
 		win:          win,
@@ -816,8 +1029,152 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	d.threadsEntry = widget.NewEntry()
 	d.threadsEntry.SetText(fmt.Sprintf("%d", defaultThreads))
 
+	// ============ Create Swingbench transaction weight entries (for Oracle) ============
+	// Default weights for Test template
+	defaultCustomerRegistration := 10
+	defaultUpdateCustomer := 10
+	defaultBrowseProducts := 35
+	defaultOrderProducts := 35
+	defaultProcessOrders := 5
+	defaultBrowseOrders := 5
+
+	// Use existing weights if provided (edit mode)
+	if existingWeights != nil {
+		defaultCustomerRegistration = existingWeights.CustomerRegistration
+		defaultUpdateCustomer = existingWeights.UpdateCustomer
+		defaultBrowseProducts = existingWeights.BrowseProducts
+		defaultOrderProducts = existingWeights.OrderProducts
+		defaultProcessOrders = existingWeights.ProcessOrders
+		defaultBrowseOrders = existingWeights.BrowseOrders
+	}
+
+	d.customerRegistrationEntry = widget.NewEntry()
+	d.customerRegistrationEntry.SetText(fmt.Sprintf("%d", defaultCustomerRegistration))
+
+	d.updateCustomerEntry = widget.NewEntry()
+	d.updateCustomerEntry.SetText(fmt.Sprintf("%d", defaultUpdateCustomer))
+
+	d.browseProductsEntry = widget.NewEntry()
+	d.browseProductsEntry.SetText(fmt.Sprintf("%d", defaultBrowseProducts))
+
+	d.orderProductsEntry = widget.NewEntry()
+	d.orderProductsEntry.SetText(fmt.Sprintf("%d", defaultOrderProducts))
+
+	d.processOrdersEntry = widget.NewEntry()
+	d.processOrdersEntry.SetText(fmt.Sprintf("%d", defaultProcessOrders))
+
+	d.browseOrdersEntry = widget.NewEntry()
+	d.browseOrdersEntry.SetText(fmt.Sprintf("%d", defaultBrowseOrders))
+
+	// ============ Create data size entry (for Oracle) ============
+	// Default data size: 1GB
+	defaultDataSize := 1.0
+	if existingWeights != nil && existingWeights.Scale > 0 {
+		defaultDataSize = existingWeights.Scale
+	}
+
+	d.dataSizeEntry = widget.NewEntry()
+	d.dataSizeEntry.SetText(fmt.Sprintf("%.1f", defaultDataSize))
+	d.dataSizeEntry.SetPlaceHolder("1.0")
+
+	// ============ Create HammerDB parameter entries (for SQL Server) ============
+	// Default HammerDB parameters
+	defaultWarehouses := 1
+	defaultBuildUsers := 1
+	defaultHammerRampUp := 1
+	defaultHammerDuration := 1
+	defaultHammerDriver := "timed"
+	defaultAllWarehouse := true // Access all warehouses by default (TPC-C standard)
+
+	// Use existing HammerDB params if provided (edit mode)
+	if existingHammerParams != nil {
+		defaultWarehouses = existingHammerParams.Warehouses
+		defaultBuildUsers = existingHammerParams.BuildUsers
+		defaultHammerRampUp = existingHammerParams.RampUp
+		defaultHammerDuration = existingHammerParams.Duration
+		defaultHammerDriver = existingHammerParams.Driver
+		defaultAllWarehouse = existingHammerParams.AllWarehouse
+	}
+
+	d.warehousesEntry = widget.NewEntry()
+	d.warehousesEntry.SetText(fmt.Sprintf("%d", defaultWarehouses))
+	d.warehousesEntry.SetPlaceHolder("1")
+
+	d.buildUsersEntry = widget.NewEntry()
+	d.buildUsersEntry.SetText(fmt.Sprintf("%d", defaultBuildUsers))
+	d.buildUsersEntry.SetPlaceHolder("1")
+
+	d.hammerRampUpEntry = widget.NewEntry()
+	d.hammerRampUpEntry.SetText(fmt.Sprintf("%d", defaultHammerRampUp))
+	d.hammerRampUpEntry.SetPlaceHolder("1")
+
+	d.hammerDurationEntry = widget.NewEntry()
+	d.hammerDurationEntry.SetText(fmt.Sprintf("%d", defaultHammerDuration))
+	d.hammerDurationEntry.SetPlaceHolder("10")
+
+	// Default iterations: 1 million transactions
+	defaultHammerIterations := 1000000
+	d.hammerIterationsEntry = widget.NewEntry()
+	d.hammerIterationsEntry.SetText(fmt.Sprintf("%d", defaultHammerIterations))
+	d.hammerIterationsEntry.SetPlaceHolder("1000000")
+
+	d.hammerDriverEntry = widget.NewSelect([]string{"timed", "iterations"}, nil)
+	d.hammerDriverEntry.SetSelected(defaultHammerDriver)
+
+	d.allWarehouseCheck = widget.NewCheck("Access All Warehouses", func(bool) {})
+	d.allWarehouseCheck.SetChecked(defaultAllWarehouse)
+
 	// ============ Create dynamic form container ============
 	d.formContainer = container.NewVBox()
+
+	// Function to update HammerDB fields based on driver mode
+	updateHammerDriverFields := func(driverMode string) {
+		// Rebuild SQL Server form with appropriate fields
+		slog.Info("Templates: Updating HammerDB fields for driver mode", "mode", driverMode)
+		d.formContainer.Objects = nil
+
+		// Show message
+		msgLabel := widget.NewLabel("Configure HammerDB TPROC-C parameters for SQL Server.\n\nWarehouses determine data scale (virtual users are configured in Tasks page).")
+		d.formContainer.Add(msgLabel)
+		d.formContainer.Add(widget.NewSeparator())
+
+		// Build form based on driver mode
+		if driverMode == "timed" {
+			// Timed mode: show Ramp Up and Duration
+			hammerForm := widget.NewForm(
+				widget.NewFormItem("Warehouses", d.warehousesEntry),
+				widget.NewFormItem("Build Users", d.buildUsersEntry),
+				widget.NewFormItem("Ramp Up (min)", d.hammerRampUpEntry),
+				widget.NewFormItem("Driver Mode", d.hammerDriverEntry),
+				widget.NewFormItem("Duration (min)", d.hammerDurationEntry),
+			)
+			d.formContainer.Add(hammerForm)
+
+			// Add checkbox
+			d.formContainer.Add(d.allWarehouseCheck)
+
+			// Add hint text for timed mode
+			hintLabel := widget.NewLabel("💡 Tip:\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Ramp Up: Warm-up time before metrics collection\n- Duration: Test run time after ramp up\n- Timed Mode: TPC-C compliant, recommended for benchmarks\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
+			d.formContainer.Add(hintLabel)
+		} else {
+			// Iterations mode: show Iterations only
+			hammerForm := widget.NewForm(
+				widget.NewFormItem("Warehouses", d.warehousesEntry),
+				widget.NewFormItem("Build Users", d.buildUsersEntry),
+				widget.NewFormItem("Driver Mode", d.hammerDriverEntry),
+				widget.NewFormItem("Iterations", d.hammerIterationsEntry),
+			)
+			d.formContainer.Add(hammerForm)
+
+			// Add checkbox
+			d.formContainer.Add(d.allWarehouseCheck)
+
+			// Add hint text for iterations mode
+			hintLabel := widget.NewLabel("💡 Tip:\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Iterations: Fixed number of transactions to execute\n- Iterations Mode: Good for CI/CD and quick testing\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
+			d.formContainer.Add(hintLabel)
+		}
+		d.formContainer.Refresh()
+	}
 
 	// Function to update form fields based on database type
 	updateFormFields := func(dbType string) {
@@ -825,9 +1182,34 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 		d.formContainer.Objects = nil
 
 		if dbType == "Oracle" {
-			// Show message: Oracle custom templates not supported yet
-			msgLabel := widget.NewLabel("Oracle templates use Swingbench with different parameters.\n\nCurrently, only built-in Oracle templates are supported.\n\nPlease use the built-in Oracle templates:\n- Test (Swingbench)\n- CPU Bound (Swingbench)\n- Disk Bound (Swingbench)")
-			d.formContainer.Add(container.NewVBox(msgLabel))
+			// Show Swingbench transaction weights configuration
+			msgLabel := widget.NewLabel("Configure Swingbench transaction weights for the Oracle template.\n\nWeights represent the relative frequency of each transaction type.")
+			d.formContainer.Add(msgLabel)
+			d.formContainer.Add(widget.NewSeparator())
+
+			// Transaction weights form
+			weightForm := widget.NewForm(
+				widget.NewFormItem("Customer Registration", d.customerRegistrationEntry),
+				widget.NewFormItem("Update Customer Details", d.updateCustomerEntry),
+				widget.NewFormItem("Browse Products", d.browseProductsEntry),
+				widget.NewFormItem("Order Products", d.orderProductsEntry),
+				widget.NewFormItem("Process Orders", d.processOrdersEntry),
+				widget.NewFormItem("Browse Orders", d.browseOrdersEntry),
+				widget.NewFormItem("Data Size (GB)", d.dataSizeEntry),
+			)
+			d.formContainer.Add(weightForm)
+
+			// Add hint text
+			hintLabel := widget.NewLabel("💡 Tip: Weights are relative. For example, 35:35 means Browse Products and Order Products each run 35% of the time.\nData Size: Enter size in GB (e.g., 0.1 for 100MB, 1 for 1GB, 100 for 100GB).")
+			d.formContainer.Add(hintLabel)
+		} else if dbType == "SQL Server" {
+			// Set up callback for driver mode change and initialize
+			d.hammerDriverEntry.OnChanged = func(driverMode string) {
+				slog.Info("Templates: HammerDB driver mode changed", "mode", driverMode)
+				updateHammerDriverFields(driverMode)
+			}
+			// Initialize with current driver mode
+			updateHammerDriverFields(d.hammerDriverEntry.Selected)
 		} else {
 			// Show Sysbench parameters
 			formItems := []*widget.FormItem{
@@ -903,13 +1285,6 @@ func (d *templateDialog) onSave() bool {
 
 	dbType := d.dbTypeSelect.Selected
 
-	// Check if Oracle is selected (not supported for custom templates yet)
-	if dbType == "Oracle" {
-		slog.Warn("Templates: Cannot create custom Oracle templates")
-		dialog.ShowError(fmt.Errorf("custom Oracle templates are not supported yet\n\nPlease use the built-in Oracle templates"), d.win)
-		return false
-	}
-
 	// Parse and validate parameters
 	name := strings.TrimSpace(d.nameEntry.Text)
 	if name == "" {
@@ -953,10 +1328,43 @@ func (d *templateDialog) onSave() bool {
 		TableSize: tableSize,
 	}
 
+	// Parse Swingbench weights for Oracle
+	var weights *SwingbenchWeights
+	if dbType == "Oracle" {
+		// Parse data size (scale) in GB
+		scale := parseFloatOrDefault(d.dataSizeEntry.Text, 1.0)
+
+		weights = &SwingbenchWeights{
+			CustomerRegistration: parseIntOrDefault(d.customerRegistrationEntry.Text, 10),
+			UpdateCustomer:       parseIntOrDefault(d.updateCustomerEntry.Text, 10),
+			BrowseProducts:       parseIntOrDefault(d.browseProductsEntry.Text, 35),
+			OrderProducts:        parseIntOrDefault(d.orderProductsEntry.Text, 35),
+			ProcessOrders:        parseIntOrDefault(d.processOrdersEntry.Text, 5),
+			BrowseOrders:         parseIntOrDefault(d.browseOrdersEntry.Text, 5),
+			Scale:                scale,
+		}
+		slog.Info("Templates: Parsed Swingbench weights", "weights", weights, "scale_gb", scale)
+	}
+
+	// Parse HammerDB parameters for SQL Server
+	var hammerParams *HammerDBParameters
+	if dbType == "SQL Server" {
+		hammerParams = &HammerDBParameters{
+			Warehouses:   parseIntOrDefault(d.warehousesEntry.Text, 1),
+			BuildUsers:   parseIntOrDefault(d.buildUsersEntry.Text, 1),
+			RampUp:       parseIntOrDefault(d.hammerRampUpEntry.Text, 1),
+			Duration:     parseIntOrDefault(d.hammerDurationEntry.Text, 10),
+			Iterations:   parseIntOrDefault(d.hammerIterationsEntry.Text, 1000000),
+			Driver:       d.hammerDriverEntry.Selected,
+			AllWarehouse: d.allWarehouseCheck.Checked,
+		}
+		slog.Info("Templates: Parsed HammerDB parameters", "hammer_params", hammerParams)
+	}
+
 	slog.Info("Templates: DB Type from selector", "db_type", dbType, "selected", d.dbTypeSelect.Selected, "options", d.dbTypeSelect.Options)
 
 	if d.onSuccess != nil {
-		d.onSuccess(params, name, dbType)
+		d.onSuccess(params, weights, hammerParams, name, dbType)
 	}
 
 	return true
@@ -966,6 +1374,15 @@ func (d *templateDialog) onSave() bool {
 func parseIntOrDefault(s string, defaultValue int) int {
 	var val int
 	if _, err := fmt.Sscanf(s, "%d", &val); err != nil {
+		return defaultValue
+	}
+	return val
+}
+
+// parseFloatOrDefault parses a float64 or returns default value.
+func parseFloatOrDefault(s string, defaultValue float64) float64 {
+	var val float64
+	if _, err := fmt.Sscanf(s, "%f", &val); err != nil {
 		return defaultValue
 	}
 	return val

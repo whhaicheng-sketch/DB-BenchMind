@@ -43,7 +43,7 @@ func (s RunState) IsTerminal() bool {
 func (s RunState) CanTransitionTo(target RunState) bool {
 	// Define valid state transitions
 	transitions := map[RunState][]RunState{
-		StatePending:   {StatePreparing, StateCancelled},
+		StatePending:   {StatePreparing, StateFailed, StateCancelled}, // Allow pending -> failed for early errors (e.g., SSL, connection)
 		StatePreparing: {StatePrepared, StateFailed, StateCancelled, StateTimeout},
 		StatePrepared:  {StateWarmingUp, StateCancelled},
 		StateWarmingUp: {StateRunning, StateFailed, StateCancelled, StateTimeout},
