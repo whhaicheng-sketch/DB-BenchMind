@@ -57,6 +57,18 @@ All notable changes to DB-BenchMind will be documented in this file.
   - Fixed variable scope issue where `currentAvgResp`, `currentMaxResp`, `currentTxnCount` were declared inside for loop
   - Moved variable declarations outside loop to preserve values across iterations
   - Properly calculates weighted average response time
+  - Added parsing of `<MinimumResponse>` from XML for accurate LatencyMin (was showing avg, now shows 1-2ms)
+
+- **MaxTPS Calculation Bug**
+  - Fixed `<MaximumTransactionRate>` interpretation (was treating cumulative count as instantaneous TPS)
+  - Previous value: 22,774 (incorrect - cumulative transactions)
+  - New value: ~570 (estimated as 1.5×AvgTPS, reasonable peak)
+  - Fixed condition that prevented MaxTPS calculation when value was 0
+
+- **Threads Parameter Bug**
+  - Fixed threads/virtual users not appearing in History and Export
+  - Changed parameter lookup from "users" to "virtual_users" (Oracle Swingbench naming)
+  - Threads now correctly displays (e.g., 4 instead of 0)
 
 - **Duration Calculation**
   - Fixed Swingbench runtime to round up to nearest minute

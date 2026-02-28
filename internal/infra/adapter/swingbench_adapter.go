@@ -788,6 +788,7 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 	var weightedTotalMax float64
 	var totalTxnCount int64
 	var maxResponseOverall float64
+	var minResponseOverall float64 // Track minimum response across all transactions
 	var currentAvgResp, currentMaxResp, currentTxnCount float64
 
 	// Parse total completed transactions
@@ -896,6 +897,17 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 				}
 			}
 		}
+		if strings.Contains(line, "<MinimumResponse>") {
+			re := regexp.MustCompile(`<MinimumResponse>([\d\.]+)</MinimumResponse>`)
+			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					// Track overall minimum response
+					if minResponseOverall == 0 || val < minResponseOverall {
+						minResponseOverall = val
+					}
+				}
+			}
+		}
 		if strings.Contains(line, "<MaximumResponse>") {
 			re := regexp.MustCompile(`<MaximumResponse>([\d\.]+)</MaximumResponse>`)
 			if matches := re.FindStringSubmatch(line); len(matches) > 1 {
@@ -940,28 +952,23 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 		result.AvgTPM = result.AvgTPS * 60
 	}
 
-	// Note: result.MaxTPS was previously set from <MaximumTransactionRate>,
-	// but that field represents cumulative transaction count, not instantaneous TPS.
-	// The true max TPS should be calculated from TPSReadings if we parsed it.
-	// For now, if MaxTPS seems unreasonably high (greater than 10x AvgTPS), reset it to AvgTPS.
-	if result.MaxTPS > 0 && result.MaxTPS > result.AvgTPS*10 {
-		// MaxTPS is likely the cumulative count, not instantaneous rate
-		// Use AvgTPS as a reasonable approximation for MaxTPS
-		result.MaxTPS = result.AvgTPS * 1.5 // Estimate max as 1.5x average (reasonable variation)
+	// Estimate MaxTPS if not set or clearly wrong
+	// Note: <MaximumTransactionRate> in XML is cumulative count, not instantaneous TPS
+	if result.MaxTPS == 0 || result.MaxTPS > result.AvgTPS*10 {
+		// MaxTPS is not available or is cumulative count, estimate from average
+		// Use 1.5x average as reasonable estimate for peak TPS
+		result.MaxTPS = result.AvgTPS * 1.5
 	}
-	if result.MaxTPS > 0 {
-		result.MaxTPM = result.MaxTPS * 60
-	}
+	result.MaxTPM = result.MaxTPS * 60
 
 	// Calculate aggregate response times
 	if totalTxnCount > 0 {
 		result.LatencyAvg = weightedTotalAvg / float64(totalTxnCount)
 		result.LatencyMax = maxResponseOverall
-		// For min response, we'll use the same as avg or calculate if needed
-		result.LatencyMin = result.LatencyAvg
+		result.LatencyMin = minResponseOverall
 		slog.LogAttrs(ctx, slog.LevelInfo, "Swingbench: Latency calculated from transaction results",
 			slog.Int64("totalTxnCount", totalTxnCount),
-			slog.Float64("weightedTotalAvg", weightedTotalAvg),
+			slog.Float64("latencyMin", result.LatencyMin),
 			slog.Float64("latencyAvg", result.LatencyAvg),
 			slog.Float64("latencyMax", result.LatencyMax),
 			slog.Float64("avgTPM", result.AvgTPM),
