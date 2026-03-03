@@ -40,6 +40,20 @@ type Config struct {
 	Options execution.TaskOptions `json:"options"`
 	// Working directory
 	WorkDir string `json:"work_dir"`
+	// PrepareThreads specifies threads for prepare phase (0 = auto-calculate based on SSH)
+	PrepareThreads int `json:"prepare_threads,omitempty"`
+}
+
+// RetryConfig represents retry configuration for command execution.
+type RetryConfig struct {
+	// MaxRetries is the maximum number of retry attempts (default: 3)
+	MaxRetries int `json:"max_retries,omitempty"`
+	// InitialDelay is the initial delay before first retry (default: 1s)
+	InitialDelay time.Duration `json:"initial_delay,omitempty"`
+	// MaxDelay is the maximum delay between retries (default: 30s)
+	MaxDelay time.Duration `json:"max_delay,omitempty"`
+	// BackoffFactor is the multiplier for delay after each retry (default: 2.0)
+	BackoffFactor float64 `json:"backoff_factor,omitempty"`
 }
 
 // Command represents a command to be executed.
@@ -64,6 +78,8 @@ type Command struct {
 	StepName string `json:"step_name,omitempty"`
 	// ResultFile is the path to the file where results are saved (e.g., XML results for Swingbench)
 	ResultFile string `json:"result_file,omitempty"`
+	// Retry is the retry configuration for this command
+	Retry *RetryConfig `json:"retry,omitempty"`
 }
 
 // SSHTunnelHolder holds an SSH tunnel reference.
