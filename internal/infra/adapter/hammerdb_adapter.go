@@ -270,7 +270,7 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 	warehouses := a.getIntParam(config.Parameters, "warehouses", 1)
 	users := a.getIntParam(config.Parameters, "virtual_users", 1) // Get from Tasks page
 	buildUsers := a.getIntParam(config.Parameters, "build_users", 1)
-	rampUpSeconds := a.getIntParam(config.Parameters, "rampup", 1)
+	rampUpSeconds := a.getIntParam(config.Parameters, "rampup", 0) // Default 0 = no rampup
 	durationSeconds := a.getIntParam(config.Parameters, "duration", 60)
 	iterations := a.getIntParam(config.Parameters, "iterations", 1000000)
 	driver := a.getStringParam(config.Parameters, "driver", "timed")
@@ -279,11 +279,15 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 
 	// Convert seconds to minutes for HammerDB (HammerDB uses minutes for duration/rampup)
 	// Round up to ensure we run at least the requested time
-	rampUpMinutes := (rampUpSeconds + 59) / 60
-	if rampUpMinutes < 1 {
-		rampUpMinutes = 1
+	// Note: rampup of 0 means no rampup (immediate start)
+	var rampUpMinutes, durationMinutes int
+	if rampUpSeconds > 0 {
+		rampUpMinutes = (rampUpSeconds + 59) / 60
+		if rampUpMinutes < 1 {
+			rampUpMinutes = 1
+		}
 	}
-	durationMinutes := (durationSeconds + 59) / 60
+	durationMinutes = (durationSeconds + 59) / 60
 	if durationMinutes < 1 {
 		durationMinutes = 1
 	}
