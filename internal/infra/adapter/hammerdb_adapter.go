@@ -5,6 +5,7 @@ package adapter
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"regexp"
@@ -93,6 +94,8 @@ func (a *HammerDBAdapter) buildCleanupStepCommand(ctx context.Context, config *C
 }
 
 // buildBuildschemaCommand builds the HammerDB buildschema command.
+// Uses HammerDB 4.10+ format with diset connection mssqls_* for SQL Server.
+// For SQL Server, this includes: DROP DATABASE -> CREATE DATABASE -> buildschema
 func (a *HammerDBAdapter) buildBuildschemaCommand(ctx context.Context, config *Config) (*Command, error) {
 	conn := config.Connection
 
@@ -104,33 +107,51 @@ func (a *HammerDBAdapter) buildBuildschemaCommand(ctx context.Context, config *C
 	// Build TCL script for buildschema
 	var script strings.Builder
 
-	// Database type and connection
+	// Database type
 	dbType := a.getDBType(conn)
-	connectionStr := a.buildConnectionString(conn)
+	script.WriteString(fmt.Sprintf("dbset db %s\n", dbType))
 
-	script.WriteString(fmt.Sprintf("dbtype %s\n", dbType))
-	script.WriteString(fmt.Sprintf("disconn %s\n", connectionStr))
+	// Set benchmark (TPROC-C is the correct HammerDB benchmark name)
+	script.WriteString("dbset bm TPROC-C\n")
 
-	// Create database first
-	a.buildDatabaseCreationScript(&script, databaseName)
+	// SQL Server specific: build complete prepare script
+	if conn.GetType() == connection.DatabaseTypeSQLServer {
+		sqlServerConn, ok := conn.(*connection.SQLServerConnection)
+		if ok {
+			// Fixed settings
+			script.WriteString("diset tpcc mssqls_use_bcp false\n")
 
-	// Set buildschema parameters
-	script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
-	script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
-	script.WriteString("dbset bm TPC-C\n")
+			// Connection settings
+			script.WriteString(fmt.Sprintf("diset connection mssqls_linux_server {%s}\n", sqlServerConn.Host))
+			script.WriteString(fmt.Sprintf("diset connection mssqls_port %d\n", sqlServerConn.Port))
+			script.WriteString("diset connection mssqls_odbc_driver {ODBC Driver 17 for SQL Server}\n")
+			script.WriteString("diset connection mssqls_authentication {SQL Server Authentication}\n")
+			script.WriteString(fmt.Sprintf("diset connection mssqls_uid {%s}\n", sqlServerConn.Username))
+			script.WriteString(fmt.Sprintf("diset connection mssqls_pass {%s}\n", sqlServerConn.Password))
 
-	// Add "yes" confirmation to automate buildschema
-	script.WriteString("proc buildschema_auto {args} {\n")
-	script.WriteString("    buildschema\n")
-	script.WriteString("    after 1000\n")
-	script.WriteString("    # Send 'yes' to confirm\n")
-	script.WriteString("    # HammerDB will ask for confirmation\n")
-	script.WriteString("    # We use 'yes' command to automate\n")
-	script.WriteString("}\n")
-	script.WriteString("buildschema_auto\n")
+			// TPC-C schema settings (no curly braces for database name)
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
+			script.WriteString("diset tpcc mssqls_durability SCHEMA_AND_DATA\n")
 
-	// Build command line with auto-confirmation
-	cmdLine := fmt.Sprintf("yes | %s << 'EOF'\n%s\nEOF\n", a.HammerDBPath, script.String())
+			// Build schema (HammerDB will handle database creation automatically)
+			script.WriteString("buildschema\n")
+		}
+	} else {
+		// Non-SQL Server: use legacy format
+		connectionStr := a.buildConnectionString(conn)
+		script.WriteString(fmt.Sprintf("disconn %s\n", connectionStr))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
+		script.WriteString("buildschema\n")
+	}
+
+	// Build command line with auto-confirmation using yes pipe
+	// Use base64 encoding to avoid quoting issues with heredoc and nested quotes
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(script.String()))
+	cmdLine := fmt.Sprintf("bash -c 'echo %s | base64 -d > /tmp/hdb_$$.tcl && yes | %s auto /tmp/hdb_$$.tcl; rm -f /tmp/hdb_$$.tcl'", encodedScript, a.HammerDBPath)
 
 	// Configure retry for buildschema (it can fail due to transient issues)
 	retryConfig := &RetryConfig{
@@ -157,7 +178,14 @@ func (a *HammerDBAdapter) BuildRunCommand(ctx context.Context, config *Config) (
 	// Build run script
 	script := a.buildScript(ctx, conn, config, "run")
 
-	cmdLine := fmt.Sprintf("echo '%s' | %s", script, a.HammerDBPath)
+	// Use base64 encoding to avoid quoting issues with heredoc and nested quotes
+	// Command flow:
+	// 1. Decode base64 script and write to temp file (using $$ for unique filename in same shell context)
+	// 2. Execute hammerdbcli auto with temp file - "auto" mode waits for script completion
+	// 3. Cleanup temp file after execution
+	// All in single shell context to ensure $$ is consistent
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(script))
+	cmdLine := fmt.Sprintf("bash -c 'echo %s | base64 -d > /tmp/hdb_run_$$.tcl && %s auto /tmp/hdb_run_$$.tcl; rm -f /tmp/hdb_run_$$.tcl'", encodedScript, a.HammerDBPath)
 
 	return &Command{
 		CmdLine: cmdLine,
@@ -167,146 +195,73 @@ func (a *HammerDBAdapter) BuildRunCommand(ctx context.Context, config *Config) (
 }
 
 // BuildCleanupCommand builds the command for cleanup phase.
-// For SQL Server, uses sqlcmd to TRUNCATE all TPC-C tables.
+// Uses HammerDB's deleteschema command to drop the entire database.
+// This follows the standard HammerDB workflow: deleteschema -> buildschema -> loadscript -> vurun
+// IMPORTANT: deleteschema requires confirmation, we use 'yes' pipe to auto-confirm
 func (a *HammerDBAdapter) BuildCleanupCommand(ctx context.Context, config *Config) (*Command, error) {
 	conn := config.Connection
 
-	// Check if this is a SQL Server connection
-	if conn.GetType() != connection.DatabaseTypeSQLServer {
-		// For non-SQL Server, use the existing TCL script approach
-		script := a.buildScript(ctx, conn, config, "cleanup")
-		cmdLine := fmt.Sprintf("echo '%s' | %s", script, a.HammerDBPath)
-		return &Command{
-			CmdLine: cmdLine,
-			WorkDir: config.WorkDir,
-			Env:     []string{"TMP=/tmp", "TMPDIR=/tmp", "TEMP=/tmp"},
-		}, nil
-	}
+	// All databases use the TCL script approach with deleteschema
+	script := a.buildScript(ctx, conn, config, "cleanup")
 
-	// SQL Server: use sqlcmd to TRUNCATE tables
-	sqlServerConn, ok := conn.(*connection.SQLServerConnection)
-	if !ok {
-		return nil, fmt.Errorf("invalid connection type for SQL Server")
-	}
-
-	// Build the TRUNCATE script
-	truncateScript := a.buildTruncateScript()
-
-	// Build sqlcmd command line
-	cmdLine, err := a.buildSQLCmdLine(sqlServerConn, truncateScript)
-	if err != nil {
-		return nil, fmt.Errorf("build sqlcmd command: %w", err)
-	}
-
-	// Configure retry for cleanup operations
-	// TRUNCATE can fail due to locks, so we retry
-	retryConfig := &RetryConfig{
-		MaxRetries:    3,
-		InitialDelay:  1 * time.Second,
-		MaxDelay:      10 * time.Second,
-		BackoffFactor: 2.0,
-	}
+	// Use base64 encoding to avoid quoting issues with heredoc and nested quotes
+	// Command flow:
+	// 1. Decode base64 script and write to temp file (using $$ for unique filename in same shell context)
+	// 2. Execute hammerdbcli auto with temp file
+	// 3. yes pipe auto-confirms the prompt
+	// 4. Cleanup temp file after execution
+	// All in single shell context to ensure $$ is consistent
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(script))
+	cmdLine := fmt.Sprintf("bash -c 'echo %s | base64 -d > /tmp/hdb_$$.tcl && yes | %s auto /tmp/hdb_$$.tcl; rm -f /tmp/hdb_$$.tcl'", encodedScript, a.HammerDBPath)
 
 	return &Command{
 		CmdLine:     cmdLine,
 		WorkDir:     config.WorkDir,
 		Env:         []string{"TMP=/tmp", "TMPDIR=/tmp", "TEMP=/tmp"},
-		Retry:       retryConfig,
-		Description: "Cleanup: TRUNCATE all TPC-C tables",
-		StepName:    "TRUNCATE Tables",
+		Description: "Cleanup: Delete TPC-C schema (DROP DATABASE)",
+		StepName:    "Delete Schema",
 	}, nil
-}
-
-// buildTruncateScript builds SQL script to TRUNCATE all TPC-C tables.
-// This is more efficient than DROP TABLE for SQL Server.
-func (a *HammerDBAdapter) buildTruncateScript() string {
-	// List of TPC-C tables in correct dependency order (child tables first)
-	// We need to disable foreign key constraints before TRUNCATE
-	var script strings.Builder
-
-	// Disable foreign key constraints
-	script.WriteString("SET XACT_ABORT ON;\n")
-	script.WriteString("BEGIN TRANSACTION;\n")
-	script.WriteString("-- Disable foreign key constraints\n")
-	script.WriteString("EXEC sp_msforeachtable \"ALTER TABLE ? NOCHECK CONSTRAINT all\";\n")
-	script.WriteString("\n")
-
-	// TRUNCATE all TPC-C tables
-	// Order: child tables first, then parent tables
-	tables := []string{
-		"order_line", // Child of orders
-		"new_order",  // Child of orders
-		"history",    // Child of customer
-		"orders",     // Child of district, customer, stock, item, warehouse
-		"stock",      // Child of warehouse
-		"district",   // Child of warehouse
-		"customer",   // Child of district
-		"item",       // Independent table
-		"warehouse",  // Root table
-	}
-
-	for _, table := range tables {
-		script.WriteString(fmt.Sprintf("IF OBJECT_ID('%s', 'U') IS NOT NULL\n", table))
-		script.WriteString(fmt.Sprintf("    TRUNCATE TABLE [%s];\n", table))
-		script.WriteString(fmt.Sprintf("    PRINT 'Truncated table: %s';\n", table))
-		script.WriteString("ELSE\n")
-		script.WriteString(fmt.Sprintf("    PRINT 'Table does not exist: %s';\n", table))
-		script.WriteString("\n")
-	}
-
-	// Re-enable foreign key constraints
-	script.WriteString("-- Re-enable foreign key constraints\n")
-	script.WriteString("EXEC sp_msforeachtable \"ALTER TABLE ? CHECK CONSTRAINT all\";\n")
-	script.WriteString("COMMIT TRANSACTION;\n")
-	script.WriteString("PRINT 'Cleanup completed successfully';\n")
-
-	return script.String()
-}
-
-// buildSQLCmdLine builds a sqlcmd command line to execute SQL script.
-func (a *HammerDBAdapter) buildSQLCmdLine(conn *connection.SQLServerConnection, script string) (string, error) {
-	// Build host:port string
-	hostPort := fmt.Sprintf("%s,%d", conn.Host, conn.Port)
-
-	// Build sqlcmd command with proper options
-	// -S: server
-	// -U: username
-	// -P: password
-	// -d: database
-	// -C: trust server certificate
-	// -Q: execute query and exit
-	// Note: We use -Q with the script, but need to escape properly
-	// Instead, we'll use echo with pipe to handle multi-line scripts
-
-	cmdLine := fmt.Sprintf("echo '%s' | sqlcmd -S %s -U %s -P '%s' -d %s -C -b -r1",
-		script,
-		hostPort,
-		conn.Username,
-		conn.Password,
-		conn.Database)
-
-	return cmdLine, nil
 }
 
 // buildScript builds a TCL script for HammerDB.
 func (a *HammerDBAdapter) buildScript(ctx context.Context, conn connection.Connection, config *Config, phase string) string {
 	var script strings.Builder
 
-	// Database type and connection
+	// Database type
 	dbType := a.getDBType(conn)
-	connectionStr := a.buildConnectionString(conn)
+	script.WriteString(fmt.Sprintf("dbset db %s\n", dbType))
 
-	script.WriteString(fmt.Sprintf("dbtype %s\n", dbType))
-	script.WriteString(fmt.Sprintf("disconn %s\n", connectionStr))
-
-	// SQL Server specific parameters
+	// SQL Server uses new HammerDB 4.10+ format with diset connection mssqls_*
 	if conn.GetType() == connection.DatabaseTypeSQLServer {
+		// Build connection settings using HammerDB 4.10+ format
+		a.buildSQLServerConnection(&script, conn)
 		a.buildSQLServerScript(&script, config, phase)
 	} else {
+		// Legacy format for other databases
+		connectionStr := a.buildConnectionString(conn)
+		script.WriteString(fmt.Sprintf("disconn %s\n", connectionStr))
 		a.buildGenericScript(&script, config)
 	}
 
 	return script.String()
+}
+
+// buildSQLServerConnection builds SQL Server connection settings using HammerDB 4.10+ format.
+// Uses Linux-specific parameters (mssqls_linux_server, mssqls_tcp) for HammerDB on Linux.
+func (a *HammerDBAdapter) buildSQLServerConnection(script *strings.Builder, conn connection.Connection) {
+	sqlServerConn, ok := conn.(*connection.SQLServerConnection)
+	if !ok {
+		return
+	}
+
+	// HammerDB 4.10+ connection format for Linux
+	// Use mssqls_linux_server instead of mssqls_server for Linux
+	script.WriteString(fmt.Sprintf("diset connection mssqls_linux_server %s\n", sqlServerConn.Host))
+	// Enable TCP connection (required for Linux)
+	script.WriteString("diset connection mssqls_tcp true\n")
+	script.WriteString(fmt.Sprintf("diset connection mssqls_port %d\n", sqlServerConn.Port))
+	script.WriteString(fmt.Sprintf("diset connection mssqls_uid %s\n", sqlServerConn.Username))
+	script.WriteString(fmt.Sprintf("diset connection mssqls_pass %s\n", sqlServerConn.Password))
 }
 
 // buildSQLServerScript builds SQL Server specific TCL script.
@@ -322,8 +277,8 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 	allWarehouse := a.getBoolParam(config.Parameters, "all_warehouse", "false")
 	databaseName := a.getStringParam(config.Parameters, "database_name", "tpcc")
 
-	// Set benchmark to TPC-C
-	script.WriteString("dbset bm TPC-C\n")
+	// Set benchmark (TPROC-C is HammerDB's benchmark name)
+	script.WriteString("dbset bm TPROC-C\n")
 
 	// Phase-specific configuration
 	switch phase {
@@ -369,8 +324,12 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 		script.WriteString("vudestroy\n")
 
 	case "cleanup":
-		// Cleanup phase - no specific cleanup for SQL Server
-		script.WriteString("delete virtualmachine\n")
+		// Cleanup phase - use deleteschema to drop the entire database
+		// This follows the standard HammerDB workflow
+		// Set the database name so deleteschema knows which database to drop
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
+		script.WriteString("deleteschema\n")
+		script.WriteString("waittocomplete\n")
 	}
 }
 
@@ -521,8 +480,9 @@ func (a *HammerDBAdapter) ParseRunOutput(ctx context.Context, stdout string, std
 }
 
 // StartRealtimeCollection starts realtime metric collection from hammerdb output.
+// Streams ALL output lines to the sample channel for logging, not just metrics.
 func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan Sample, <-chan error, *strings.Builder) {
-	sampleChan := make(chan Sample, 10)
+	sampleChan := make(chan Sample, 100) // Increased buffer for all output lines
 	errChan := make(chan error, 1)
 	var stdoutBuf strings.Builder
 
@@ -536,13 +496,19 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 
 		for scanner.Scan() {
 			line := scanner.Text()
+			originalLine := line
 			line = strings.TrimSpace(line)
 
+			// Skip empty lines
+			if line == "" {
+				continue
+			}
+
 			// Save to stdout buffer
-			stdoutBuf.WriteString(line)
+			stdoutBuf.WriteString(originalLine)
 			stdoutBuf.WriteString("\n")
 
-			// Parse realtime TPM/NOPM
+			// Parse realtime TPM/NOPM for metrics
 			if strings.Contains(line, "NOPM") || strings.Contains(line, "TPM") {
 				re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:NOPM|TPM)`)
 				matches := re.FindStringSubmatch(line)
@@ -550,22 +516,6 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 					if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
 						currentTPM = val / 60
 					}
-				}
-
-				sample := Sample{
-					Timestamp:   time.Now(),
-					TPS:         currentTPM,
-					LatencyAvg:  0,
-					LatencyP95:  0,
-					LatencyP99:  0,
-					ErrorRate:   0,
-					ThreadCount: currentUsers,
-				}
-
-				select {
-				case sampleChan <- sample:
-				case <-ctx.Done():
-					return
 				}
 			}
 
@@ -578,6 +528,25 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 						currentUsers = val
 					}
 				}
+			}
+
+			// Send EVERY line as a sample with RawLine set for logging
+			// This ensures buildschema output like "Loading Items - 50000" is captured
+			sample := Sample{
+				Timestamp:   time.Now(),
+				TPS:         currentTPM,
+				LatencyAvg:  0,
+				LatencyP95:  0,
+				LatencyP99:  0,
+				ErrorRate:   0,
+				ThreadCount: currentUsers,
+				RawLine:     line, // Include raw line for logging
+			}
+
+			select {
+			case sampleChan <- sample:
+			case <-ctx.Done():
+				return
 			}
 		}
 
@@ -593,10 +562,118 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 }
 
 // ParseFinalResults parses final results from hammerdb output.
-// TODO: Implement hammerdb-specific parsing
+// HammerDB outputs results in format: "TEST RESULT : System achieved 12345 NOPM from 1 Virtual Users"
+// Or with TPM: "TEST RESULT : System achieved 50000 TPM from 10 Virtual Users"
 func (a *HammerDBAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
-	// Stub implementation for now
-	return &FinalResult{}, fmt.Errorf("parse final results not implemented for hammerdb")
+	result := &FinalResult{}
+
+	lines := strings.Split(stdout, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse TEST RESULT line - format: "TEST RESULT : System achieved 12345 NOPM from 1 Virtual Users"
+		// or "TEST RESULT : System achieved 50000 TPM from 10 Virtual Users"
+		if strings.Contains(line, "TEST RESULT") && (strings.Contains(line, "NOPM") || strings.Contains(line, "TPM")) {
+			// Try NOPM first (more specific)
+			re := regexp.MustCompile(`achieved\s+(\d+(?:\.\d+)?)\s+NOPM`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.TPM = val
+					result.TransactionsPerSec = val / 60 // Convert to TPS
+					result.AvgTPS = result.TransactionsPerSec
+				}
+			} else {
+				// Try TPM
+				re = regexp.MustCompile(`achieved\s+(\d+(?:\.\d+)?)\s+TPM`)
+				matches = re.FindStringSubmatch(line)
+				if len(matches) > 1 {
+					if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+						result.TPM = val
+						result.TransactionsPerSec = val / 60 // Convert to TPS
+						result.AvgTPS = result.TransactionsPerSec
+					}
+				}
+			}
+		}
+
+		// Parse Average response time: "Average response time: 150.50ms"
+		if strings.Contains(line, "Average response time") {
+			re := regexp.MustCompile(`Average response time:\s*(\d+(?:\.\d+)?)\s*ms`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.LatencyAvg = val
+				}
+			}
+		}
+
+		// Parse Min response time: "Min response time: 50.25ms"
+		if strings.Contains(line, "Min response time") {
+			re := regexp.MustCompile(`Min response time:\s*(\d+(?:\.\d+)?)\s*ms`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.LatencyMin = val
+				}
+			}
+		}
+
+		// Parse Max response time: "Max response time: 450.75ms"
+		if strings.Contains(line, "Max response time") {
+			re := regexp.MustCompile(`Max response time:\s*(\d+(?:\.\d+)?)\s*ms`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.LatencyMax = val
+				}
+			}
+		}
+
+		// Parse 95th percentile response: "95th percentile response: 300.00ms"
+		if strings.Contains(line, "95th percentile") {
+			re := regexp.MustCompile(`95th percentile(?:\s+response)?:\s*(\d+(?:\.\d+)?)\s*ms`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.LatencyP95 = val
+				}
+			}
+		}
+
+		// Parse Errors: "Errors: 5"
+		if strings.Contains(line, "Errors:") {
+			re := regexp.MustCompile(`Errors:\s*(\d+)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
+					result.IgnoredErrors = val
+				}
+			}
+		}
+
+		// Parse Total time: "Total time: 120.0s"
+		if strings.Contains(line, "Total time:") {
+			re := regexp.MustCompile(`Total time:\s*(\d+(?:\.\d+)?)\s*s`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					result.TotalTime = val
+				}
+			}
+		}
+	}
+
+	// Calculate transaction count if we have TPM and total time
+	if result.TPM > 0 && result.TotalTime > 0 {
+		result.TotalTransactions = int64(result.TPM * (result.TotalTime / 60))
+	}
+
+	return result, nil
 }
 
 // ValidateConfig validates the configuration for hammerdb.
