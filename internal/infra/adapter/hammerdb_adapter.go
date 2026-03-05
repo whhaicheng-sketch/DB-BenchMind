@@ -270,12 +270,23 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 	warehouses := a.getIntParam(config.Parameters, "warehouses", 1)
 	users := a.getIntParam(config.Parameters, "virtual_users", 1) // Get from Tasks page
 	buildUsers := a.getIntParam(config.Parameters, "build_users", 1)
-	rampUp := a.getIntParam(config.Parameters, "rampup", 1)
-	duration := a.getIntParam(config.Parameters, "duration", 1)
+	rampUpSeconds := a.getIntParam(config.Parameters, "rampup", 1)
+	durationSeconds := a.getIntParam(config.Parameters, "duration", 60)
 	iterations := a.getIntParam(config.Parameters, "iterations", 1000000)
 	driver := a.getStringParam(config.Parameters, "driver", "timed")
 	allWarehouse := a.getBoolParam(config.Parameters, "all_warehouse", "false")
 	databaseName := a.getStringParam(config.Parameters, "database_name", "tpcc")
+
+	// Convert seconds to minutes for HammerDB (HammerDB uses minutes for duration/rampup)
+	// Round up to ensure we run at least the requested time
+	rampUpMinutes := (rampUpSeconds + 59) / 60
+	if rampUpMinutes < 1 {
+		rampUpMinutes = 1
+	}
+	durationMinutes := (durationSeconds + 59) / 60
+	if durationMinutes < 1 {
+		durationMinutes = 1
+	}
 
 	// Set benchmark (TPROC-C is HammerDB's benchmark name)
 	script.WriteString("dbset bm TPROC-C\n")
@@ -298,8 +309,8 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 
 		// Ramp up is only used in timed mode
 		if driver == "timed" {
-			script.WriteString(fmt.Sprintf("diset tpcc mssqls_rampup %d\n", rampUp))
-			script.WriteString(fmt.Sprintf("diset tpcc mssqls_duration %d\n", duration))
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_rampup %d\n", rampUpMinutes))
+			script.WriteString(fmt.Sprintf("diset tpcc mssqls_duration %d\n", durationMinutes))
 		} else {
 			// Iterations mode
 			script.WriteString(fmt.Sprintf("diset tpcc mssqls_iterations %d\n", iterations))

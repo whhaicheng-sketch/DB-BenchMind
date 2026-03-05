@@ -65,12 +65,14 @@ type SwingbenchWeights struct {
 // OLTPParameters represents sysbench OLTP test parameters.
 // Only includes parameters that are actually used by the sysbench adapter.
 type OLTPParameters struct {
-	Tables    int `json:"tables"`     // Number of tables to create
-	TableSize int `json:"table_size"` // Number of rows per table
+	Tables      int    `json:"tables"`      // Number of tables to create
+	TableSize   int    `json:"table_size"`   // Number of rows per table
+	DatabaseName string `json:"database_name"` // Database name (for MySQL/PostgreSQL)
 }
 
 // HammerDBParameters represents HammerDB TPROC-C test parameters for SQL Server.
 type HammerDBParameters struct {
+	DatabaseName string `json:"database_name"` // Database name (default: tpcc)
 	Warehouses   int    `json:"warehouses"`    // Number of warehouses (mssqls_count_ware)
 	BuildUsers   int    `json:"build_users"`   // Virtual users for schema build (mssqls_num_vu)
 	RampUp       int    `json:"rampup"`        // Ramp up time in minutes
@@ -686,6 +688,41 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 	sb.WriteString(tmpl.DBType)
 	sb.WriteString("`\n\n")
 
+	// Show database name for MySQL and PostgreSQL templates
+	if (tmpl.Tool == "sysbench" && (tmpl.DBType == "MySQL" || tmpl.DBType == "PostgreSQL")) {
+		sb.WriteString("**Database Name:** `")
+		if tmpl.IsBuiltin {
+			sb.WriteString("sbtest")  // System templates fixed to sbtest
+		} else {
+			if tmpl.Parameters != nil {
+				dbName := tmpl.Parameters.DatabaseName
+				if dbName != "" {
+					sb.WriteString(dbName)
+				} else {
+					sb.WriteString("sbtest")
+				}
+			} else {
+				sb.WriteString("sbtest")
+			}
+		}
+		sb.WriteString("`\n\n")
+	}
+
+	// Show database name for SQL Server templates (HammerDB)
+	if tmpl.Tool == "hammerdb" && tmpl.DBType == "SQL Server" {
+		sb.WriteString("**Database Name:** `")
+		if tmpl.IsBuiltin {
+			sb.WriteString("tpcc")  // System templates fixed to tpcc
+		} else {
+			if tmpl.HammerParams != nil && tmpl.HammerParams.DatabaseName != "" {
+				sb.WriteString(tmpl.HammerParams.DatabaseName)
+			} else {
+				sb.WriteString("tpcc")
+			}
+		}
+		sb.WriteString("`\n\n")
+	}
+
 	sb.WriteString("**Type:** 📦 Built-in Template\n")
 	sb.WriteString("**Actions:** Can be set as default\n\n")
 
@@ -698,21 +735,27 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		sb.WriteString(fmt.Sprintf("- `--tables=%d` - Number of tables\n", tmpl.Parameters.Tables))
 		sb.WriteString(fmt.Sprintf("- `--table-size=%d` - Rows per table\n", tmpl.Parameters.TableSize))
 
-		sb.WriteString("\n**OLTP Test Parameters** (for reference, currently not used in execution):\n\n")
-		sb.WriteString("The following OLTP parameters can be configured in the Add/Edit dialog,\n")
-		sb.WriteString("but are currently not passed to sysbench. The benchmark uses sysbench defaults.\n\n")
-		sb.WriteString("- `--db-ps-mode` - Prepared statement mode (disable/auto/no_ps)\n")
-		sb.WriteString("- `--oltp-test-mode` - Test mode (complex/simple/nontrx/specific)\n")
+		sb.WriteString("\n**OLTP Test Parameters** (for reference,\n")
+		sb.WriteString("currently not used in execution):\n\n")
+		sb.WriteString("The following OLTP parameters can be configured in the\n")
+		sb.WriteString("Add/Edit dialog, but are currently not passed to\n")
+		sb.WriteString("sysbench. The benchmark uses sysbench defaults.\n\n")
+		sb.WriteString("- `--db-ps-mode` - Prepared statement mode\n")
+		sb.WriteString("  (disable/auto/no_ps)\n")
+		sb.WriteString("- `--oltp-test-mode` - Test mode\n")
+		sb.WriteString("  (complex/simple/nontrx/specific)\n")
 		sb.WriteString("- `--oltp-point-selects` - Point select ratio\n")
 		sb.WriteString("- `--oltp-simple-ranges` - Simple range ratio\n")
 		sb.WriteString("- `--oltp-sum-ranges` - Sum range ratio\n")
 		sb.WriteString("- `--oltp-order-ranges` - Order range ratio\n")
 		sb.WriteString("- `--oltp-distinct-ranges` - Distinct range ratio\n")
 		sb.WriteString("- `--oltp-index-updates` - Index update ratio\n")
-		sb.WriteString("- `--oltp-non-index-updates` - Non-index update ratio\n")
+		sb.WriteString("- `--oltp-non-index-updates` -\n")
+		sb.WriteString("  Non-index update ratio\n")
 		sb.WriteString("- `--oltp-delete-inserts` - Delete-insert ratio\n")
 
-		sb.WriteString("\n**Note:** Additional parameters (threads, time, rate) are configured in the Tasks page when running the benchmark.\n")
+		sb.WriteString("\n**Note:** Additional parameters (threads, time, rate)\n")
+		sb.WriteString("are configured in the Tasks page when running the benchmark.\n")
 	}
 
 	// Show transaction weights for Oracle Swingbench templates
@@ -760,7 +803,8 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 		}
 
 		// Add note about additional parameters
-		sb.WriteString("**Note:** Additional parameters (users, runtime, config file) are configured in the Tasks page when running the benchmark.\n")
+		sb.WriteString("**Note:** Additional parameters (users, runtime, config file)\n")
+		sb.WriteString("are configured in the Tasks page when running the benchmark.\n")
 	}
 
 	// Show HammerDB parameters for SQL Server templates
@@ -770,6 +814,12 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 
 		if tmpl.HammerParams != nil {
 			sb.WriteString("**TPROC-C Parameters:**\n\n")
+			// Show database name (fixed to tpcc for built-in templates)
+			dbName := tmpl.HammerParams.DatabaseName
+			if dbName == "" {
+				dbName = "tpcc" // Default for HammerDB
+			}
+			sb.WriteString(fmt.Sprintf("- **Database Name:** %s\n", dbName))
 			sb.WriteString(fmt.Sprintf("- **Warehouses:** %d (data scale)\n", tmpl.HammerParams.Warehouses))
 			sb.WriteString(fmt.Sprintf("- **Build Users:** %d (parallel build workers)\n", tmpl.HammerParams.BuildUsers))
 			sb.WriteString(fmt.Sprintf("- **Ramp Up:** %d minutes\n", tmpl.HammerParams.RampUp))
@@ -783,24 +833,26 @@ func (p *TemplateManagementPage) showTemplateDetails(tmpl templateInfo) {
 
 			sb.WriteString(fmt.Sprintf("- **All Warehouse:** %v\n", tmpl.HammerParams.AllWarehouse))
 			sb.WriteString("\n")
-			sb.WriteString("**Note:** Virtual users are configured in the Tasks page (similar to Sysbench threads).\n\n")
+			sb.WriteString("**Note:** Virtual users are configured in the Tasks page\n")
+			sb.WriteString("(similar to Sysbench threads).\n\n")
 		}
 
 		// Add note about additional parameters
-		sb.WriteString("**Note:** The build schema phase creates the TPC-C schema and loads data. Additional parameters (virtual users, runtime) are configured in the Tasks page when running the benchmark.\n")
+		sb.WriteString("**Note:** The build schema phase creates the TPC-C\n")
+		sb.WriteString("schema and loads data. Additional parameters (virtual users,\n")
+		sb.WriteString("runtime) are configured in the Tasks page when running\n")
+		sb.WriteString("the benchmark.\n")
 	}
 
 	content := widget.NewRichTextFromMarkdown(sb.String())
 
-	dlg := dialog.NewCustomConfirm(
+	dlg := dialog.NewCustom(
 		"Template Details",
 		"Close",
-		"",
 		content,
-		func(bool) {},
 		p.win,
 	)
-	dlg.Resize(fyne.NewSize(700, 600))
+	dlg.Resize(fyne.NewSize(800, 700))
 	dlg.Show()
 }
 
@@ -885,6 +937,7 @@ type templateDialog struct {
 	dbaPasswordEntry    *widget.Entry
 	configFileEntry     *widget.Entry
 	threadsEntry        *widget.Entry
+	dbNameEntry        *widget.Entry // Database name (for MySQL/PostgreSQL)
 
 	// Swingbench transaction weights (for Oracle custom templates)
 	customerRegistrationEntry *widget.Entry
@@ -896,6 +949,7 @@ type templateDialog struct {
 	dataSizeEntry             *widget.Entry // Data size in GB (e.g., 0.1, 1, 100)
 
 	// HammerDB parameters (for SQL Server custom templates)
+	hammerDbNameEntry    *widget.Entry // Database name (default: tpcc)
 	warehousesEntry      *widget.Entry // Number of warehouses
 	buildUsersEntry      *widget.Entry // Virtual users for schema build
 	hammerRampUpEntry    *widget.Entry // Ramp up time in minutes
@@ -970,6 +1024,16 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 
 	d.tableSizeEntry = widget.NewEntry()
 	d.tableSizeEntry.SetText(fmt.Sprintf("%d", defaultParams.TableSize))
+
+	// Database name entry (for MySQL/PostgreSQL only)
+	d.dbNameEntry = widget.NewEntry()
+	d.dbNameEntry.SetPlaceHolder("sbtest (leave empty for default)")
+	if existingParams != nil && existingParams.DatabaseName != "" {
+		d.dbNameEntry.SetText(existingParams.DatabaseName)
+	} else if existingParams == nil {
+		// For new templates, use empty default
+		d.dbNameEntry.SetText("")
+	}
 
 	d.dbPSModeEntry = widget.NewSelect([]string{"disable", "auto", "no_ps"}, nil)
 	d.dbPSModeEntry.SetSelected(defaultDBPSMode)
@@ -1096,6 +1160,14 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 		defaultAllWarehouse = existingHammerParams.AllWarehouse
 	}
 
+	// Database name for HammerDB (default: tpcc)
+	d.hammerDbNameEntry = widget.NewEntry()
+	d.hammerDbNameEntry.SetText("tpcc")
+	d.hammerDbNameEntry.SetPlaceHolder("tpcc")
+	if existingHammerParams != nil && existingHammerParams.DatabaseName != "" {
+		d.hammerDbNameEntry.SetText(existingHammerParams.DatabaseName)
+	}
+
 	d.warehousesEntry = widget.NewEntry()
 	d.warehousesEntry.SetText(fmt.Sprintf("%d", defaultWarehouses))
 	d.warehousesEntry.SetPlaceHolder("1")
@@ -1138,15 +1210,23 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 		d.formContainer.Add(msgLabel)
 		d.formContainer.Add(widget.NewSeparator())
 
+		// Disable Database Name field when editing (not modifiable after creation)
+		if d.isEditMode && d.hammerDbNameEntry != nil {
+			d.hammerDbNameEntry.Disable()
+		} else if d.hammerDbNameEntry != nil {
+			d.hammerDbNameEntry.Enable()
+		}
+
 		// Build form based on driver mode
 		if driverMode == "timed" {
 			// Timed mode: show Ramp Up and Duration
 			hammerForm := widget.NewForm(
+				widget.NewFormItem("Database Name", d.hammerDbNameEntry),
 				widget.NewFormItem("Warehouses", d.warehousesEntry),
 				widget.NewFormItem("Build Users", d.buildUsersEntry),
-				widget.NewFormItem("Ramp Up (min)", d.hammerRampUpEntry),
+				widget.NewFormItem("Ramp Up (sec)", d.hammerRampUpEntry),
 				widget.NewFormItem("Driver Mode", d.hammerDriverEntry),
-				widget.NewFormItem("Duration (min)", d.hammerDurationEntry),
+				widget.NewFormItem("Duration (sec)", d.hammerDurationEntry),
 			)
 			d.formContainer.Add(hammerForm)
 
@@ -1154,11 +1234,12 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 			d.formContainer.Add(d.allWarehouseCheck)
 
 			// Add hint text for timed mode
-			hintLabel := widget.NewLabel("💡 Tip:\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Ramp Up: Warm-up time before metrics collection\n- Duration: Test run time after ramp up\n- Timed Mode: TPC-C compliant, recommended for benchmarks\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
+			hintLabel := widget.NewLabel("💡 Tip:\n- Database Name: Target database (default: tpcc)\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Ramp Up: Warm-up time before metrics collection\n- Duration: Test run time after ramp up\n- Timed Mode: TPC-C compliant, recommended for benchmarks\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
 			d.formContainer.Add(hintLabel)
 		} else {
 			// Iterations mode: show Iterations only
 			hammerForm := widget.NewForm(
+				widget.NewFormItem("Database Name", d.hammerDbNameEntry),
 				widget.NewFormItem("Warehouses", d.warehousesEntry),
 				widget.NewFormItem("Build Users", d.buildUsersEntry),
 				widget.NewFormItem("Driver Mode", d.hammerDriverEntry),
@@ -1170,7 +1251,7 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 			d.formContainer.Add(d.allWarehouseCheck)
 
 			// Add hint text for iterations mode
-			hintLabel := widget.NewLabel("💡 Tip:\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Iterations: Fixed number of transactions to execute\n- Iterations Mode: Good for CI/CD and quick testing\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
+			hintLabel := widget.NewLabel("💡 Tip:\n- Database Name: Target database (default: tpcc)\n- Warehouses: Data scale (1 = small, 100 = standard TPC-C)\n- Build Users: Parallel workers for schema creation\n- Iterations: Fixed number of transactions to execute\n- Iterations Mode: Good for CI/CD and quick testing\n- Virtual Users: Configure in Tasks page (similar to Sysbench threads)")
 			d.formContainer.Add(hintLabel)
 		}
 		d.formContainer.Refresh()
@@ -1180,6 +1261,13 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 	updateFormFields := func(dbType string) {
 		slog.Info("Templates: Updating form fields for DB type", "db_type", dbType)
 		d.formContainer.Objects = nil
+
+		// Disable Database Name field when editing (not modifiable after creation)
+		if d.isEditMode && d.dbNameEntry != nil {
+			d.dbNameEntry.Disable()
+		} else if d.dbNameEntry != nil {
+			d.dbNameEntry.Enable()
+		}
 
 		if dbType == "Oracle" {
 			// Show Swingbench transaction weights configuration
@@ -1215,6 +1303,16 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 			formItems := []*widget.FormItem{
 				widget.NewFormItem("Tables (N)", d.tablesEntry),
 				widget.NewFormItem("Table Size (N)", d.tableSizeEntry),
+			}
+
+			// Only show Database Name for MySQL and PostgreSQL
+			if dbType == "MySQL" || dbType == "PostgreSQL" {
+				if d.dbNameEntry != nil {
+					formItems = append(formItems, widget.NewFormItem("Database Name", d.dbNameEntry))
+				}
+			}
+
+			formItems = append(formItems,
 				widget.NewFormItem("DB PS Mode", d.dbPSModeEntry),
 				widget.NewFormItem("OLTP Test Mode", d.oltpTestModeEntry),
 				widget.NewFormItem("Point Selects", d.oltpPointSelects),
@@ -1225,7 +1323,7 @@ func showTemplateDialogWithDBType(win fyne.Window, title string, existingParams 
 				widget.NewFormItem("Index Updates", d.oltpIndexUpdates),
 				widget.NewFormItem("Non-Index Updates", d.oltpNonIndexUpdates),
 				widget.NewFormItem("Delete Inserts", d.oltpDeleteInserts),
-			}
+			)
 			form := widget.NewForm(formItems...)
 			d.formContainer.Add(form)
 		}
@@ -1349,7 +1447,12 @@ func (d *templateDialog) onSave() bool {
 	// Parse HammerDB parameters for SQL Server
 	var hammerParams *HammerDBParameters
 	if dbType == "SQL Server" {
+		dbName := strings.TrimSpace(d.hammerDbNameEntry.Text)
+		if dbName == "" {
+			dbName = "tpcc" // Default
+		}
 		hammerParams = &HammerDBParameters{
+			DatabaseName: dbName,
 			Warehouses:   parseIntOrDefault(d.warehousesEntry.Text, 1),
 			BuildUsers:   parseIntOrDefault(d.buildUsersEntry.Text, 1),
 			RampUp:       parseIntOrDefault(d.hammerRampUpEntry.Text, 1),

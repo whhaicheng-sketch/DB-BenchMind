@@ -100,8 +100,6 @@ type TaskMonitorPage struct {
 	// General parameters
 	threadsEntry  *widget.Entry
 	durationEntry *widget.Entry
-	dbNameEntry   *widget.Entry
-	dryRunCheck   *widget.Check // Dry run mode (show command only)
 	// Monitor widgets
 	statusLabel     *widget.Label
 	tpsLabel        *widget.Label
@@ -178,14 +176,6 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	page.durationEntry = widget.NewEntry()
 	page.durationEntry.SetText("60")
 
-	page.dbNameEntry = widget.NewEntry()
-	page.dbNameEntry.SetText("sbtest")
-
-	// Create Dry Run checkbox
-	page.dryRunCheck = widget.NewCheck("Dry Run (Show Command Only)", func(checked bool) {
-		slog.Info("Tasks: Dry Run checkbox changed", "checked", checked)
-	})
-
 	// Create refresh button for templates
 	btnRefreshTemplate := widget.NewButton("🔄 Refresh Templates", func() {
 		slog.Info("Tasks: Refresh templates button clicked")
@@ -255,8 +245,6 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
-					widget.NewFormItem("Database Name", page.dbNameEntry),
-					widget.NewFormItem("Options", page.dryRunCheck),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -267,7 +255,6 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
-					widget.NewFormItem("Options", page.dryRunCheck),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -277,8 +264,7 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 			paramForm := &widget.Form{
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads (Virtual Users)", page.threadsEntry),
-					widget.NewFormItem("Duration (minutes)", page.durationEntry),
-					widget.NewFormItem("Options", page.dryRunCheck),
+					widget.NewFormItem("Duration (seconds)", page.durationEntry),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -289,8 +275,6 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
-					widget.NewFormItem("Database Name", page.dbNameEntry),
-					widget.NewFormItem("Options", page.dryRunCheck),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -886,19 +870,6 @@ func (p *TaskMonitorPage) onCleanupPhase() {
 
 // validateAndExecutePhase validates inputs and executes a specific phase.
 func (p *TaskMonitorPage) validateAndExecutePhase(phase string) {
-	// Validate
-	if p.connSelect.Selected == "" {
-		slog.Warn("Tasks: No connection selected")
-		dialog.ShowError(fmt.Errorf("please select a connection"), p.win)
-		return
-	}
-
-	if p.templateSelect.Selected == "" {
-		slog.Warn("Tasks: No template selected")
-		dialog.ShowError(fmt.Errorf("please select a template"), p.win)
-		return
-	}
-
 	// ⭐ 关键改进：在执行前先测试数据库连接（仅失败时弹窗）
 	if p.connUC != nil {
 		// Get connection object
@@ -944,31 +915,6 @@ func (p *TaskMonitorPage) validateAndExecutePhase(phase string) {
 	}
 
 	slog.Info("Tasks: Task built successfully", "task_id", task.ID, "connection_id", task.ConnectionID, "template_id", task.TemplateID)
-
-	// Check Dry Run mode
-	if p.dryRunCheck.Checked {
-		slog.Info("Tasks: Dry Run mode enabled, showing command only")
-
-		// Build command preview message
-		var cmdMsg strings.Builder
-		cmdMsg.WriteString(fmt.Sprintf("🔍 DRY RUN MODE - Command Preview\n\n"))
-		cmdMsg.WriteString(fmt.Sprintf("Phase: %s\n", strings.Title(phase)))
-		cmdMsg.WriteString(fmt.Sprintf("Connection: %s\n", p.connSelect.Selected))
-		cmdMsg.WriteString(fmt.Sprintf("Template: %s\n", p.templateSelect.Selected))
-		cmdMsg.WriteString(fmt.Sprintf("\nParameters:\n"))
-
-		// Pretty print parameters
-		for key, value := range task.Parameters {
-			cmdMsg.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
-		}
-
-		cmdMsg.WriteString(fmt.Sprintf("\n✅ This is a DRY RUN - no actual execution will occur.\n"))
-		cmdMsg.WriteString(fmt.Sprintf("✅ Uncheck 'Dry Run' to execute the benchmark."))
-
-		// Show command preview dialog
-		dialog.ShowInformation("Dry Run - Command Preview", cmdMsg.String(), p.win)
-		return
-	}
 
 	// Check if BenchmarkUseCase is available
 	if p.benchmarkUC == nil {
@@ -1088,7 +1034,8 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 		return nil, fmt.Errorf("invalid duration value")
 	}
 
-	dbName := strings.TrimSpace(p.dbNameEntry.Text)
+	// Initialize database name (will be set from template)
+	dbName := "sbtest" // Default for MySQL/PostgreSQL
 
 	// Get selected template to determine tool type
 	var selectedTemplate *templateInfo
@@ -1600,7 +1547,7 @@ func (p *TaskMonitorPage) monitorBenchmarkProgress(ctx context.Context, runID st
 	slog.Info("Tasks: monitorBenchmarkProgress started", "run_id", runID, "phase", phase)
 	defer slog.Info("Tasks: monitorBenchmarkProgress exiting", "run_id", runID, "phase", phase)
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(3 * time.Second) // Reduced from 1s to 3s to reduce GUI lag
 	defer ticker.Stop()
 
 	for p.isRunning {
