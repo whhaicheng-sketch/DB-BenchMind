@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/transport/ui/pages"
@@ -39,6 +40,9 @@ func NewApplication(connUC *usecase.ConnectionUseCase, benchmarkUC *usecase.Benc
 
 // Run starts the application.
 func (a *Application) Run() {
+	// Set dark theme
+	a.app.Settings().SetTheme(theme.DarkTheme())
+
 	// Create main window
 	window := a.app.NewWindow("DB-BenchMind")
 	window.Resize(fyne.NewSize(1024, 900)) // Increased from 768 to 900 for more log display space

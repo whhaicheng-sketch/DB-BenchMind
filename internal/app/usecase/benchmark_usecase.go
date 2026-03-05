@@ -208,21 +208,8 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		// and go directly to StateCompleted
 		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
 
-		// Check if tables already exist before prepare
-		// This prevents accidental data overwrite
-		if sysbenchAdapt, ok := adapt.(*adapter.SysbenchAdapter); ok {
-			slog.Info("Benchmark: Checking for existing tables before prepare", "run_id", run.ID)
-			if err := sysbenchAdapt.CheckTablesExist(ctx, config); err != nil {
-				// Tables exist, show error dialog
-				userMsg := fmt.Sprintf("✗ Error: %s\n\nPlease run Cleanup first to remove existing tables before preparing new data.", err.Error())
-				run.Message = userMsg
-				run.ErrorMessage = userMsg
-				uc.runRepo.Save(ctx, run)
-				uc.markAsFailed(ctx, run.ID, userMsg)
-				return
-			}
-			slog.Info("Benchmark: No existing tables found, proceeding with prepare", "run_id", run.ID)
-		}
+		// Note: Tables existence check not implemented for Sysbench
+		// Users should ensure tables don't exist before prepare, or run cleanup first
 
 		// Update state to preparing before executing command
 		uc.updateState(ctx, run.ID, execution.StatePreparing)
@@ -1212,14 +1199,22 @@ func (uc *BenchmarkUseCase) executeCommandSync(ctx context.Context, run *executi
 // executeCommandSyncOnce executes a command once (no retry logic).
 // Internal method used by executeCommandSync.
 func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *execution.Run, cmd *adapter.Command, attempt int) error {
-	// Parse command line
-	parts, err := parseCommandLine(cmd.CmdLine)
-	if err != nil {
-		return err
+	var execCmd *exec.Cmd
+
+	// Check if command contains pipe operator - if so, use shell to execute
+	// This is necessary because exec.CommandContext doesn't interpret shell operators
+	if strings.Contains(cmd.CmdLine, "|") || strings.Contains(cmd.CmdLine, "&&") || strings.Contains(cmd.CmdLine, "||") {
+		// Use bash -c to execute the full command with shell operators
+		execCmd = exec.CommandContext(ctx, "bash", "-c", cmd.CmdLine)
+	} else {
+		// Parse command line for simple commands without shell operators
+		parts, err := parseCommandLine(cmd.CmdLine)
+		if err != nil {
+			return err
+		}
+		execCmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
 	}
 
-	// Create command
-	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	execCmd.Dir = cmd.WorkDir
 	execCmd.Env = append(os.Environ(), cmd.Env...)
 
@@ -1238,8 +1233,7 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 	// Log the actual command that will be executed
 	slog.Info("Benchmark: === EXECUTING COMMAND (SYNC WITH REALTIME) ===",
 		"run_id", run.ID,
-		"binary", parts[0],
-		"arguments", parts[1:],
+		"cmd_line", cmd.CmdLine,
 		"work_dir", execCmd.Dir,
 		"env_count", len(execCmd.Env),
 		"has_mysql_pwd", hasMYSQL_PWD,

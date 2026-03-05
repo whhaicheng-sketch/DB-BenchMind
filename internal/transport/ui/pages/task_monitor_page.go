@@ -88,6 +88,8 @@ type TaskMonitorPage struct {
 	isRunning    bool
 	currentRunID string // Current benchmark run ID
 	currentDBType string // Current database type (mysql, postgresql, oracle, sqlserver)
+	currentRampup int       // Current rampup time in seconds
+	runStartTime time.Time  // Start time of current run phase (mysql, postgresql, oracle, sqlserver)
 	// Use cases
 	connUC      *usecase.ConnectionUseCase
 	benchmarkUC *usecase.BenchmarkUseCase
@@ -100,6 +102,7 @@ type TaskMonitorPage struct {
 	// General parameters
 	threadsEntry  *widget.Entry
 	durationEntry *widget.Entry
+	rampupEntry   *widget.Entry
 	// Monitor widgets
 	statusLabel     *widget.Label
 	tpsLabel        *widget.Label
@@ -171,12 +174,13 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 
 	// Create general parameter entries
 	page.threadsEntry = widget.NewEntry()
-	page.threadsEntry.SetText("4")  // Default 4 threads for better performance
+	page.threadsEntry.SetText("4") // Default 4 threads for better performance
 
 	page.durationEntry = widget.NewEntry()
 	page.durationEntry.SetText("60")
 
-	// Create refresh button for templates
+	page.rampupEntry = widget.NewEntry()
+	page.rampupEntry.SetText("0")  // Default 0 seconds rampup
 	btnRefreshTemplate := widget.NewButton("🔄 Refresh Templates", func() {
 		slog.Info("Tasks: Refresh templates button clicked")
 		if page.connSelect.Selected != "" {
@@ -245,16 +249,18 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+				widget.NewFormItem("Ramp Up (seconds)", page.rampupEntry),
 				},
 			}
 			page.formContainer.Add(paramForm)
 		} else if selectedTemplate.Tool == "swingbench" {
-			// Oracle Swingbench parameters
+			/// Oracle Swingbench parameters
 			slog.Info("Tasks: Showing Swingbench parameters for Oracle")
 			paramForm := &widget.Form{
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+				widget.NewFormItem("Ramp Up (seconds)", page.rampupEntry),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -265,6 +271,7 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads (Virtual Users)", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+				widget.NewFormItem("Ramp Up (seconds)", page.rampupEntry),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -275,6 +282,7 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 				Items: []*widget.FormItem{
 					widget.NewFormItem("Threads", page.threadsEntry),
 					widget.NewFormItem("Duration (seconds)", page.durationEntry),
+				widget.NewFormItem("Ramp Up (seconds)", page.rampupEntry),
 				},
 			}
 			page.formContainer.Add(paramForm)
@@ -469,7 +477,7 @@ func (p *TaskMonitorPage) onConnectionChanged() {
 func (p *TaskMonitorPage) updateMetricLabels(dbType string) {
 	fyne.Do(func() {
 		if dbType == "oracle" || dbType == "sqlserver" {
-			// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
+			/// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
 			p.tpsNameLabel.SetText("TPS:")
 			p.qpsNameLabel.SetText("TPM:")
 			p.latencyNameLabel.SetText("Response Time:")
@@ -1034,6 +1042,12 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 		return nil, fmt.Errorf("invalid duration value")
 	}
 
+	// Parse and validate rampup parameter (default 0)
+	rampup, err := strconv.Atoi(strings.TrimSpace(p.rampupEntry.Text))
+	if err != nil || rampup < 0 {
+		return nil, fmt.Errorf("invalid rampup value (must be >= 0)")
+	}
+
 	// Initialize database name (will be set from template)
 	dbName := "sbtest" // Default for MySQL/PostgreSQL
 
@@ -1058,7 +1072,7 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 
 	switch selectedTemplate.Tool {
 	case "swingbench":
-		// Oracle Swingbench parameters
+		/// Oracle Swingbench parameters
 		slog.Info("Tasks: Building Swingbench parameters", "template", selectedTemplate.Name)
 
 		// Get weights from template
@@ -1090,6 +1104,7 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 			"inter_max_delay":        0, // Max delay between transactions
 			"intra_min_delay":        0, // Min delay within transactions (intra-transaction)
 			"intra_max_delay":        0, // Max delay within transactions
+			"rampup":                 rampup, // Warmup time in seconds
 		}
 
 	case "hammerdb":
@@ -1106,7 +1121,7 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 			"virtual_users": threads, // For HammerDB, threads = virtual users
 			"warehouses":     hammerParams.Warehouses,
 			"build_users":    hammerParams.BuildUsers,
-			"rampup":         hammerParams.RampUp,
+			"rampup":         rampup, // From UI input,
 			"duration":       hammerParams.Duration,
 			"iterations":     hammerParams.Iterations,
 			"driver":         hammerParams.Driver,
@@ -1137,6 +1152,7 @@ func (p *TaskMonitorPage) buildBenchmarkTask() (*execution.BenchmarkTask, error)
 			"tables":     tables,
 			"table_size": tableSize,
 			"db_name":    dbName,
+			"rampup":     rampup, // Warmup time in seconds
 		}
 	}
 
@@ -1331,6 +1347,14 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 	case "run":
 		task.Options.SkipPrepare = true
 		task.Options.SkipCleanup = true
+
+		// Store rampup value and start time for warmup phase detection
+		p.currentRampup = 0
+		if rampup, ok := task.Parameters["rampup"].(int); ok {
+			p.currentRampup = rampup
+		}
+		p.runStartTime = time.Now()
+		slog.Info("Tasks: Run phase starting", "rampup_seconds", p.currentRampup)
 		// Restore original duration if saved
 		if originalTime, ok := task.Parameters["_original_time"].(int); ok {
 			task.Parameters["time"] = originalTime
@@ -1393,13 +1417,24 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 					slog.Debug("Tasks: Progress updated from percentage", "percentage", sample.Percentage, "progress", progress, "run_id", runID)
 				}
 
+				// Check if we are in warmup phase
+				elapsed := time.Since(p.runStartTime).Seconds()
+				inWarmup := p.currentRampup > 0 && int(elapsed) < p.currentRampup
+
 				// Update metrics labels (only for run phase)
 				if phase == "run" {
 					// Customize metrics display based on database type
 					// Oracle/SQL Server: Show TPM, TPS, and Response Time
 					// MySQL/PostgreSQL: Show all metrics
-					if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
-						// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
+					if inWarmup {
+						// In warmup phase, show "Warming up..." instead of metrics
+						p.statusLabel.SetText(fmt.Sprintf("Status: Warming up (%d/%ds)", int(elapsed), p.currentRampup))
+						p.qpsLabel.SetText("--")
+						p.tpsLabel.SetText("--")
+						p.latencyP95Label.SetText("--")
+						p.errorsLabel.SetText("--")
+					} else if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
+						/// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
 						if sample.TPM > 0 {
 							p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPM)) // QPS label shows TPM
 						} else {
@@ -1640,7 +1675,7 @@ func (p *TaskMonitorPage) handleBenchmarkCompleted(ctx context.Context, run *exe
 
 				// Build message based on database type
 				if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
-					// Oracle Swingbench / SQL Server - simplified message with no details
+					/// Oracle Swingbench / SQL Server - simplified message with no details
 					message = "Benchmark completed successfully!"
 				} else {
 					// MySQL/PostgreSQL Sysbench format

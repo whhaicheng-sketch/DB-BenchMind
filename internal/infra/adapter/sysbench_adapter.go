@@ -177,7 +177,19 @@ func (a *SysbenchAdapter) BuildRunCommand(ctx context.Context, config *Config) (
 		cmdArgs = append(cmdArgs, fmt.Sprintf("--time=%d", runTime))
 	}
 	if rate, ok := config.Parameters["rate"].(int); ok && rate > 0 {
+	// Add warmup (rampup) time
+	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
+		cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
+	}
 		cmdArgs = append(cmdArgs, fmt.Sprintf("--rate=%d", rate))
+	// Add warmup (rampup) time
+	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
+		cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
+	}
+	}
+	// Add warmup (rampup) time
+	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
+		cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
 	}
 
 	// Add report interval for realtime monitoring
