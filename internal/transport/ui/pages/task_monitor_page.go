@@ -113,7 +113,7 @@ type TaskMonitorPage struct {
 	progressBar     *widget.ProgressBar
 	// Metric label names (for dynamic updates based on DB type)
 	tpsNameLabel    *widget.Label
-	qpsNameLabel    *widget.Label
+	tpmNameLabel   *widget.Label
 	latencyNameLabel *widget.Label // "95% Latency" or "Response Time"
 	errorsNameLabel *widget.Label
 	// Real-time log for sysbench output
@@ -351,21 +351,18 @@ func NewTaskMonitorPageWithUC(win fyne.Window, connUC *usecase.ConnectionUseCase
 	// Monitor metrics card (middle section)
 	// Create label references for dynamic updates
 	page.tpsNameLabel = widget.NewLabel("TPS:")
-	page.qpsNameLabel = widget.NewLabel("QPS:")
+	page.tpmNameLabel = widget.NewLabel("TPM:")
 	page.latencyNameLabel = widget.NewLabel("95% Latency:")
 	page.errorsNameLabel = widget.NewLabel("Errors/s:")
 
-	metricsGrid := container.NewGridWithColumns(4,
+	// Unified metrics: TPM, TPS, Threads (compact layout)
+	metricsGrid := container.NewGridWithColumns(6,
+		page.tpmNameLabel,
+		page.qpsLabel, // Reuse qpsLabel for TPM display
 		page.tpsNameLabel,
 		page.tpsLabel,
-		page.qpsNameLabel,
-		page.qpsLabel,
-		page.latencyNameLabel,
-		page.latencyP95Label,
 		widget.NewLabel("Threads:"),
 		page.threadsLabel,
-		page.errorsNameLabel,
-		page.errorsLabel,
 	)
 
 	statusRow := container.NewHBox(page.statusLabel)
@@ -471,25 +468,14 @@ func (p *TaskMonitorPage) onConnectionChanged() {
 	p.loadTemplatesForDBType(normalizedDBType)
 }
 
-// updateMetricLabels updates metric labels based on database type.
-// Oracle/SQL Server: Show TPM, TPS, and Response Time
-// MySQL/PostgreSQL: Show all metrics (TPS, QPS, 95% Latency)
+// updateMetricLabels updates metric labels (now unified for all databases).
+// All databases show TPM and TPS.
 func (p *TaskMonitorPage) updateMetricLabels(dbType string) {
 	fyne.Do(func() {
-		if dbType == "oracle" || dbType == "sqlserver" {
-			/// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
-			p.tpsNameLabel.SetText("TPS:")
-			p.qpsNameLabel.SetText("TPM:")
-			p.latencyNameLabel.SetText("Response Time:")
-			p.errorsNameLabel.SetText("Errors:")
-		} else {
-			// MySQL/PostgreSQL with Sysbench: Show all metrics
-			p.tpsNameLabel.SetText("TPS:")
-			p.qpsNameLabel.SetText("QPS:")
-			p.latencyNameLabel.SetText("95% Latency:")
-			p.errorsNameLabel.SetText("Errors/s:")
-		}
-		slog.Info("Tasks: Metric labels updated", "db_type", dbType)
+		// Unified labels for all database types
+		p.tpmNameLabel.SetText("TPM:")
+		p.tpsNameLabel.SetText("TPS:")
+		slog.Info("Tasks: Metric labels updated (unified)", "db_type", dbType)
 	})
 }
 
@@ -1000,11 +986,9 @@ func (p *TaskMonitorPage) simulateExecution(threads, duration, rateLimit int) {
 			if qps < 1 {
 				qps = 1
 			}
-			errors := int(progress * 2)
 
 			p.tpsLabel.SetText(fmt.Sprintf("%d", tps))
 			p.qpsLabel.SetText(fmt.Sprintf("%d", qps))
-			p.errorsLabel.SetText(fmt.Sprintf("%d", errors))
 		}
 	}
 
@@ -1424,49 +1408,35 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 				// Update metrics labels (only for run phase)
 				if phase == "run" {
 					// Customize metrics display based on database type
-					// Oracle/SQL Server: Show TPM, TPS, and Response Time
-					// MySQL/PostgreSQL: Show all metrics
+					/// Oracle/SQL Server: Show TPM, TPS, and Response Time
+					// Unified metrics: TPM and TPS for all databases
 					if inWarmup {
 						// In warmup phase, show "Warming up..." instead of metrics
 						p.statusLabel.SetText(fmt.Sprintf("Status: Warming up (%d/%ds)", int(elapsed), p.currentRampup))
-						p.qpsLabel.SetText("--")
+						p.qpsLabel.SetText("--")  // TPM label
 						p.tpsLabel.SetText("--")
-						p.latencyP95Label.SetText("--")
-						p.errorsLabel.SetText("--")
-					} else if p.currentDBType == "oracle" || p.currentDBType == "sqlserver" {
-						/// Oracle Swingbench and SQL Server: Show TPM/TPS/Response Time
-						if sample.TPM > 0 {
-							p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPM)) // QPS label shows TPM
+					} else {
+						/// All databases: show TPM and TPS
+						var tpm float64
+						if p.currentDBType == "mysql" || p.currentDBType == "postgresql" {
+							/// Sysbench: calculate TPM from TPS
+							tpm = sample.TPS * 60
+						} else {
+							/// Oracle/SQL Server: use tool-provided TPM
+							tpm = sample.TPM
+						}
+						
+						if tpm > 0 {
+							p.qpsLabel.SetText(fmt.Sprintf("%.0f", tpm))  // TPM display
 						} else {
 							p.qpsLabel.SetText("--")
 						}
+						
 						if sample.TPS > 0 {
 							p.tpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPS))
 						} else {
 							p.tpsLabel.SetText("--")
 						}
-						// Show Response Time (average latency)
-						if sample.LatencyAvg > 0 {
-							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyAvg))
-						} else if sample.LatencyP95 > 0 {
-							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyP95))
-						} else {
-							p.latencyP95Label.SetText("--")
-						}
-						// Show error count
-						p.errorsLabel.SetText(fmt.Sprintf("%d", sample.Errors))
-					} else {
-						// MySQL/PostgreSQL with Sysbench: Show all metrics
-						if sample.TPS > 0 {
-							p.tpsLabel.SetText(fmt.Sprintf("%.0f", sample.TPS))
-						}
-						if sample.QPS > 0 {
-							p.qpsLabel.SetText(fmt.Sprintf("%.0f", sample.QPS))
-						}
-						if sample.LatencyP95 > 0 {
-							p.latencyP95Label.SetText(fmt.Sprintf("%.2fms", sample.LatencyP95))
-						}
-						p.errorsLabel.SetText(fmt.Sprintf("%.2f", sample.ErrorRate))
 					}
 
 					// Update thread count from form
@@ -1847,10 +1817,9 @@ func (p *TaskMonitorPage) setTaskFormEnabled(enabled bool) {
 // resetTaskMetrics resets all task metrics to initial state.
 func (p *TaskMonitorPage) resetTaskMetrics() {
 	p.progressBar.SetValue(0)
+	// Reset unified metrics
 	p.tpsLabel.SetText("--")
-	p.qpsLabel.SetText("--")
-	p.latencyP95Label.SetText("--")
-	p.errorsLabel.SetText("0.00")
+	p.qpsLabel.SetText("--")  // TPM display
 	p.threadsLabel.SetText("--")
 	// Clear log
 	p.logEntry.SetText("Waiting for benchmark data...\n")
