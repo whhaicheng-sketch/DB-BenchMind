@@ -579,7 +579,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 		},
 		// PostgreSQL templates
 		{
-			ID:          "sysbench-oltp-read-write-pg-test", // Unique ID for PostgreSQL test
+			ID:          "sysbench-postgresql-test", // Unique ID for PostgreSQL test
 			Name:        "Test (Sysbench)",
 			Description: "Lightweight test template for quick PostgreSQL testing (10 tables, 10K rows each)",
 			Tool:        "sysbench",
@@ -589,7 +589,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  testParams,
 		},
 		{
-			ID:          "sysbench-oltp-read-write-pg-cpu", // Unique ID for PostgreSQL CPU bound
+			ID:          "sysbench-postgresql-cpu-bound", // Unique ID for PostgreSQL CPU bound
 			Name:        "CPU Bound (Sysbench)",
 			Description: "CPU-bound test template for PostgreSQL (10 tables, 10M rows each - fits in memory)",
 			Tool:        "sysbench",
@@ -599,7 +599,7 @@ func (p *TaskMonitorPage) loadTemplatesData() []templateInfo {
 			Parameters:  cpuBoundParams,
 		},
 		{
-			ID:          "sysbench-oltp-read-write-pg-disk", // Unique ID for PostgreSQL disk bound
+			ID:          "sysbench-postgresql-disk-bound", // Unique ID for PostgreSQL disk bound
 			Name:        "Disk Bound (Sysbench)",
 			Description: "Disk-bound test template for PostgreSQL (50 tables, 10M rows each - exceeds memory)",
 			Tool:        "sysbench",

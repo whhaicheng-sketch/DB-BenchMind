@@ -524,12 +524,13 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 			stdoutBuf.WriteString("\n")
 
 			// Parse realtime TPM/NOPM for metrics
-			if strings.Contains(line, "NOPM") || strings.Contains(line, "TPM") {
-				re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:NOPM|TPM)`)
+			// HammerDB outputs: "9420 MSSQLServer tpm" or "38040 MSSQLServer tpm"
+			if strings.Contains(line, "tpm") || strings.Contains(line, "TPM") {
+				re := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:MSSQLServer\s+)?tpm`)
 				matches := re.FindStringSubmatch(line)
 				if len(matches) > 1 {
 					if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-						currentTPM = val / 60
+						currentTPM = val // Store actual TPM value
 					}
 				}
 			}
@@ -549,7 +550,8 @@ func (a *HammerDBAdapter) StartRealtimeCollection(ctx context.Context, stdout io
 			// This ensures buildschema output like "Loading Items - 50000" is captured
 			sample := Sample{
 				Timestamp:   time.Now(),
-				TPS:         currentTPM,
+				TPM:         currentTPM,                    // Actual TPM from HammerDB
+				TPS:         currentTPM / 60,               // Calculate TPS from TPM
 				LatencyAvg:  0,
 				LatencyP95:  0,
 				LatencyP99:  0,
