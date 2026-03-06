@@ -203,17 +203,44 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			return
 		}
 
-		// Prepare phase
+		// Prepare phase (idempotent: cleanup first, then prepare)
 		// For prepare-only mode, we bypass executePhase to avoid StatePrepared
 		// and go directly to StateCompleted
 		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
 
-		// Note: Tables existence check not implemented for Sysbench
-		// Users should ensure tables don't exist before prepare, or run cleanup first
-
 		// Update state to preparing before executing command
 		uc.updateState(ctx, run.ID, execution.StatePreparing)
 
+		// IDEMPOTENT PREPARE: First cleanup any existing tables, then prepare
+		// This ensures prepare is idempotent - running it multiple times produces the same result
+		slog.Info("Benchmark: Prepare phase - running cleanup first for idempotency", "run_id", run.ID)
+
+		cleanupCmd, err := adapt.BuildCleanupCommand(ctx, config)
+		if err != nil {
+			slog.Warn("Benchmark: Failed to build cleanup command, continuing with prepare", "error", err, "run_id", run.ID)
+		} else {
+			// Log cleanup step
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   "=== Cleaning up existing tables (idempotent prepare) ===",
+			})
+
+			// Execute cleanup (ignore errors - tables might not exist)
+			if err := uc.executeCommand(ctx, run, cleanupCmd); err != nil {
+				slog.Debug("Benchmark: Cleanup completed (some tables may not have existed)", "run_id", run.ID)
+			} else {
+				slog.Info("Benchmark: Cleanup completed successfully", "run_id", run.ID)
+			}
+
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   "=== Starting prepare (creating tables and loading data) ===",
+			})
+		}
+
+		// Now execute prepare command
 		cmd, err := adapt.BuildPrepareCommand(ctx, config)
 		if err != nil {
 			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("build prepare command: %v", err))
@@ -221,54 +248,12 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		}
 
 		if err := uc.executeCommand(ctx, run, cmd); err != nil {
-			// Check if error is "table already exists" (MySQL error 1050)
+			// Prepare failed after cleanup - this is a real error
 			errMsg := err.Error()
-			slog.Info("Benchmark: Prepare command failed, checking error type", "run_id", run.ID, "error", errMsg)
+			slog.Error("Benchmark: Prepare command failed after cleanup", "run_id", run.ID, "error", errMsg)
 
-			if strings.Contains(errMsg, "1050") || strings.Contains(errMsg, "already exists") ||
-				strings.Contains(errMsg, "Duplicate key") || strings.Contains(errMsg, "Table.*already exists") ||
-				strings.Contains(errMsg, "Table '") && strings.Contains(errMsg, "already exists") {
-				slog.Info("Benchmark: Prepare phase - table already exists, treating as error",
-					"error", err, "run_id", run.ID)
-
-				// Set user-friendly error message for UI popup
-				userMsg := "✗ Error: Benchmark tables already exist\n\nThe benchmark tables are already prepared.\n\nIf you want to re-create the tables:\n1. First run the '🧹 Cleanup' phase to drop existing tables\n2. Then run the '📦 Prepare' phase to create fresh tables\n\nOr you can directly run the '▶ Run' benchmark with existing data."
-
-				run.Message = userMsg
-				run.ErrorMessage = userMsg
-				uc.runRepo.Save(ctx, run)
-
-				// Mark as failed
-				uc.markAsFailed(ctx, run.ID, userMsg)
-
-				// Save error to logs
-				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "error",
-					Content:   strings.Repeat("=", 60),
-				})
-				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "error",
-					Content:   "✗ Error: Table already exists",
-				})
-				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "error",
-					Content:   userMsg,
-				})
-				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-					Timestamp: time.Now().Format(time.RFC3339),
-					Stream:    "error",
-					Content:   strings.Repeat("=", 60),
-				})
-
-				return // executeBenchmark is void, can't return error
-			} else {
-				// Other prepare errors
-				uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
-				return
-			}
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
+			return
 		} else {
 			// Prepare completed successfully
 			msg1 := "✓ Prepare phase completed successfully"

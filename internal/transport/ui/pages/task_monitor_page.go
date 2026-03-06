@@ -1353,16 +1353,8 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 		// Don't save _original_time for cleanup - this signals cleanup-only mode
 	}
 
-	// Start benchmark with configured options
-	run, err := p.benchmarkUC.StartBenchmark(ctx, task)
-	if err != nil {
-		dialog.ShowError(fmt.Errorf("failed to start %s phase: %w", phase, err), p.win)
-		return
-	}
-
-	// Store run ID for later reference
-	p.currentRunID = run.ID
-	slog.Info("Tasks: Benchmark phase started", "phase", phase, "run_id", run.ID, "task_id", task.ID)
+	// IMPORTANT: Set up UI state and realtime callback BEFORE starting benchmark
+	// This ensures we don't miss any early output from prepare/run phases
 
 	// Lock task form during execution
 	p.setTaskFormEnabled(false)
@@ -1383,6 +1375,7 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 
 	// Set realtime callback to receive samples directly (streaming, no polling)
 	// This provides zero-delay UI updates compared to database polling
+	// MUST be set BEFORE StartBenchmark to avoid missing early output
 	if phase == "run" || phase == "prepare" {
 		p.benchmarkUC.SetRealtimeCallback(func(runID string, sample execution.MetricSample) {
 			// Update UI in main thread using fyne.Do
@@ -1497,6 +1490,25 @@ func (p *TaskMonitorPage) startBenchmarkPhase(task *execution.BenchmarkTask, pha
 		// Clear callback for other phases
 		p.benchmarkUC.SetRealtimeCallback(nil)
 	}
+
+	// Start benchmark with configured options (AFTER setting callback)
+	run, err := p.benchmarkUC.StartBenchmark(ctx, task)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to start %s phase: %w", phase, err), p.win)
+		// Reset UI state on error
+		p.isRunning = false
+		p.setTaskFormEnabled(true)
+		p.btnPrepare.Enable()
+		p.btnRun.Enable()
+		p.btnCleanup.Enable()
+		p.btnStop.Disable()
+		p.benchmarkUC.SetRealtimeCallback(nil)
+		return
+	}
+
+	// Store run ID for later reference
+	p.currentRunID = run.ID
+	slog.Info("Tasks: Benchmark phase started", "phase", phase, "run_id", run.ID, "task_id", task.ID)
 
 	// Start monitoring goroutine (only for status tracking, not metrics)
 	slog.Info("Tasks: Starting monitor goroutine", "run_id", run.ID, "phase", phase)
