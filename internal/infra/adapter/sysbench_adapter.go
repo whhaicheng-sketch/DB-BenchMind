@@ -658,6 +658,19 @@ func (a *SysbenchAdapter) getScriptName(template *domaintemplate.Template) strin
 		// Extract the base script name (before any database-specific suffix)
 		// e.g., "oltp-read-write-mysql-cpu" -> "oltp-read-write"
 		//      "oltp-read-write-pg-test" -> "oltp-read-write"
+		// PostgreSQL-specific patterns (map to oltp_read_write)
+		pgPatterns := []string{
+			"postgresql-test",
+			"postgresql-cpu-bound",
+			"postgresql-disk-bound",
+		}
+		for _, pattern := range pgPatterns {
+			if scriptName == pattern {
+				scriptName = "oltp-read-write"
+				break
+			}
+		}
+
 		basePatterns := []string{
 			"oltp-read-write",
 			"oltp-read-only",
