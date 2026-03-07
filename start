@@ -1,0 +1,42 @@
+#!/bin/bash
+# DB-BenchMind 生产版启动脚本
+# 用于在本地直接运行 GUI 程序
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+APP_BIN="${SCRIPT_DIR}/build/bin/db-benchmind"
+
+# 检查二进制文件是否存在
+if [[ ! -f "$APP_BIN" ]]; then
+    echo "[ERROR] 未找到应用程序: $APP_BIN"
+    echo "       请先运行 'wails build' 构建程序"
+    exit 1
+fi
+
+# ============================================
+# 清理所有已运行的相关进程
+# ============================================
+KILLED=0
+if pgrep -f "wails dev" > /dev/null 2>&1; then
+    echo "[*] 终止已运行的 'wails dev' 进程..."
+    pkill -f "wails dev" 2>/dev/null || true
+    KILLED=1
+fi
+if pgrep -f "db-benchmind" > /dev/null 2>&1; then
+    echo "[*] 终止已运行的 'db-benchmind' 进程..."
+    pkill -f "db-benchmind" 2>/dev/null || true
+    KILLED=1
+fi
+
+if [[ $KILLED -eq 1 ]]; then
+    echo "[*] 等待进程完全退出..."
+    sleep 2
+    # 强制清理残留进程
+    pkill -9 -f "wails dev" 2>/dev/null || true
+    pkill -9 -f "db-benchmind" 2>/dev/null || true
+    sleep 1
+fi
+
+echo "[*] 启动 DB-BenchMind..."
+exec "$APP_BIN"

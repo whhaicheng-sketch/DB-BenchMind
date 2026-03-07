@@ -1,0 +1,73 @@
+#!/bin/bash
+# DB-BenchMind Wails GUI 启动脚本
+# 支持 SSH X11 转发环境
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "======================================"
+echo "   DB-BenchMind Wails GUI 启动器"
+echo "======================================"
+echo ""
+
+# 检查 wails 命令是否存在
+if ! command -v wails &> /dev/null; then
+    echo "[ERROR] wails 命令未安装，请先安装 Wails CLI"
+    echo "       参考: https://wails.io/docs/gettingstarted/installation"
+    exit 1
+fi
+
+# 检查 wails.json 是否存在
+if [[ ! -f "wails.json" ]]; then
+    echo "[ERROR] 未找到 wails.json，请在 Wails 项目根目录运行此脚本"
+    exit 1
+fi
+
+# ============================================
+# 清理所有已运行的相关进程
+# ============================================
+KILLED=0
+if pgrep -f "wails dev" > /dev/null 2>&1; then
+    echo "[*] 终止已运行的 'wails dev' 进程..."
+    pkill -f "wails dev" 2>/dev/null || true
+    KILLED=1
+fi
+if pgrep -f "db-benchmind" > /dev/null 2>&1; then
+    echo "[*] 终止已运行的 'db-benchmind' 进程..."
+    pkill -f "db-benchmind" 2>/dev/null || true
+    KILLED=1
+fi
+
+if [[ $KILLED -eq 1 ]]; then
+    echo "[*] 等待进程完全退出..."
+    sleep 2
+    # 强制清理残留进程
+    pkill -9 -f "wails dev" 2>/dev/null || true
+    pkill -9 -f "db-benchmind" 2>/dev/null || true
+    sleep 1
+fi
+
+# ============================================
+# WebKitGTK X11 转发兼容性配置
+# ============================================
+# WebKitGTK 默认使用 GPU 硬件加速，但 SSH X11 转发无法提供 GPU 访问
+# 以下环境变量禁用硬件加速，使 WebKit 能在 X11 转发环境下正常工作
+
+export WEBKIT_DISABLE_COMPOSITING_MODE=1    # 禁用 GPU 合成模式
+export WEBKIT_DISABLE_DMABUF_RENDERER=1     # 禁用 DMA-BUF 渲染器
+export GDK_BACKEND=x11                       # 强制使用 X11 后端
+
+# 检查 X11 转发是否可用
+if [[ -z "$DISPLAY" ]]; then
+    echo "[WARN] DISPLAY 环境变量为空，X11 转发可能未启用"
+    echo "       请确保使用 'ssh -X' 或 'ssh -Y' 连接服务器"
+fi
+
+echo "[*] X11 转发兼容环境已配置"
+echo "[*] 启动 Wails 开发服务器..."
+echo ""
+
+# 启动 wails dev
+exec wails dev
