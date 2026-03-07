@@ -1,0 +1,26 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "DB-BenchMind",
+  "outputfilename": "db-benchmind",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "DB-BenchMind Team",
+    "email": "noreply@example.com"
+  },
+  "info": {
+    "companyName": "DB-BenchMind",
+    "productName": "DB-BenchMind",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026",
+    "comments": "Database Benchmark Tool with Real-time Monitoring"
+  },
+  "build:options": {
+    "compressed": true,
+    "productionBuild": true,
+    "trimpath": true,
+    "upx": false
+  }
+}
