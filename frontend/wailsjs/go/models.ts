@@ -280,6 +280,7 @@ export namespace bindings {
 	    port: number;
 	    database?: string;
 	    username: string;
+	    password?: string;
 	    ssl_mode?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -295,6 +296,7 @@ export namespace bindings {
 	        this.port = source["port"];
 	        this.database = source["database"];
 	        this.username = source["username"];
+	        this.password = source["password"];
 	        this.ssl_mode = source["ssl_mode"];
 	    }
 	}
@@ -669,6 +671,26 @@ export namespace bindings {
 		    }
 		    return a;
 		}
+	}
+	export class WinRMTestRequest {
+	    host: string;
+	    port: number;
+	    username: string;
+	    password: string;
+	    use_https: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WinRMTestRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.use_https = source["use_https"];
+	    }
 	}
 
 }

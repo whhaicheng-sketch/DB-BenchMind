@@ -2,6 +2,7 @@
 package bindings
 
 import (
+	"fmt"
 	"context"
 	"log/slog"
 
@@ -30,6 +31,7 @@ type ConnectionDTO struct {
 	Port     int    `json:"port"`
 	Database string `json:"database,omitempty"`
 	Username string `json:"username"`
+	Password string `json:"password,omitempty"` // Loaded from keyring for display
 	SSLMode  string `json:"ssl_mode,omitempty"`
 }
 
@@ -69,6 +71,15 @@ type ConnectionUpdateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"` // Optional, empty means keep existing
 	SSLMode  string `json:"ssl_mode"`
+}
+
+// WinRMTestRequest represents a request to test WinRM connection.
+type WinRMTestRequest struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	UseHTTPS bool   `json:"use_https"`
 }
 
 // ListConnections returns all connections (Wails binding).
@@ -246,12 +257,71 @@ func (b *ConnectionBinding) TestConnection(id string) ConnectionTestResult {
 	}
 }
 
+// TestConnectionDirect tests a connection directly from request data (Wails binding).
+// This allows testing without saving to database first.
+func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) ConnectionTestResult {
+	ctx := context.Background()
+
+	var conn connection.Connection
+	switch req.Type {
+	case "mysql":
+		conn = usecase.NewMySQLConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
+		if mysqlConn, ok := conn.(*connection.MySQLConnection); ok {
+			mysqlConn.SSLMode = req.SSLMode
+			mysqlConn.SetPassword(req.Password)
+		}
+	case "postgresql":
+		conn = usecase.NewPostgreSQLConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
+		if pgConn, ok := conn.(*connection.PostgreSQLConnection); ok {
+			pgConn.SSLMode = req.SSLMode
+			pgConn.SetPassword(req.Password)
+		}
+	case "oracle":
+		conn = usecase.NewOracleConnection(req.Name, req.Host, "", "", req.Username, req.Port)
+		if oraConn, ok := conn.(*connection.OracleConnection); ok {
+			oraConn.SetPassword(req.Password)
+		}
+	case "sqlserver":
+		conn = usecase.NewSQLServerConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
+		if sqlConn, ok := conn.(*connection.SQLServerConnection); ok {
+			sqlConn.SetPassword(req.Password)
+		}
+	default:
+		return ConnectionTestResult{
+			Success: false,
+			Error:   "Unknown connection type: " + req.Type,
+		}
+	}
+
+	// Test the connection
+	result, err := conn.Test(ctx)
+	if err != nil {
+		slog.Error("TestConnectionDirect failed", "type", req.Type, "host", req.Host, "error", err)
+		return ConnectionTestResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return ConnectionTestResult{
+		Success:         result.Success,
+		LatencyMs:       result.LatencyMs,
+		DatabaseVersion: result.DatabaseVersion,
+		Error:           result.Error,
+	}
+}
+
 // toDTO converts a Connection to ConnectionDTO.
 func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 	dto := ConnectionDTO{
 		ID:   conn.GetID(),
 		Name: conn.GetName(),
 		Type: string(conn.GetType()),
+	}
+
+	// Load password from keyring for display
+	if pwd, err := b.uc.GetPassword(context.Background(), conn.GetID()); err == nil {
+		dto.Password = pwd
 	}
 
 	// Type-specific fields
@@ -284,4 +354,47 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 	}
 
 	return dto
+}
+
+// TestWinRMConnection tests a WinRM connection (Wails binding).
+func (b *ConnectionBinding) TestWinRMConnection(req WinRMTestRequest) ConnectionTestResult {
+	ctx := context.Background()
+
+	// Create WinRM config
+	winrmConfig := &connection.WinRMConfig{
+		Enabled:  true,
+		Host:     req.Host,
+		Port:     req.Port,
+		Username: req.Username,
+		Password: req.Password,
+		UseHTTPS: req.UseHTTPS,
+	}
+
+	// Create WinRM client and test
+	client, err := connection.NewWinRMClient(ctx, winrmConfig)
+	if err != nil {
+		slog.Error("WinRM: Failed to create client", "error", err)
+		return ConnectionTestResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to create WinRM client: %v", err),
+		}
+	}
+	defer client.Close()
+
+	// Test the connection
+	result, err := client.Test(ctx)
+	if err != nil {
+		slog.Error("WinRM: Test failed", "error", err)
+		return ConnectionTestResult{
+			Success: false,
+			Error:   fmt.Sprintf("WinRM test failed: %v", err),
+		}
+	}
+
+	return ConnectionTestResult{
+		Success:         result.Success,
+		LatencyMs:       result.LatencyMs,
+		DatabaseVersion: result.DatabaseVersion,
+		Error:           result.Error,
+	}
 }

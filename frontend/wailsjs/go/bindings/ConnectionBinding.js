@@ -22,6 +22,14 @@ export function TestConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestConnection'](arg1);
 }
 
+export function TestConnectionDirect(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestConnectionDirect'](arg1);
+}
+
+export function TestWinRMConnection(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestWinRMConnection'](arg1);
+}
+
 export function UpdateConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['UpdateConnection'](arg1);
 }

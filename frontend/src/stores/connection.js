@@ -1,6 +1,7 @@
 /**
  * Connection Pinia Store
  * Manages database connection state for DB-BenchMind Wails frontend.
+ * Supports SSH Tunnel and WinRM configuration.
  */
 import { defineStore } from 'pinia'
 import {
@@ -9,7 +10,10 @@ import {
   CreateConnection,
   UpdateConnection,
   DeleteConnection,
-  TestConnection
+  TestConnection,
+  TestWinRMConnection,
+  
+  
 } from '../../wailsjs/go/bindings/ConnectionBinding'
 
 export const useConnectionStore = defineStore('connection', {
@@ -23,7 +27,11 @@ export const useConnectionStore = defineStore('connection', {
     // Error message
     error: null,
     // Test result
-    testResult: null
+    testResult: null,
+    // SSH test result
+    sshTestResult: null,
+    // WinRM test result
+    winrmTestResult: null
   }),
 
   getters: {
@@ -51,6 +59,14 @@ export const useConnectionStore = defineStore('connection', {
       postgresql: 'PostgreSQL',
       oracle: 'Oracle',
       sqlserver: 'SQL Server'
+    }),
+
+    // Database icons
+    typeIcons: () => ({
+      mysql: '🐬',
+      postgresql: '🐘',
+      oracle: '🔴',
+      sqlserver: '🔷'
     })
   },
 
@@ -108,7 +124,19 @@ export const useConnectionStore = defineStore('connection', {
           database: connectionData.database || '',
           username: connectionData.username,
           password: connectionData.password || '',
-          ssl_mode: connectionData.ssl_mode || ''
+          // SSH Configuration
+          ssh_enabled: connectionData.ssh_enabled || false,
+          ssh_port: connectionData.ssh_port || 22,
+          ssh_username: connectionData.ssh_username || '',
+          ssh_password: connectionData.ssh_password || '',
+          // WinRM Configuration
+          winrm_enabled: connectionData.winrm_enabled || false,
+          winrm_port: connectionData.winrm_port || 5985,
+          winrm_use_https: connectionData.winrm_use_https || false,
+          winrm_username: connectionData.winrm_username || '',
+          winrm_password: connectionData.winrm_password || '',
+          // SQL Server specific
+          trust_server_certificate: connectionData.trust_server_certificate ?? true
         })
 
         if (newConn) {
@@ -142,7 +170,19 @@ export const useConnectionStore = defineStore('connection', {
           database: connectionData.database || '',
           username: connectionData.username,
           password: connectionData.password || '',
-          ssl_mode: connectionData.ssl_mode || ''
+          // SSH Configuration
+          ssh_enabled: connectionData.ssh_enabled || false,
+          ssh_port: connectionData.ssh_port || 22,
+          ssh_username: connectionData.ssh_username || '',
+          ssh_password: connectionData.ssh_password || '',
+          // WinRM Configuration
+          winrm_enabled: connectionData.winrm_enabled || false,
+          winrm_port: connectionData.winrm_port || 5985,
+          winrm_use_https: connectionData.winrm_use_https || false,
+          winrm_username: connectionData.winrm_username || '',
+          winrm_password: connectionData.winrm_password || '',
+          // SQL Server specific
+          trust_server_certificate: connectionData.trust_server_certificate ?? true
         })
 
         if (updatedConn) {
@@ -191,13 +231,13 @@ export const useConnectionStore = defineStore('connection', {
     /**
      * Test a connection by ID
      */
-    async testConnectionById(id) {
+    async testConnectionById(id, skipTunnel = false) {
       this.loading = true
       this.error = null
       this.testResult = null
 
       try {
-        const result = await TestConnection(id)
+        const result = await TestConnection(id, skipTunnel)
         this.testResult = result
         return result
       } catch (err) {
@@ -213,10 +253,68 @@ export const useConnectionStore = defineStore('connection', {
     },
 
     /**
+     * Test SSH tunnel connection
+     */
+    async testSSHConnection(sshConfig) {
+      this.loading = true
+      this.sshTestResult = null
+
+      try {
+        const result = await TestSSHConnection({
+          host: sshConfig.host,
+          port: sshConfig.port || 22,
+          username: sshConfig.username,
+          password: sshConfig.password
+        })
+        this.sshTestResult = result
+        return result
+      } catch (err) {
+        this.sshTestResult = {
+          success: false,
+          host: sshConfig.host,
+          error: err.message || 'Failed to test SSH connection'
+        }
+        return this.sshTestResult
+      } finally {
+        this.loading = false
+      }
+    },
+    /**
+     * Test WinRM connection
+     */
+    async testWinRMConnection(winrmConfig) {
+      this.loading = true
+      this.winrmTestResult = null
+
+      try {
+        const result = await TestWinRMConnection({
+          host: winrmConfig.host,
+          port: winrmConfig.port || (winrmConfig.use_https ? 5986 : 5985),
+          username: winrmConfig.username,
+          password: winrmConfig.password,
+          use_https: winrmConfig.use_https || false
+        })
+        this.winrmTestResult = result
+        return result
+      } catch (err) {
+        this.winrmTestResult = {
+          success: false,
+          host: winrmConfig.host,
+          error: err.message || 'Failed to test WinRM connection'
+        }
+        return this.winrmTestResult
+      } finally {
+        this.loading = false
+      }
+    },
+
+    /**
      * Clear test result
      */
     clearTestResult() {
       this.testResult = null
+      this.sshTestResult = null
+      this.winrmTestResult = null
     },
 
     /**

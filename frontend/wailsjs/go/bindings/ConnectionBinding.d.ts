@@ -12,4 +12,8 @@ export function ListConnections():Promise<bindings.ConnectionListResult>;
 
 export function TestConnection(arg1:string):Promise<bindings.ConnectionTestResult>;
 
+export function TestConnectionDirect(arg1:bindings.ConnectionCreateRequest):Promise<bindings.ConnectionTestResult>;
+
+export function TestWinRMConnection(arg1:bindings.WinRMTestRequest):Promise<bindings.ConnectionTestResult>;
+
 export function UpdateConnection(arg1:bindings.ConnectionUpdateRequest):Promise<bindings.ConnectionDTO>;
