@@ -204,7 +204,14 @@ const typeOptions = [
 // ============================================================
 // Watchers
 // ============================================================
+// Flag to prevent type watch from resetting during edit mode data load
+const isLoadingEditData = ref(false)
+
 watch(() => formData.value.type, (newType) => {
+  // Skip reset when loading edit data - the connectionId watch will set all values
+  if (isLoadingEditData.value) {
+    return
+  }
   const schema = DB_SCHEMA[newType]
   formData.value.port = schema.defaultPort
   formData.value.username = schema.defaultUsername
@@ -226,6 +233,8 @@ watch(() => props.connectionId, async (newId) => {
   if (newId && props.mode === 'edit') {
     const conn = connectionStore.connections.find(c => c.id === newId)
     if (conn) {
+      // Set flag to prevent type watch from resetting values
+      isLoadingEditData.value = true
       formData.value = {
         name: conn.name,
         type: conn.type,
@@ -248,6 +257,8 @@ watch(() => props.connectionId, async (newId) => {
         winrm_username: conn.winrm_username || '',
         winrm_password: conn.winrm_password || ''  // Keep saved WinRM password
       }
+      // Clear flag after data is loaded
+      isLoadingEditData.value = false
     }
   }
 }, { immediate: true })

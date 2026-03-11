@@ -255,6 +255,19 @@ export namespace bindings {
 	    username: string;
 	    password: string;
 	    ssl_mode: string;
+	    sid?: string;
+	    service_name?: string;
+	    connect_type?: string;
+	    connect_as?: string;
+	    ssh_enabled: boolean;
+	    ssh_port?: number;
+	    ssh_username?: string;
+	    ssh_password?: string;
+	    winrm_enabled: boolean;
+	    winrm_port?: number;
+	    winrm_use_https: boolean;
+	    winrm_username?: string;
+	    winrm_password?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionCreateRequest(source);
@@ -270,6 +283,19 @@ export namespace bindings {
 	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.ssl_mode = source["ssl_mode"];
+	        this.sid = source["sid"];
+	        this.service_name = source["service_name"];
+	        this.connect_type = source["connect_type"];
+	        this.connect_as = source["connect_as"];
+	        this.ssh_enabled = source["ssh_enabled"];
+	        this.ssh_port = source["ssh_port"];
+	        this.ssh_username = source["ssh_username"];
+	        this.ssh_password = source["ssh_password"];
+	        this.winrm_enabled = source["winrm_enabled"];
+	        this.winrm_port = source["winrm_port"];
+	        this.winrm_use_https = source["winrm_use_https"];
+	        this.winrm_username = source["winrm_username"];
+	        this.winrm_password = source["winrm_password"];
 	    }
 	}
 	export class ConnectionDTO {
@@ -289,6 +315,12 @@ export namespace bindings {
 	    ssh_port?: number;
 	    ssh_username?: string;
 	    ssh_password?: string;
+	    winrm_enabled: boolean;
+	    winrm_port?: number;
+	    winrm_use_https: boolean;
+	    winrm_username?: string;
+	    winrm_password?: string;
+	    trust_server_certificate: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionDTO(source);
@@ -312,6 +344,12 @@ export namespace bindings {
 	        this.ssh_port = source["ssh_port"];
 	        this.ssh_username = source["ssh_username"];
 	        this.ssh_password = source["ssh_password"];
+	        this.winrm_enabled = source["winrm_enabled"];
+	        this.winrm_port = source["winrm_port"];
+	        this.winrm_use_https = source["winrm_use_https"];
+	        this.winrm_username = source["winrm_username"];
+	        this.winrm_password = source["winrm_password"];
+	        this.trust_server_certificate = source["trust_server_certificate"];
 	    }
 	}
 	export class ConnectionListResult {
@@ -373,6 +411,19 @@ export namespace bindings {
 	    username: string;
 	    password?: string;
 	    ssl_mode: string;
+	    sid?: string;
+	    service_name?: string;
+	    connect_type?: string;
+	    connect_as?: string;
+	    ssh_enabled: boolean;
+	    ssh_port?: number;
+	    ssh_username?: string;
+	    ssh_password?: string;
+	    winrm_enabled: boolean;
+	    winrm_port?: number;
+	    winrm_use_https: boolean;
+	    winrm_username?: string;
+	    winrm_password?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionUpdateRequest(source);
@@ -388,6 +439,19 @@ export namespace bindings {
 	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.ssl_mode = source["ssl_mode"];
+	        this.sid = source["sid"];
+	        this.service_name = source["service_name"];
+	        this.connect_type = source["connect_type"];
+	        this.connect_as = source["connect_as"];
+	        this.ssh_enabled = source["ssh_enabled"];
+	        this.ssh_port = source["ssh_port"];
+	        this.ssh_username = source["ssh_username"];
+	        this.ssh_password = source["ssh_password"];
+	        this.winrm_enabled = source["winrm_enabled"];
+	        this.winrm_port = source["winrm_port"];
+	        this.winrm_use_https = source["winrm_use_https"];
+	        this.winrm_username = source["winrm_username"];
+	        this.winrm_password = source["winrm_password"];
 	    }
 	}
 	export class MonitorBinding {

@@ -18,6 +18,14 @@ tclsh8.6
 HammerDB*.md
 返回
 
+# 构建产物
+build/
+bin/
+db-benchmind
+frontend/dist/
+frontend/node_modules/
+frontend/data/*.db
+
 # IDE 和编辑器
 .idea/
 .vscode/
@@ -31,3 +39,4 @@ Thumbs.db
 # 临时目录
 tmp/
 temp/
+data/
