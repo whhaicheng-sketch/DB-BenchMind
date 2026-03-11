@@ -6,7 +6,7 @@
  */
 import { ref, computed, watch } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
-import { TestConnectionDirect } from '../../../wailsjs/go/bindings/ConnectionBinding'
+import { TestConnectionDirect, TestSSHConnection } from '../../../wailsjs/go/bindings/ConnectionBinding'
 
 // Props
 const props = defineProps({
@@ -169,6 +169,9 @@ const formError = ref(null)
 const fieldErrors = ref({})
 const testResult = ref(null)
 const testStatus = ref('idle')
+const sshTesting = ref(false)
+const sshTestResult = ref(null)
+const sshTestStatus = ref('idle')
 
 // ============================================================
 // Computed Properties
@@ -230,7 +233,7 @@ watch(() => props.connectionId, async (newId) => {
         port: conn.port,
         database: conn.database || '',
         username: conn.username,
-        password: '',
+        password: conn.password || '',  // Keep saved password for edit
         connect_type: conn.connect_type || 'service_name',
         connection_string: conn.connection_string || '',
         auth_type: conn.auth_type || 'sql',
@@ -238,12 +241,12 @@ watch(() => props.connectionId, async (newId) => {
         ssh_enabled: conn.ssh_enabled || false,
         ssh_port: conn.ssh_port || 22,
         ssh_username: conn.ssh_username || '',
-        ssh_password: '',
+        ssh_password: conn.ssh_password || '',  // Keep saved SSH password
         winrm_enabled: conn.winrm_enabled || false,
         winrm_port: conn.winrm_port || 5985,
         winrm_use_https: conn.winrm_use_https || false,
         winrm_username: conn.winrm_username || '',
-        winrm_password: ''
+        winrm_password: conn.winrm_password || ''  // Keep saved WinRM password
       }
     }
   }
@@ -397,6 +400,42 @@ const handleTestConnection = async () => {
   }
 }
 
+// SSH Connection Test
+const handleTestSSH = async () => {
+  if (!formData.value.host || !formData.value.ssh_username) {
+    sshTestStatus.value = 'error'
+    sshTestResult.value = {
+      success: false,
+      error: 'Please fill in Host and SSH Username before testing'
+    }
+    return
+  }
+
+  sshTesting.value = true
+  sshTestStatus.value = 'testing'
+  sshTestResult.value = null
+
+  try {
+    const result = await TestSSHConnection({
+      host: formData.value.host,
+      port: formData.value.ssh_port || 22,
+      username: formData.value.ssh_username,
+      password: formData.value.ssh_password || ''
+    })
+
+    sshTestResult.value = result
+    sshTestStatus.value = result.success ? 'success' : 'error'
+  } catch (err) {
+    sshTestStatus.value = 'error'
+    sshTestResult.value = {
+      success: false,
+      error: err.message || 'SSH test failed'
+    }
+  } finally {
+    sshTesting.value = false
+  }
+}
+
 const handleCancel = () => {
   emit('cancelled')
   resetForm()
@@ -429,6 +468,8 @@ const resetForm = () => {
   fieldErrors.value = {}
   testResult.value = null
   testStatus.value = 'idle'
+  sshTestResult.value = null
+  sshTestStatus.value = 'idle'
   showPassword.value = false
   showSshPassword.value = false
   showWinrmPassword.value = false
@@ -616,7 +657,7 @@ const resetForm = () => {
             </div>
 
             <!-- Database Name / Service Name / SID -->
-            <div v-if="!showConnectionString">
+            <div v-if="!showConnectionString" class="conn-form__field">
               <label class="conn-form__label">
                 {{ currentSchema.databaseLabel }}
                 <span v-if="!currentSchema.databaseRequired" class="conn-form__optional">(optional)</span>
@@ -822,6 +863,34 @@ const resetForm = () => {
             </div>
           </div>
         </div>
+
+        <!-- SSH Test Button -->
+        <div v-if="formData.ssh_enabled" class="conn-form__test" style="margin-top: 12px;">
+          <button
+            class="conn-form__test-btn"
+            :class="{
+              'conn-form__test-btn--testing': sshTestStatus === 'testing',
+              'conn-form__test-btn--success': sshTestStatus === 'success',
+              'conn-form__test-btn--error': sshTestStatus === 'error'
+            }"
+            @click="handleTestSSH"
+            :disabled="sshTesting || saving || !formData.ssh_username"
+          >
+            <span v-if="sshTestStatus === 'testing'" class="conn-form__spinner"></span>
+            <span v-else-if="sshTestStatus === 'success'" class="conn-form__test-icon">✓</span>
+            <span v-else-if="sshTestStatus === 'error'" class="conn-form__test-icon">✗</span>
+            <span>{{ sshTesting ? ' Testing SSH...' : 'Test SSH Tunnel' }}</span>
+          </button>
+
+          <div v-if="sshTestResult" class="conn-form__test-result" :class="sshTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
+            <div class="conn-form__test-status">
+              {{ sshTestResult.success ? 'SSH connection successful' : 'SSH connection failed' }}
+            </div>
+            <div v-if="sshTestResult.error" class="conn-form__test-error">
+              {{ sshTestResult.error }}
+            </div>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -865,8 +934,12 @@ const resetForm = () => {
   background-color: var(--form-bg);
   border-radius: 8px;
   padding: 0;
-  min-width: 680px;
-  max-width: 800px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh; /* 限制最大高度 */
 }
 
 /* ============================================================
@@ -875,6 +948,7 @@ const resetForm = () => {
 .conn-form__header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--form-border);
+  flex-shrink: 0; /* 防止被压缩 */
 }
 
 .conn-form__title {
@@ -909,10 +983,15 @@ const resetForm = () => {
 }
 
 /* ============================================================
-   Body
+   Body - Scrollable Container
    ============================================================ */
 .conn-form__body {
   padding: 20px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(90vh - 160px); /* 减去 header + footer 高度 */
+  flex: 1;
+  min-height: 0; /* 关键：允许 flex 子项收缩 */
 }
 
 /* ============================================================
@@ -968,11 +1047,11 @@ const resetForm = () => {
 .conn-form__grid {
   display: grid;
   gap: 16px;
+  width: 100%;
 }
 
 .conn-form__grid--basic {
   grid-template-columns: 1fr 1fr;
-  grid-template-columns: repeat(2, 1fr);
 }
 
 .conn-form__grid--auth {
@@ -1055,6 +1134,41 @@ const resetForm = () => {
   outline: none;
   border-color: var(--form-border-focus);
   box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+}
+
+/* Select 暗色主题完整支持 */
+.conn-form__select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0aec0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.conn-form__select:hover {
+  background-color: #2a3a4a;
+  border-color: #4a5a6a;
+}
+
+.conn-form__select option {
+  background-color: #252f3f;
+  color: var(--form-text);
+  padding: 8px;
+}
+
+.conn-form__select option:hover,
+.conn-form__select option:checked {
+  background-color: #3a4a5a;
+  color: #fff;
+}
+
+/* Firefox 选项样式 */
+.conn-form__select:-moz-focusring {
+  color: transparent;
+  text-shadow: 0 0 0 var(--form-text);
 }
 
 .conn-form__input::placeholder {
@@ -1263,7 +1377,7 @@ const resetForm = () => {
 }
 
 /* ============================================================
-   Footer
+   Footer - Fixed at bottom
    ============================================================ */
 .conn-form__footer {
   display: flex;
@@ -1271,6 +1385,8 @@ const resetForm = () => {
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid var(--form-border);
+  flex-shrink: 0; /* 防止被压缩 */
+  background-color: var(--form-bg);
 }
 
 .conn-form__btn {

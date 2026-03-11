@@ -8,6 +8,15 @@ frontend/test_*.js
 frontend/verify_*.js
 frontend/check_*.js
 frontend/*.js.save
+frontend/create_fail_*.js
+frontend/quick_verify.js
+frontend/final_verify.js
+playwright_test.js
+status
+stop
+tclsh8.6
+HammerDB*.md
+返回
 
 # IDE 和编辑器
 .idea/
