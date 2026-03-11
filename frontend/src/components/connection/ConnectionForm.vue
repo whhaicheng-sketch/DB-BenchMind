@@ -257,8 +257,12 @@ watch(() => props.connectionId, async (newId) => {
         winrm_username: conn.winrm_username || '',
         winrm_password: conn.winrm_password || ''  // Keep saved WinRM password
       }
-      // Clear flag after data is loaded
-      isLoadingEditData.value = false
+      // Clear flag in next tick to ensure type watch has completed
+      // IMPORTANT: Must use nextTick because Vue batches updates,
+      // and the type watch might trigger again in the same tick
+      nextTick(() => {
+        isLoadingEditData.value = false
+      })
     }
   }
 }, { immediate: true })
