@@ -52,9 +52,8 @@
               </div>
             </div>
 
-            <!-- Tags(只显示 SSL，非默认数据库名) -->
+            <!-- Tags(只显示非默认数据库名) -->
             <div class="conn-tags">
-              <span v-if="conn.ssl_mode" class="tag tag-ssl">SSL</span>
               <span v-if="shouldShowDatabaseTag(conn)" class="tag tag-db">{{ conn.database }}</span>
             </div>
 
@@ -686,10 +685,10 @@ const handleSaved = () => {
 .modal-content {
   background-color: #1a202c;
   border-radius: 8px;
-  max-width: 1000px;
-  width: 95%;
+  max-width: 820px;
+  width: 90%;
   max-height: 90vh;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   border: 1px solid #2d3748;

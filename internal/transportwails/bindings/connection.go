@@ -36,6 +36,11 @@ type ConnectionDTO struct {
 	SID         string `json:"sid,omitempty"`
 	ServiceName string `json:"service_name,omitempty"`
 	ConnectType string `json:"connect_type,omitempty"`
+	// SSH configuration
+	SSHEnabled  bool   `json:"ssh_enabled"`
+	SSHPort     int    `json:"ssh_port,omitempty"`
+	SSHUsername string `json:"ssh_username,omitempty"`
+	SSHPassword string `json:"ssh_password,omitempty"` // Loaded from keyring for display
 }
 
 // ConnectionListResult represents the result of ListConnections.
@@ -335,12 +340,32 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 		dto.Database = c.Database
 		dto.Username = c.Username
 		dto.SSLMode = c.SSLMode
+		// SSH configuration
+		if c.SSH != nil {
+			dto.SSHEnabled = c.SSH.Enabled
+			dto.SSHPort = c.SSH.Port
+			dto.SSHUsername = c.SSH.Username
+			// Load SSH password from keyring
+			if sshPwd, err := b.uc.GetSSHPassword(context.Background(), conn.GetID()); err == nil {
+				dto.SSHPassword = sshPwd
+			}
+		}
 	case *connection.PostgreSQLConnection:
 		dto.Host = c.Host
 		dto.Port = c.Port
 		dto.Database = c.Database
 		dto.Username = c.Username
 		dto.SSLMode = c.SSLMode
+		// SSH configuration
+		if c.SSH != nil {
+			dto.SSHEnabled = c.SSH.Enabled
+			dto.SSHPort = c.SSH.Port
+			dto.SSHUsername = c.SSH.Username
+			// Load SSH password from keyring
+			if sshPwd, err := b.uc.GetSSHPassword(context.Background(), conn.GetID()); err == nil {
+				dto.SSHPassword = sshPwd
+			}
+		}
 	case *connection.OracleConnection:
 		dto.Host = c.Host
 		dto.Port = c.Port
@@ -357,6 +382,16 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 			dto.ConnectType = "service_name"
 		}
 		dto.Username = c.Username
+		// SSH configuration
+		if c.SSH != nil {
+			dto.SSHEnabled = c.SSH.Enabled
+			dto.SSHPort = c.SSH.Port
+			dto.SSHUsername = c.SSH.Username
+			// Load SSH password from keyring
+			if sshPwd, err := b.uc.GetSSHPassword(context.Background(), conn.GetID()); err == nil {
+				dto.SSHPassword = sshPwd
+			}
+		}
 	case *connection.SQLServerConnection:
 		dto.Host = c.Host
 		dto.Port = c.Port

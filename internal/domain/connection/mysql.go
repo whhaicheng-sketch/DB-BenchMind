@@ -148,7 +148,8 @@ func (c *MySQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	}
 
 	// SSL modes to try in order (most common first)
-	sslModes := []string{"disabled", "preferred", "required"}
+	// Valid MySQL TLS values: false, true, skip-verify, preferred
+	sslModes := []string{"false", "preferred", "skip-verify"}
 
 	var lastErr error
 	for _, sslMode := range sslModes {

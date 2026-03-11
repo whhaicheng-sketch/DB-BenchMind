@@ -285,6 +285,10 @@ export namespace bindings {
 	    sid?: string;
 	    service_name?: string;
 	    connect_type?: string;
+	    ssh_enabled: boolean;
+	    ssh_port?: number;
+	    ssh_username?: string;
+	    ssh_password?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionDTO(source);
@@ -304,6 +308,10 @@ export namespace bindings {
 	        this.sid = source["sid"];
 	        this.service_name = source["service_name"];
 	        this.connect_type = source["connect_type"];
+	        this.ssh_enabled = source["ssh_enabled"];
+	        this.ssh_port = source["ssh_port"];
+	        this.ssh_username = source["ssh_username"];
+	        this.ssh_password = source["ssh_password"];
 	    }
 	}
 	export class ConnectionListResult {
