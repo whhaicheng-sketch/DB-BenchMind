@@ -375,7 +375,8 @@ const handleTestConnection = async () => {
   testing.value = true
 
   try {
-    const result = await TestConnectionDirect({
+    // Build test request with type-specific fields
+    const testRequest = {
       name: formData.value.name || 'Test Connection',
       type: formData.value.type,
       host: formData.value.host,
@@ -384,7 +385,16 @@ const handleTestConnection = async () => {
       username: formData.value.username,
       password: formData.value.password || '',
       ssl_mode: ''
-    })
+    }
+
+    // Add Oracle-specific fields
+    if (formData.value.type === 'oracle') {
+      testRequest.connect_type = formData.value.connect_type || 'service_name'
+      testRequest.sid = formData.value.connect_type === 'sid' ? formData.value.database : ''
+      testRequest.service_name = formData.value.connect_type === 'service_name' ? formData.value.database : ''
+    }
+
+    const result = await TestConnectionDirect(testRequest)
 
     testResult.value = result
     testStatus.value = result.success ? 'success' : 'error'

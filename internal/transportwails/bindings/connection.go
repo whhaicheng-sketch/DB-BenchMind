@@ -41,6 +41,14 @@ type ConnectionDTO struct {
 	SSHPort     int    `json:"ssh_port,omitempty"`
 	SSHUsername string `json:"ssh_username,omitempty"`
 	SSHPassword string `json:"ssh_password,omitempty"` // Loaded from keyring for display
+	// WinRM configuration
+	WinRMEnabled  bool   `json:"winrm_enabled"`
+	WinRMPort     int    `json:"winrm_port,omitempty"`
+	WinRMUseHTTPS bool   `json:"winrm_use_https"`
+	WinRMUsername string `json:"winrm_username,omitempty"`
+	WinRMPassword string `json:"winrm_password,omitempty"` // Loaded from keyring for display
+	// SQL Server configuration
+	TrustServerCertificate bool `json:"trust_server_certificate"`
 }
 
 // ConnectionListResult represents the result of ListConnections.
@@ -67,6 +75,22 @@ type ConnectionCreateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
+	// Oracle specific fields
+	SID         string `json:"sid,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
+	ConnectType string `json:"connect_type,omitempty"` // "sid" or "service_name"
+	ConnectAs   string `json:"connect_as,omitempty"`   // "normal", "sysdba", "sysoper"
+	// SSH Configuration
+	SSHEnabled  bool   `json:"ssh_enabled"`
+	SSHPort     int    `json:"ssh_port,omitempty"`
+	SSHUsername string `json:"ssh_username,omitempty"`
+	SSHPassword string `json:"ssh_password,omitempty"`
+	// WinRM Configuration
+	WinRMEnabled  bool   `json:"winrm_enabled"`
+	WinRMPort     int    `json:"winrm_port,omitempty"`
+	WinRMUseHTTPS bool   `json:"winrm_use_https"`
+	WinRMUsername string `json:"winrm_username,omitempty"`
+	WinRMPassword string `json:"winrm_password,omitempty"`
 }
 
 // ConnectionUpdateRequest represents a request to update a connection.
@@ -79,6 +103,22 @@ type ConnectionUpdateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"` // Optional, empty means keep existing
 	SSLMode  string `json:"ssl_mode"`
+	// Oracle specific fields
+	SID         string `json:"sid,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
+	ConnectType string `json:"connect_type,omitempty"` // "sid" or "service_name"
+	ConnectAs   string `json:"connect_as,omitempty"`   // "normal", "sysdba", "sysoper"
+	// SSH Configuration
+	SSHEnabled  bool   `json:"ssh_enabled"`
+	SSHPort     int    `json:"ssh_port,omitempty"`
+	SSHUsername string `json:"ssh_username,omitempty"`
+	SSHPassword string `json:"ssh_password,omitempty"`
+	// WinRM Configuration
+	WinRMEnabled  bool   `json:"winrm_enabled"`
+	WinRMPort     int    `json:"winrm_port,omitempty"`
+	WinRMUseHTTPS bool   `json:"winrm_use_https"`
+	WinRMUsername string `json:"winrm_username,omitempty"`
+	WinRMPassword string `json:"winrm_password,omitempty"`
 }
 
 // WinRMTestRequest represents a request to test WinRM connection.
@@ -139,22 +179,78 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) *Conne
 		if mysqlConn, ok := conn.(*connection.MySQLConnection); ok {
 			mysqlConn.SSLMode = req.SSLMode
 			mysqlConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				mysqlConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "postgresql":
 		conn = usecase.NewPostgreSQLConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if pgConn, ok := conn.(*connection.PostgreSQLConnection); ok {
 			pgConn.SSLMode = req.SSLMode
 			pgConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				pgConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "oracle":
-		conn = usecase.NewOracleConnection(req.Name, req.Host, "", "", req.Username, req.Port)
+		// Determine SID/ServiceName based on connect_type
+		sid := ""
+		serviceName := ""
+		if req.ConnectType == "sid" {
+			sid = req.Database
+		} else if req.ConnectType == "service_name" {
+			serviceName = req.Database
+		} else if req.SID != "" {
+			sid = req.SID
+		} else if req.ServiceName != "" {
+			serviceName = req.ServiceName
+		} else {
+			// Default: treat database field as SID for backward compatibility
+			sid = req.Database
+		}
+		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
 			oraConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				oraConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "sqlserver":
 		conn = usecase.NewSQLServerConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if sqlConn, ok := conn.(*connection.SQLServerConnection); ok {
 			sqlConn.SetPassword(req.Password)
+			// WinRM configuration
+			if req.WinRMEnabled {
+				sqlConn.WinRM = &connection.WinRMConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.WinRMPort,
+					Username: req.WinRMUsername,
+					Password: req.WinRMPassword,
+					UseHTTPS: req.WinRMUseHTTPS,
+				}
+			}
 		}
 	default:
 		slog.Error("Unknown connection type", "type", req.Type)
@@ -195,6 +291,18 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *Conne
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
 		}
+		// SSH configuration
+		if req.SSHEnabled {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     req.Host,
+				Port:     req.SSHPort,
+				Username: req.SSHUsername,
+				Password: req.SSHPassword,
+			}
+		} else {
+			conn.SSH = nil
+		}
 	case *connection.PostgreSQLConnection:
 		conn.SetName(req.Name)
 		conn.Host = req.Host
@@ -207,13 +315,49 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *Conne
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
 		}
+		// SSH configuration
+		if req.SSHEnabled {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     req.Host,
+				Port:     req.SSHPort,
+				Username: req.SSHUsername,
+				Password: req.SSHPassword,
+			}
+		} else {
+			conn.SSH = nil
+		}
 	case *connection.OracleConnection:
 		conn.SetName(req.Name)
 		conn.Host = req.Host
 		conn.Port = req.Port
 		conn.Username = req.Username
+		// Update SID/ServiceName based on connect_type
+		if req.ConnectType == "sid" {
+			conn.SID = req.Database
+			conn.ServiceName = ""
+		} else if req.ConnectType == "service_name" {
+			conn.ServiceName = req.Database
+			conn.SID = ""
+		} else if req.SID != "" {
+			conn.SID = req.SID
+		} else if req.ServiceName != "" {
+			conn.ServiceName = req.ServiceName
+		}
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
+		}
+		// SSH configuration
+		if req.SSHEnabled {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     req.Host,
+				Port:     req.SSHPort,
+				Username: req.SSHUsername,
+				Password: req.SSHPassword,
+			}
+		} else {
+			conn.SSH = nil
 		}
 	case *connection.SQLServerConnection:
 		conn.SetName(req.Name)
@@ -223,6 +367,19 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *Conne
 		conn.Username = req.Username
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
+		}
+		// WinRM configuration
+		if req.WinRMEnabled {
+			conn.WinRM = &connection.WinRMConfig{
+				Enabled:  true,
+				Host:     req.Host,
+				Port:     req.WinRMPort,
+				Username: req.WinRMUsername,
+				Password: req.WinRMPassword,
+				UseHTTPS: req.WinRMUseHTTPS,
+			}
+		} else {
+			conn.WinRM = nil
 		}
 	}
 
@@ -285,7 +442,22 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 			pgConn.SetPassword(req.Password)
 		}
 	case "oracle":
-		conn = usecase.NewOracleConnection(req.Name, req.Host, "", "", req.Username, req.Port)
+		// Determine SID/ServiceName based on connect_type
+		sid := ""
+		serviceName := ""
+		if req.ConnectType == "sid" {
+			sid = req.Database
+		} else if req.ConnectType == "service_name" {
+			serviceName = req.Database
+		} else if req.SID != "" {
+			sid = req.SID
+		} else if req.ServiceName != "" {
+			serviceName = req.ServiceName
+		} else {
+			// Default: treat database field as SID for backward compatibility
+			sid = req.Database
+		}
+		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
 			oraConn.SetPassword(req.Password)
 		}
@@ -397,6 +569,18 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 		dto.Port = c.Port
 		dto.Database = c.Database
 		dto.Username = c.Username
+		dto.TrustServerCertificate = c.TrustServerCertificate
+		// WinRM configuration
+		if c.WinRM != nil {
+			dto.WinRMEnabled = c.WinRM.Enabled
+			dto.WinRMPort = c.WinRM.Port
+			dto.WinRMUseHTTPS = c.WinRM.UseHTTPS
+			dto.WinRMUsername = c.WinRM.Username
+			// Load WinRM password from keyring
+			if winrmPwd, err := b.uc.GetWinRMPassword(context.Background(), conn.GetID()); err == nil {
+				dto.WinRMPassword = winrmPwd
+			}
+		}
 	}
 
 	return dto
