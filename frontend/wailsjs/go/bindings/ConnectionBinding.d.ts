@@ -14,6 +14,8 @@ export function TestConnection(arg1:string):Promise<bindings.ConnectionTestResul
 
 export function TestConnectionDirect(arg1:bindings.ConnectionCreateRequest):Promise<bindings.ConnectionTestResult>;
 
+export function TestSSHConnection(arg1:bindings.SSHTestRequest):Promise<bindings.ConnectionTestResult>;
+
 export function TestWinRMConnection(arg1:bindings.WinRMTestRequest):Promise<bindings.ConnectionTestResult>;
 
 export function UpdateConnection(arg1:bindings.ConnectionUpdateRequest):Promise<bindings.ConnectionDTO>;

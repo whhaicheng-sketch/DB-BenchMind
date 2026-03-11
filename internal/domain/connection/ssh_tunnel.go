@@ -304,3 +304,53 @@ func (t *SSHTunnel) IsClosed() bool {
 	defer t.mu.Unlock()
 	return t.closed
 }
+
+// TestSSHConnection tests an SSH connection without creating a tunnel.
+// Returns success=true and latency in milliseconds if connection succeeds.
+func TestSSHConnection(ctx context.Context, config *SSHTunnelConfig) (bool, int64, error) {
+	if config.Host == "" {
+		return false, 0, fmt.Errorf("SSH host is required")
+	}
+	if config.Username == "" {
+		return false, 0, fmt.Errorf("SSH username is required")
+	}
+	if config.Port <= 0 || config.Port > 65535 {
+		config.Port = 22 // default SSH port
+	}
+
+	startTime := time.Now()
+
+	// Build SSH config
+	sshConfig, err := config.buildSSHConfig()
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create SSH config: %w", err)
+	}
+
+	// Connect to SSH server
+	sshAddr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	
+	// Connect and perform SSH handshake
+	client, err := net.DialTimeout("tcp", sshAddr, 10*time.Second)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to connect to SSH server: %w", err)
+	}
+	defer client.Close()
+
+	_, _, reqs, err := ssh.NewClientConn(client, sshAddr, sshConfig)
+	if err != nil {
+		return false, 0, fmt.Errorf("SSH handshake failed: %w", err)
+	}
+	client.Close()
+
+	// Close requests
+	for req := range reqs {
+		if req.Reply != nil {
+			req.Reply(false, nil)
+		}
+	}
+
+	latencyMs := time.Since(startTime).Milliseconds()
+	slog.Info("SSH: Connection test successful", "host", config.Host, "latency_ms", latencyMs)
+
+	return true, latencyMs, nil
+}

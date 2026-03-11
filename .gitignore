@@ -1,85 +1,24 @@
-# Binaries
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-/db-benchmind
-/db-benchmind.exe
-/build/
-/bin/
-
-# Test binary, built with `go test -c`
+# 忽略测试输出和临时文件
+Test/
+exports/*.txt
 *.test
-
-# Output of the go coverage tool
 *.out
-coverage.txt
-coverage.html
+*.log
+frontend/test_*.js
+frontend/verify_*.js
+frontend/check_*.js
+frontend/*.js.save
 
-# Go workspace file
-go.work
-
-# Dependency directories
-vendor/
-node_modules/
-
-# Wails frontend build cache
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/wailsjs/
-
-# IDE and editor files
-.vscode/
+# IDE 和编辑器
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
+
+# 系统文件
 .DS_Store
+Thumbs.db
 
-# DB-BenchMind specific
-results/
-*.log
-*.db
-*.db-shm
-*.db-wal
-data/*.enc
-
-# Keyring testing
-keyring-test/
-
-# Temporary files
+# 临时目录
 tmp/
 temp/
-*.tmp
-
-# Claude files (keep .claude/ for configuration)
-.claude/agents/
-.claude/commands/
-.claude/hooks/
-.claude/skills/
-.claude/state/
-
-# Downloaded tools and dependencies
-soft/
-*.zip
-instantclient-basic.zip
-swingbench.zip
-
-# OS specific
-Thumbs.db
-.DS_Store
-
-# Debug files
-debug
-*.prof
-*.pprof
-
-# Build artifacts
-dist/
-
-# Existing ignores
-.claude/settings.local.json
-.idea/
-.DS_Store

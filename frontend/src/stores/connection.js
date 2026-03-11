@@ -11,9 +11,8 @@ import {
   UpdateConnection,
   DeleteConnection,
   TestConnection,
-  TestWinRMConnection,
-  
-  
+  TestSSHConnection,
+  TestWinRMConnection
 } from '../../wailsjs/go/bindings/ConnectionBinding'
 
 export const useConnectionStore = defineStore('connection', {
@@ -31,7 +30,11 @@ export const useConnectionStore = defineStore('connection', {
     // SSH test result
     sshTestResult: null,
     // WinRM test result
-    winrmTestResult: null
+    winrmTestResult: null,
+    // Per-connection test states (for list page feedback)
+    testingById: {},
+    testResultById: {},
+    sshTestResultById: {}
   }),
 
   getters: {
@@ -41,6 +44,17 @@ export const useConnectionStore = defineStore('connection', {
       return state.connections.find(c => c.id === state.selectedConnectionId) || null
     },
 
+    // Get testing state for a specific connection
+    isTestingById: (state) => (id) => {
+      return !!state.testingById[id]
+    },
+    // Get test result for a specific connection
+    getTestResultById: (state) => (id) => {
+      return state.testResultById[id] || null
+    },
+    getSSHTestResultById: (state) => (id) => {
+      return state.sshTestResultById[id] || null
+    },
     // Get connections grouped by type
     connectionsByType: (state) => {
       const grouped = {}
@@ -136,7 +150,10 @@ export const useConnectionStore = defineStore('connection', {
           winrm_username: connectionData.winrm_username || '',
           winrm_password: connectionData.winrm_password || '',
           // SQL Server specific
-          trust_server_certificate: connectionData.trust_server_certificate ?? true
+          trust_server_certificate: connectionData.trust_server_certificate ?? true,
+          // Oracle specific fields
+          sid: connectionData.sid || '',
+          service_name: connectionData.service_name || ''
         })
 
         if (newConn) {
@@ -182,7 +199,10 @@ export const useConnectionStore = defineStore('connection', {
           winrm_username: connectionData.winrm_username || '',
           winrm_password: connectionData.winrm_password || '',
           // SQL Server specific
-          trust_server_certificate: connectionData.trust_server_certificate ?? true
+          trust_server_certificate: connectionData.trust_server_certificate ?? true,
+          // Oracle specific fields
+          sid: connectionData.sid || '',
+          service_name: connectionData.service_name || ''
         })
 
         if (updatedConn) {
@@ -235,27 +255,45 @@ export const useConnectionStore = defineStore('connection', {
       this.loading = true
       this.error = null
       this.testResult = null
+      // Set per-connection testing state
+      this.testingById[id] = true
+      this.testResultById[id] = null
 
       try {
         const result = await TestConnection(id, skipTunnel)
         this.testResult = result
+        this.testResultById[id] = result
         return result
       } catch (err) {
         this.error = err.message || 'Failed to test connection'
-        this.testResult = {
+        const errorResult = {
           success: false,
           error: this.error
         }
-        return this.testResult
+        this.testResult = errorResult
+        this.testResultById[id] = errorResult
+        return errorResult
       } finally {
         this.loading = false
+        this.testingById[id] = false
       }
     },
 
     /**
      * Test SSH tunnel connection
+     * @param {string|object} idOrConfig - Connection ID or SSH config (for backward compatibility)
+     * @param {object} sshConfigMaybe - SSH configuration (when first param is ID)
      */
-    async testSSHConnection(sshConfig) {
+    async testSSHConnection(idOrConfig, sshConfigMaybe) {
+      // Support both signatures: (sshConfig) and (id, sshConfig)
+      let id, sshConfig
+      if (typeof idOrConfig === 'string') {
+        id = idOrConfig
+        sshConfig = sshConfigMaybe
+      } else {
+        sshConfig = idOrConfig
+      }
+
       this.loading = true
       this.sshTestResult = null
 
@@ -267,14 +305,22 @@ export const useConnectionStore = defineStore('connection', {
           password: sshConfig.password
         })
         this.sshTestResult = result
+        // Store result by connection ID if provided
+        if (id) {
+          this.sshTestResultById[id] = result
+        }
         return result
       } catch (err) {
-        this.sshTestResult = {
+        const errorResult = {
           success: false,
           host: sshConfig.host,
           error: err.message || 'Failed to test SSH connection'
         }
-        return this.sshTestResult
+        this.sshTestResult = errorResult
+        if (id) {
+          this.sshTestResultById[id] = errorResult
+        }
+        return errorResult
       } finally {
         this.loading = false
       }

@@ -282,6 +282,9 @@ export namespace bindings {
 	    username: string;
 	    password?: string;
 	    ssl_mode?: string;
+	    sid?: string;
+	    service_name?: string;
+	    connect_type?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionDTO(source);
@@ -298,6 +301,9 @@ export namespace bindings {
 	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.ssl_mode = source["ssl_mode"];
+	        this.sid = source["sid"];
+	        this.service_name = source["service_name"];
+	        this.connect_type = source["connect_type"];
 	    }
 	}
 	export class ConnectionListResult {
@@ -506,6 +512,24 @@ export namespace bindings {
 	        this.min = source["min"];
 	        this.max = source["max"];
 	        this.options = source["options"];
+	    }
+	}
+	export class SSHTestRequest {
+	    host: string;
+	    port: number;
+	    username: string;
+	    password: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHTestRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
 	    }
 	}
 	export class SystemHistoryDTO {

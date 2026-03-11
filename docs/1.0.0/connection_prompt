@@ -1,0 +1,82 @@
+当前提示词仅针对Connections这个页面。
+如果遇到 ### OK ###  表示此行之前的需求已经得到实现。
+
+1. 页面中我们按数据库分了组，打开页面后分组信息默认不展开
+2. 在 Search connections 输入框旁边给我一个全部展开和占卜折叠的按钮
+3. New Connection做的紧凑一点，比如connection name和输入框做成一行，尽量不要让我滚轮向下滑动。
+3,1. Database Type 下拉框颜色是白色，要统一颜色
+3.2. Username中 MySQL 默认是 root、PostgreSQL默认是postgres Oracle默认是system、SQL Server默认是sa 即使不舒服也要显示这个。
+3.3. SSL Mode你要做成自动的，自动判断当前适用的SSL Mode去进行尝试连接。原来的版本就是这么做的。
+3.4 Test要分成 database test和ssh test 数据库必填信息填写完毕后要给我一个database test 点击ssl mode后可以出现 ssh test 理解我的意思么？
+
+理解我的需求，在此文档的目录中生成对应spec plan tasks后开始实现需求
+
+非常好，上面的内容已经实现了 可以忽略。下面有新的需求以及改进点。
+
+1. Expand ALL 和 Collapse ALL 保留一个就可以吧？点一次展开在一点一次就折叠 没必要用两个按钮。
+2. Edit Connection界面中我点击SSH Test 看不到信息回显。
+3. Edit Conection中，把SSL Mode这个选项去掉，你自己按照每个数据库的SSL等级去尝试，比如优先disable auto 等去尝试连接即可。不需要让我自己去选择SSL Mode 。
+4. 当前的界面还是带着滚轮了，我宁愿界面宽一点 也不想滚轮  我想一页显示 明白么？你可以调笑字体 把Edit connecton 这个弹窗 包括 New Connection这个弹框显示在一个页面中。
+5. 弹框中的password你有保存么？ password需要保存哦。
+
+理解我的需求，在此文档的目录中生成对应spec plan tasks后开始实现需求；若文档已存在 请根据变更修改文档，并严格按照文档实现。
+完成后你要告诉我改动点，以及我需要的测试点。
+
+fix
+1. Database Test 还是连不上哦  
+✗
+Connection Failed
+all connection attempts failed. Last error: ssl_mode=required: failed to open connection: invalid value / unknown config name: required
+
+2. Database Test的信息显示在这个按钮下面；同理SSH Test的信息也输出在这个附近（当前做的很好）
+3. New Connection中，Database Test按钮不可用。
+4. New Connection中 SSH Test按钮不可用。
+
+理解我的需求，在此文档的目录中生成对应spec plan tasks后开始实现需求；若文档已存在 请根据变更修改文档，并严格按照文档实现。
+完成后你要告诉我改动点，以及我需要的测试点。
+
+
+
+### OK ###
+请先理解当前项目中“数据库连接自动识别 SSL/TLS 模式并自动降级重试”的需求。
+
+要求你先在当前文档目录中创建或更新对应的 spec、plan、tasks：
+- 如果文档不存在，则新建
+- 如果文档已存在，则基于本次需求进行修改
+- 后续实现必须严格按照文档执行
+
+需求目标：
+- 支持 MySQL、Oracle、SQL Server、PostgreSQL
+- 用户无需手动选择 SSL Mode
+- 程序自动从更安全的模式开始尝试
+- 先尝试“加密且校验证书/主机名”
+- 再尝试“加密但不校验”
+- 明文回退必须是显式开关，默认不要自动回退到明文
+- 只有 TLS/证书类错误才允许继续降级
+- 用户名密码错误、数据库不存在、网络不可达等错误必须立即停止
+- 最终明确区分：TLS_VERIFIED、TLS_ENCRYPTED_UNVERIFIED、PLAINTEXT、FAILED
+
+数据库设计要求：
+- MySQL：显式模式梯度探测
+- PostgreSQL：显式模式梯度探测
+- SQL Server：基于 encrypt + trustServerCertificate 组合探测
+- Oracle：基于 TCP / TCPS 设计，不要简单当成普通 sslMode
+
+文档完成后再开始实现，严格按 tasks 逐步落地。
+完成后请告诉我：
+1. 具体改动点
+2. 改动涉及的文件
+3. 每个改动的目的
+4. 我需要验证的测试点
+5. 风险和后续优化建议
+
+### OK ###
+Edit connection 和 NEW Connection中  对于password 给我一个可以查看当前密码的按钮。
+完成后 ./build-and-start 帮我启动程序。
+
+
+fix
+现在重点解决SQL SErver 党勾选WinRM后点击Test 程序崩溃的问题。
+
+完成后 ./build-and-start 帮我启动程序。
+

@@ -1,40 +1,51 @@
 <script setup>
 /**
  * App.vue
- * Main application component.
- * Initializes system monitoring on mount.
- * Includes global error boundary for error handling.
+ * Main application component with Tab navigation.
+ * Follows Fyne framework layout with tabs.
  */
 import { ref, onMounted, onUnmounted, onErrorCaptured } from 'vue'
-import Sidebar from './components/layout/Sidebar.vue'
-import MainContent from './components/layout/MainContent.vue'
 import { useMonitorStore } from './stores/monitor'
 
-// Application state
-const isRunning = ref(false)
-const currentStatus = ref('Idle')
+// Tab components
+import ConnectionsTab from './components/tabs/ConnectionsTab.vue'
+import TemplatesTab from './components/tabs/TemplatesTab.vue'
+import TasksMonitorTab from './components/tabs/TasksMonitorTab.vue'
+import HistoryTab from './components/tabs/HistoryTab.vue'
+import ComparisonTab from './components/tabs/ComparisonTab.vue'
+import ReportsTab from './components/tabs/ReportsTab.vue'
+import SettingsTab from './components/tabs/SettingsTab.vue'
 
-// Global error state (T29.3)
+// Active tab
+const activeTab = ref('connections')
+
+// Tabs configuration
+const tabs = [
+  { id: 'connections', label: 'Connections', icon: '🔌' },
+  { id: 'templates', label: 'Templates', icon: '📋' },
+  { id: 'tasks', label: 'Tasks & Monitor', icon: '📊' },
+  { id: 'history', label: 'History', icon: '📜' },
+  { id: 'comparison', label: 'Comparison', icon: '📈' },
+  { id: 'reports', label: 'Reports', icon: '📄' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' }
+]
+
+// Global error state
 const globalError = ref(null)
 const showError = ref(false)
 
 // Monitor store
 const monitorStore = useMonitorStore()
 
-// T29.3: Global error boundary
+// Error boundary
 onErrorCaptured((error, instance, info) => {
   console.error('Global error captured:', error)
-  console.error('Component:', info)
-
-  // Format error message
   globalError.value = {
     message: error.message || 'An unexpected error occurred',
     component: info?.type?.name || 'Unknown',
     stack: error.stack
   }
   showError.value = true
-
-  // Return false to prevent the error from propagating further
   return false
 })
 
@@ -47,11 +58,8 @@ const dismissError = () => {
 // Lifecycle hooks
 onMounted(async () => {
   console.log('DB-BenchMind Wails App mounted')
-  
-  // Initialize system monitoring on app start
   try {
     await monitorStore.initSystemMonitoring()
-    console.log('System monitoring initialized')
   } catch (err) {
     console.error('Failed to initialize system monitoring:', err)
   }
@@ -59,11 +67,8 @@ onMounted(async () => {
 
 onUnmounted(async () => {
   console.log('DB-BenchMind Wails App unmounted')
-  
-  // Stop system monitoring on unmount
   try {
     await monitorStore.stopSystemMonitoringAction()
-    console.log('System monitoring stopped')
   } catch (err) {
     console.error('Failed to stop system monitoring:', err)
   }
@@ -72,8 +77,8 @@ onUnmounted(async () => {
 
 <template>
   <div class="app-container">
-    <!-- Global error modal (T29.3) -->
-    <div v-if="showError" class="global-error-overlay">
+    <!-- Global error modal -->
+    <div v-if="showError" class="global-error-overlay" @click.self="dismissError">
       <div class="global-error-modal">
         <div class="error-header">
           <span class="error-icon">⚠️</span>
@@ -81,9 +86,6 @@ onUnmounted(async () => {
         </div>
         <div class="error-body">
           <p class="error-message">{{ globalError?.message }}</p>
-          <p v-if="globalError?.component" class="error-component">
-            Component: {{ globalError.component }}
-          </p>
           <details v-if="globalError?.stack" class="error-details">
             <summary>Stack Trace</summary>
             <pre>{{ globalError.stack }}</pre>
@@ -95,80 +97,111 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <!-- Left sidebar: Control panel (300px fixed) -->
-    <Sidebar
-      class="sidebar"
-      :is-running="isRunning"
-      :current-status="currentStatus"
-    />
+    <!-- Tab Navigation -->
+    <div class="tab-navigation">
+      <div class="tab-list">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          :class="['tab-item', { active: activeTab === tab.id }]"
+          @click="activeTab = tab.id"
+        >
+          <span class="tab-icon">{{ tab.icon }}</span>
+          <span class="tab-label">{{ tab.label }}</span>
+        </button>
+      </div>
+    </div>
 
-    <!-- Right main content: Charts area (flex-grow) -->
-    <MainContent
-      class="main-content"
-      :is-running="isRunning"
-    />
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <ConnectionsTab v-if="activeTab === 'connections'" />
+      <TemplatesTab v-else-if="activeTab === 'templates'" />
+      <TasksMonitorTab v-else-if="activeTab === 'tasks'" />
+      <HistoryTab v-else-if="activeTab === 'history'" />
+      <ComparisonTab v-else-if="activeTab === 'comparison'" />
+      <ReportsTab v-else-if="activeTab === 'reports'" />
+      <SettingsTab v-else-if="activeTab === 'settings'" />
+    </div>
   </div>
 </template>
 
 <style>
-.app-container {
-  display: flex;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
   height: 100%;
   width: 100%;
   overflow: hidden;
 }
 
-.sidebar {
-  width: 300px;
-  min-width: 300px;
+.app-container {
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  width: 100%;
+  background-color: #1b2636;
+  color: #e2e8f0;
 }
 
-.main-content {
-  flex: 1;
-  height: 100%;
-  overflow: hidden;
+/* Tab Navigation */
+.tab-navigation {
+  background-color: #0f1724;
+  border-bottom: 1px solid #2a3a4a;
+  padding: 0 16px;
 }
 
-/* Status indicator styles */
-.status-indicator {
+.tab-list {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.tab-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background-color: #2a3a4a;
-  border-radius: 6px;
-  margin-bottom: 16px;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #718096;
-}
-
-.status-indicator.active .status-dot {
-  background-color: #48bb78;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.status-text {
-  font-size: 12px;
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
   color: #a0aec0;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.status-indicator.active .status-text {
-  color: #48bb78;
+.tab-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.tab-item.active {
+  color: #4299e1;
+  border-bottom-color: #4299e1;
+  background-color: rgba(66, 153, 225, 0.1);
 }
 
-/* T29.3: Global error modal styles */
+.tab-icon {
+  font-size: 16px;
+}
+
+.tab-label {
+  font-weight: 500;
+}
+
+/* Tab Content */
+.tab-content {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Error Modal */
 .global-error-overlay {
   position: fixed;
   top: 0;
@@ -218,12 +251,6 @@ onUnmounted(async () => {
   font-size: 14px;
   color: #e2e8f0;
   margin-bottom: 12px;
-}
-
-.error-component {
-  font-size: 12px;
-  color: #a0aec0;
-  margin-bottom: 8px;
 }
 
 .error-details {

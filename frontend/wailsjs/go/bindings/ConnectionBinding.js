@@ -26,6 +26,10 @@ export function TestConnectionDirect(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestConnectionDirect'](arg1);
 }
 
+export function TestSSHConnection(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestSSHConnection'](arg1);
+}
+
 export function TestWinRMConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestWinRMConnection'](arg1);
 }

@@ -280,6 +280,21 @@ func (uc *ConnectionUseCase) GetPassword(ctx context.Context, connID string) (st
 	return uc.keyring.Get(ctx, connID)
 }
 
+// GetSSHPassword retrieves SSH password from keyring.
+func (uc *ConnectionUseCase) GetSSHPassword(ctx context.Context, connID string) (string, error) {
+	return uc.keyring.Get(ctx, connID+":ssh")
+}
+
+// SetSSHPassword saves SSH password to keyring.
+func (uc *ConnectionUseCase) SetSSHPassword(ctx context.Context, connID string, password string) error {
+	return uc.keyring.Set(ctx, connID+":ssh", password)
+}
+
+// GetWinRMPassword retrieves WinRM password from keyring.
+func (uc *ConnectionUseCase) GetWinRMPassword(ctx context.Context, connID string) (string, error) {
+	return uc.keyring.Get(ctx, connID+":winrm")
+}
+
 // DeletePassword removes a password from keyring.
 func (uc *ConnectionUseCase) DeletePassword(ctx context.Context, connID string) error {
 	return uc.keyring.Delete(ctx, connID)

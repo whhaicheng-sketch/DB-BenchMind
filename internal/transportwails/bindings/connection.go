@@ -32,7 +32,10 @@ type ConnectionDTO struct {
 	Database string `json:"database,omitempty"`
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"` // Loaded from keyring for display
-	SSLMode  string `json:"ssl_mode,omitempty"`
+	SSLMode     string `json:"ssl_mode,omitempty"`
+	SID         string `json:"sid,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
+	ConnectType string `json:"connect_type,omitempty"`
 }
 
 // ConnectionListResult represents the result of ListConnections.
@@ -345,6 +348,14 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 		if dto.Database == "" {
 			dto.Database = c.SID
 		}
+		dto.SID = c.SID
+		dto.ServiceName = c.ServiceName
+		// Determine connect_type based on which field is populated
+		if c.SID != "" && c.ServiceName == "" {
+			dto.ConnectType = "sid"
+		} else {
+			dto.ConnectType = "service_name"
+		}
 		dto.Username = c.Username
 	case *connection.SQLServerConnection:
 		dto.Host = c.Host
@@ -396,5 +407,43 @@ func (b *ConnectionBinding) TestWinRMConnection(req WinRMTestRequest) Connection
 		LatencyMs:       result.LatencyMs,
 		DatabaseVersion: result.DatabaseVersion,
 		Error:           result.Error,
+	}
+}
+
+// SSHTestRequest represents a request to test SSH connection.
+type SSHTestRequest struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// TestSSHConnection tests an SSH connection (Wails binding).
+func (b *ConnectionBinding) TestSSHConnection(req SSHTestRequest) ConnectionTestResult {
+	ctx := context.Background()
+
+	slog.Info("TestSSHConnection called", "host", req.Host, "port", req.Port, "username", req.Username)
+
+	// Create SSH config
+	sshConfig := &connection.SSHTunnelConfig{
+		Host:     req.Host,
+		Port:     req.Port,
+		Username: req.Username,
+	}
+	sshConfig.Password = req.Password
+
+	success, latencyMs, err := connection.TestSSHConnection(ctx, sshConfig)
+	if err != nil {
+		slog.Error("TestSSHConnection failed", "error", err)
+		return ConnectionTestResult{
+			Success: false,
+			Error:   fmt.Sprintf("SSH test failed: %v", err),
+		}
+	}
+
+	slog.Info("TestSSHConnection success", "host", req.Host, "latencyMs", latencyMs)
+	return ConnectionTestResult{
+		Success:   success,
+		LatencyMs: latencyMs,
 	}
 }

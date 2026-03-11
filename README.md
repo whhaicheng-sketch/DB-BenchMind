@@ -260,11 +260,11 @@ make clean        # 清理构建产物
 | 技术领域 | 技术选型 | 版本 | 用途 |
 |---------|---------|------|------|
 | 编程语言 | Go | 1.22.2 | 主要开发语言 |
-| GUI 框架 | Fyne | v2.x | 跨平台桌面 GUI |
+| GUI 框架 | Wails (Vue 3) | v2.x | 跨平台桌面 GUI |
 | 数据库 | SQLite | modernc.org/sqlite | 结果与配置存储 |
 | 密钥管理 | go-keyring | latest | 密码安全存储 |
 | 日志 | log/slog | 标准库 | 结构化日志 |
-| 图表 | fynesimplechart | latest | 实时图表 |
+| 图表 | ECharts | v5.x | 实时图表 |
 
 ---
 
@@ -358,7 +358,6 @@ make clean        # 清理构建产物
 
 感谢以下开源项目：
 
-- [Fyne](https://fyne.io/) - 跨平台 GUI 框架
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) - 纯 Go SQLite 实现
 - [go-keyring](https://github.com/zalando/go-keyring) - 密钥管理库
 - [Sysbench](https://github.com/akopytov/sysbench) - 数据库压测工具
