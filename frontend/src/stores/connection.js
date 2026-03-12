@@ -134,7 +134,7 @@ export const useConnectionStore = defineStore('connection', {
       this.error = null
 
       try {
-        const newConn = await CreateConnection({
+        const result = await CreateConnection({
           name: connectionData.name,
           type: connectionData.type,
           host: connectionData.host,
@@ -160,10 +160,17 @@ export const useConnectionStore = defineStore('connection', {
           service_name: connectionData.service_name || ''
         })
 
-        if (newConn) {
+        // Handle error from result
+        if (result.error) {
+          this.error = result.error
+          console.error('CreateConnection failed:', result.error)
+          return null
+        }
+
+        if (result.connection) {
           // Refresh the list
           await this.fetchConnections()
-          return newConn
+          return result.connection
         }
         return null
       } catch (err) {
@@ -183,7 +190,7 @@ export const useConnectionStore = defineStore('connection', {
       this.error = null
 
       try {
-        const updatedConn = await UpdateConnection({
+        const result = await UpdateConnection({
           id: connectionData.id,
           name: connectionData.name,
           host: connectionData.host,
@@ -210,10 +217,17 @@ export const useConnectionStore = defineStore('connection', {
           connect_type: connectionData.connect_type || ''
         })
 
-        if (updatedConn) {
+        // Handle error from result
+        if (result.error) {
+          this.error = result.error
+          console.error('UpdateConnection failed:', result.error)
+          return null
+        }
+
+        if (result.connection) {
           // Refresh the list
           await this.fetchConnections()
-          return updatedConn
+          return result.connection
         }
         return null
       } catch (err) {
@@ -233,8 +247,8 @@ export const useConnectionStore = defineStore('connection', {
       this.error = null
 
       try {
-        const success = await DeleteConnection(id)
-        if (success) {
+        const result = await DeleteConnection(id)
+        if (result.success) {
           // Remove from local list
           this.connections = this.connections.filter(c => c.id !== id)
           // Clear selection if deleted connection was selected
@@ -242,6 +256,11 @@ export const useConnectionStore = defineStore('connection', {
             this.selectedConnectionId = null
           }
           return true
+        }
+        // Handle error from result
+        if (result.error) {
+          this.error = result.error
+          console.error('DeleteConnection failed:', result.error)
         }
         return false
       } catch (err) {

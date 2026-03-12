@@ -57,6 +57,24 @@ type ConnectionListResult struct {
 	Error       string          `json:"error,omitempty"`
 }
 
+// ConnectionCreateResult represents the result of CreateConnection.
+type ConnectionCreateResult struct {
+	Connection *ConnectionDTO `json:"connection,omitempty"`
+	Error      string         `json:"error,omitempty"`
+}
+
+// ConnectionUpdateResult represents the result of UpdateConnection.
+type ConnectionUpdateResult struct {
+	Connection *ConnectionDTO `json:"connection,omitempty"`
+	Error      string         `json:"error,omitempty"`
+}
+
+// ConnectionDeleteResult represents the result of DeleteConnection.
+type ConnectionDeleteResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
 // SSHWinRMTestResult represents the result of SSH or WinRM connection test.
 type SSHWinRMTestResult struct {
 	Success   bool   `json:"success"`
@@ -180,7 +198,7 @@ func (b *ConnectionBinding) GetConnection(id string) *ConnectionDTO {
 }
 
 // CreateConnection creates a new connection (Wails binding).
-func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) *ConnectionDTO {
+func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) ConnectionCreateResult {
 	ctx := context.Background()
 
 	var conn connection.Connection
@@ -275,27 +293,27 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) *Conne
 		}
 	default:
 		slog.Error("Unknown connection type", "type", req.Type)
-		return nil
+		return ConnectionCreateResult{Error: "Unknown connection type: " + req.Type}
 	}
 
 	if err := b.uc.CreateConnection(ctx, conn); err != nil {
 		slog.Error("CreateConnection failed", "error", err)
-		return nil
+		return ConnectionCreateResult{Error: err.Error()}
 	}
 
 	dto := b.toDTO(conn)
-	return &dto
+	return ConnectionCreateResult{Connection: &dto}
 }
 
 // UpdateConnection updates an existing connection (Wails binding).
-func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *ConnectionDTO {
+func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) ConnectionUpdateResult {
 	ctx := context.Background()
 
 	// Get existing connection first
 	existing, err := b.uc.GetConnectionByID(ctx, req.ID)
 	if err != nil {
 		slog.Error("UpdateConnection: failed to get existing connection", "id", req.ID, "error", err)
-		return nil
+		return ConnectionUpdateResult{Error: err.Error()}
 	}
 
 	// Update fields based on type
@@ -418,21 +436,21 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *Conne
 
 	if err := b.uc.UpdateConnection(ctx, existing); err != nil {
 		slog.Error("UpdateConnection failed", "error", err)
-		return nil
+		return ConnectionUpdateResult{Error: err.Error()}
 	}
 
 	dto := b.toDTO(existing)
-	return &dto
+	return ConnectionUpdateResult{Connection: &dto}
 }
 
 // DeleteConnection deletes a connection by ID (Wails binding).
-func (b *ConnectionBinding) DeleteConnection(id string) bool {
+func (b *ConnectionBinding) DeleteConnection(id string) ConnectionDeleteResult {
 	ctx := context.Background()
 	if err := b.uc.DeleteConnection(ctx, id); err != nil {
 		slog.Error("DeleteConnection failed", "id", id, "error", err)
-		return false
+		return ConnectionDeleteResult{Success: false, Error: err.Error()}
 	}
-	return true
+	return ConnectionDeleteResult{Success: true}
 }
 
 // TestConnection tests a connection by ID (Wails binding).
