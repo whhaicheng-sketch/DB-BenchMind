@@ -99,12 +99,6 @@ export const useConnectionStore = defineStore('connection', {
           console.error('Failed to fetch connections:', result.error)
         } else {
           this.connections = result.connections || []
-          // Debug: log Oracle connections to see what fields are returned
-          const oracleConns = this.connections.filter(c => c.type === 'oracle')
-          if (oracleConns.length > 0) {
-            console.log('[DEBUG Store] Oracle connections from API:', JSON.stringify(oracleConns, null, 2))
-          }
-        }
         }
       } catch (err) {
         this.error = err.message || 'Failed to fetch connections'

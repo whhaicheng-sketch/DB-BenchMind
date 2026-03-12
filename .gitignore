@@ -1,5 +1,7 @@
 # 忽略测试输出和临时文件
 Test/
+Test
+ls
 exports/*.txt
 *.test
 *.out

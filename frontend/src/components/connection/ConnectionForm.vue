@@ -4,7 +4,7 @@
  * Form for creating and editing database connections.
  * Supports MySQL, PostgreSQL, Oracle, and SQL Server with database-specific fields.
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import { TestConnectionDirect, TestSSHConnection } from '../../../wailsjs/go/bindings/ConnectionBinding'
 
