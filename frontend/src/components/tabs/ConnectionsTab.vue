@@ -83,19 +83,22 @@
                 <button class="menu-item danger" @click.stop="deleteConnection(conn)">Delete</button>
               </div>
               <!-- Test Result Message -->
-              <!-- Always show test results area for consistency -->
+              <!-- Only show test results if they have been tested -->
               <div class="conn-test-result">
-                <!-- DB Test result (triggered by Test button) -->
-                <span :class="getDbTestStatusClass(conn)">
+                <!-- DB Test result (triggered by Test button) - only show if tested -->
+                <span v-if="connectionStore.getTestResultById(conn.id)"
+                      :class="getDbTestStatusClass(conn)">
                   DB: {{ getDbTestStatusText(conn) }}
                 </span>
-                <!-- SSH Test result (from Edit form, always shown if SSH enabled) -->
-                <span v-if="conn.ssh_enabled" style="margin-left: 10px;"
+                <!-- SSH Test result (only shown if SSH enabled AND tested) -->
+                <span v-if="conn.ssh_enabled && connectionStore.getSSHTestResultById(conn.id)"
+                      style="margin-left: 10px;"
                       :class="getSshTestStatusClass(conn)">
                   SSH: {{ getSshTestStatusText(conn) }}
                 </span>
-                <!-- WinRM Test result (from Edit form, always shown if WinRM enabled) -->
-                <span v-if="conn.winrm_enabled" style="margin-left: 10px;"
+                <!-- WinRM Test result (only shown if WinRM enabled AND tested) -->
+                <span v-if="conn.winrm_enabled && connectionStore.getWinRMTestResultById(conn.id)"
+                      style="margin-left: 10px;"
                       :class="getWinrmTestStatusClass(conn)">
                   WinRM: {{ getWinrmTestStatusText(conn) }}
                 </span>
@@ -273,39 +276,41 @@ const handleSaved = () => {
 }
 
 // Helper functions for test status display
+// All helpers only return OK/FAIL, called only when result exists (v-if ensures this)
+
 const getDbTestStatusText = (conn) => {
   const result = connectionStore.getTestResultById(conn.id)
-  if (!result) return 'NOT TESTED'
+  if (!result) return ''
   return result.success ? 'OK' : 'FAIL'
 }
 
 const getDbTestStatusClass = (conn) => {
   const result = connectionStore.getTestResultById(conn.id)
-  if (!result) return 'conn-test-result--not-tested'
+  if (!result) return ''
   return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
 }
 
 const getSshTestStatusText = (conn) => {
   const result = connectionStore.getSSHTestResultById(conn.id)
-  if (!result) return 'NOT TESTED'
+  if (!result) return ''
   return result.success ? 'OK' : 'FAIL'
 }
 
 const getSshTestStatusClass = (conn) => {
   const result = connectionStore.getSSHTestResultById(conn.id)
-  if (!result) return 'conn-test-result--not-tested'
+  if (!result) return ''
   return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
 }
 
 const getWinrmTestStatusText = (conn) => {
   const result = connectionStore.getWinRMTestResultById(conn.id)
-  if (!result) return 'NOT TESTED'
+  if (!result) return ''
   return result.success ? 'OK' : 'FAIL'
 }
 
 const getWinrmTestStatusClass = (conn) => {
   const result = connectionStore.getWinRMTestResultById(conn.id)
-  if (!result) return 'conn-test-result--not-tested'
+  if (!result) return ''
   return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
 }
 </script>
@@ -589,11 +594,6 @@ const getWinrmTestStatusClass = (conn) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.conn-test-result--not-tested {
-  background: rgba(160, 174, 192, 0.2);
-  color: #a0aec0;
 }
 
 .conn-test-result--success {

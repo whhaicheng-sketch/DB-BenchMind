@@ -57,12 +57,23 @@ type ConnectionListResult struct {
 	Error       string          `json:"error,omitempty"`
 }
 
+// SSHWinRMTestResult represents the result of SSH or WinRM connection test.
+type SSHWinRMTestResult struct {
+	Success   bool   `json:"success"`
+	LatencyMs int64  `json:"latency_ms"`
+	Error     string `json:"error,omitempty"`
+}
+
 // ConnectionTestResult represents the result of TestConnection.
+// Includes DB test result and optional SSH/WinRM test results if configured.
 type ConnectionTestResult struct {
-	Success         bool   `json:"success"`
-	LatencyMs       int64  `json:"latency_ms"`
-	DatabaseVersion string `json:"database_version,omitempty"`
-	Error           string `json:"error,omitempty"`
+	Success         bool                 `json:"success"`
+	LatencyMs       int64                `json:"latency_ms"`
+	DatabaseVersion string              `json:"database_version,omitempty"`
+	Error           string              `json:"error,omitempty"`
+	// SSH/WinRM test results (only populated when configured and tested)
+	SSHResult   *SSHWinRMTestResult `json:"ssh_result,omitempty"`
+	WinRMResult *SSHWinRMTestResult `json:"winrm_result,omitempty"`
 }
 
 // ConnectionCreateRequest represents a request to create a connection.
@@ -425,23 +436,82 @@ func (b *ConnectionBinding) DeleteConnection(id string) bool {
 }
 
 // TestConnection tests a connection by ID (Wails binding).
+// Tests DB connection and Also tests SSH tunnel if configured.
+// Returns combined results for both tests.
 func (b *ConnectionBinding) TestConnection(id string) ConnectionTestResult {
 	ctx := context.Background()
-	result, err := b.uc.TestConnection(ctx, id)
+
+	// Get connection to check SSH configuration
+	conn, err := b.uc.GetConnectionByID(ctx, id)
 	if err != nil {
-		slog.Error("TestConnection failed", "id", id, "error", err)
+		slog.Error("TestConnection failed to get connection", "id", id, "error", err)
+		return ConnectionTestResult{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get connection: %v", err),
+		}
+	}
+
+	// Test DB connection
+	dbResult, err := b.uc.TestConnection(ctx, id)
+	if err != nil {
+		slog.Error("TestConnection DB test failed", "id", id, "error", err)
 		return ConnectionTestResult{
 			Success: false,
 			Error:   err.Error(),
 		}
 	}
 
-	return ConnectionTestResult{
-		Success:         result.Success,
-		LatencyMs:       result.LatencyMs,
-		DatabaseVersion: result.DatabaseVersion,
-		Error:           result.Error,
+	result := ConnectionTestResult{
+		Success:         dbResult.Success,
+		LatencyMs:       dbResult.LatencyMs,
+		DatabaseVersion: dbResult.DatabaseVersion,
+		Error:           dbResult.Error,
 	}
+
+	// If SSH is configured, test SSH connection too
+	// Use type assertion to get SSH config from concrete types
+	var sshConfig *connection.SSHTunnelConfig
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		sshConfig = c.SSH
+	case *connection.PostgreSQLConnection:
+		sshConfig = c.SSH
+	case *connection.OracleConnection:
+		sshConfig = c.SSH
+	case *connection.SQLServerConnection:
+		sshConfig = c.SSH
+	}
+
+	// Test SSH if configured
+	if sshConfig != nil && sshConfig.Host != "" {
+		slog.Info("TestConnection: Testing SSH tunnel",
+			"id", id,
+			"ssh_host", sshConfig.Host,
+			"ssh_port", sshConfig.Port)
+
+		sshSuccess, sshLatencyMs, sshErr := connection.TestSSHConnection(ctx, sshConfig)
+		if sshErr != nil {
+			slog.Error("TestConnection SSH test failed", "id", id, "error", sshErr)
+			result.SSHResult = &SSHWinRMTestResult{
+				Success: false,
+				Error:   fmt.Sprintf("SSH test failed: %v", sshErr),
+			}
+		} else {
+			result.SSHResult = &SSHWinRMTestResult{
+				Success:   sshSuccess,
+				LatencyMs: sshLatencyMs,
+			}
+			if !sshSuccess {
+				result.SSHResult.Error = "SSH connection failed"
+			}
+			slog.Info("TestConnection SSH test completed",
+				"id", id,
+				"ssh_success", sshSuccess,
+				"ssh_latency_ms", sshLatencyMs)
+		}
+	}
+
+	return result
 }
 
 // TestConnectionDirect tests a connection directly from request data (Wails binding).

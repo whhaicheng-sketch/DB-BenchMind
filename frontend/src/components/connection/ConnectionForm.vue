@@ -441,20 +441,25 @@ const handleTestSSH = async () => {
   sshTestResult.value = null
 
   try {
-    const result = await TestSSHConnection({
+    const sshConfig = {
       host: formData.value.host,
       port: formData.value.ssh_port || 22,
       username: formData.value.ssh_username,
       password: formData.value.ssh_password || ''
-    })
+    }
+
+    // Use store action which properly updates sshTestResultById with reactivity
+    let result
+    if (props.mode === 'edit' && props.connectionId) {
+      // Pass connection ID so store can save result for list page display
+      result = await connectionStore.testSSHConnection(props.connectionId, sshConfig)
+    } else {
+      // Create mode - no connection ID yet, just test locally
+      result = await connectionStore.testSSHConnection(sshConfig)
+    }
 
     sshTestResult.value = result
     sshTestStatus.value = result.success ? 'success' : 'error'
-
-    // Write to global store for list page display (only in edit mode with connectionId)
-    if (props.mode === 'edit' && props.connectionId) {
-      connectionStore.sshTestResultById[props.connectionId] = result
-    }
   } catch (err) {
     sshTestStatus.value = 'error'
     const errorResult = {
@@ -462,11 +467,6 @@ const handleTestSSH = async () => {
       error: err.message || 'SSH test failed'
     }
     sshTestResult.value = errorResult
-
-    // Write error to global store as well
-    if (props.mode === 'edit' && props.connectionId) {
-      connectionStore.sshTestResultById[props.connectionId] = errorResult
-    }
   } finally {
     sshTesting.value = false
   }

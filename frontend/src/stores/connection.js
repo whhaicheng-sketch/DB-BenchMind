@@ -261,13 +261,39 @@ export const useConnectionStore = defineStore('connection', {
       this.error = null
       this.testResult = null
       // Set per-connection testing state
-      this.testingById[id] = true
-      this.testResultById[id] = null
+      this.$patch((state) => {
+        state.testingById[id] = true
+        state.testResultById[id] = null
+      })
 
       try {
         const result = await TestConnection(id, skipTunnel)
         this.testResult = result
-        this.testResultById[id] = result
+
+        // Store DB test result
+        this.$patch((state) => {
+          state.testResultById[id] = {
+            success: result.success,
+            latency_ms: result.latency_ms,
+            database_version: result.database_version,
+            error: result.error
+          }
+        })
+
+        // Store SSH test result if present
+        if (result.ssh_result) {
+          this.$patch((state) => {
+            state.sshTestResultById[id] = result.ssh_result
+          })
+        }
+
+        // Store WinRM test result if present
+        if (result.winrm_result) {
+          this.$patch((state) => {
+            state.winrmTestResultById[id] = result.winrm_result
+          })
+        }
+
         return result
       } catch (err) {
         this.error = err.message || 'Failed to test connection'
@@ -276,11 +302,15 @@ export const useConnectionStore = defineStore('connection', {
           error: this.error
         }
         this.testResult = errorResult
-        this.testResultById[id] = errorResult
+        this.$patch((state) => {
+          state.testResultById[id] = errorResult
+        })
         return errorResult
       } finally {
         this.loading = false
-        this.testingById[id] = false
+        this.$patch((state) => {
+          state.testingById[id] = false
+        })
       }
     },
 
@@ -310,9 +340,9 @@ export const useConnectionStore = defineStore('connection', {
           password: sshConfig.password
         })
         this.sshTestResult = result
-        // Store result by connection ID if provided
+        // Store result by connection ID if provided (use reactive helper)
         if (id) {
-          this.sshTestResultById[id] = result
+          this.setSSHTestResult(id, result)
         }
         return result
       } catch (err) {
@@ -323,7 +353,7 @@ export const useConnectionStore = defineStore('connection', {
         }
         this.sshTestResult = errorResult
         if (id) {
-          this.sshTestResultById[id] = errorResult
+          this.setSSHTestResult(id, errorResult)
         }
         return errorResult
       } finally {
@@ -357,9 +387,9 @@ export const useConnectionStore = defineStore('connection', {
           use_https: winrmConfig.use_https || false
         })
         this.winrmTestResult = result
-        // Store result by connection ID if provided
+        // Store result by connection ID if provided (use reactive helper)
         if (id) {
-          this.winrmTestResultById[id] = result
+          this.setWinRMTestResult(id, result)
         }
         return result
       } catch (err) {
@@ -370,7 +400,7 @@ export const useConnectionStore = defineStore('connection', {
         }
         this.winrmTestResult = errorResult
         if (id) {
-          this.winrmTestResultById[id] = errorResult
+          this.setWinRMTestResult(id, errorResult)
         }
         return errorResult
       } finally {
@@ -385,6 +415,26 @@ export const useConnectionStore = defineStore('connection', {
       this.testResult = null
       this.sshTestResult = null
       this.winrmTestResult = null
+    },
+
+    /**
+     * Set SSH test result for a specific connection (ensures reactivity)
+     */
+    setSSHTestResult(connectionId, result) {
+      // Use $patch for reliable Pinia reactivity
+      this.$patch((state) => {
+        state.sshTestResultById[connectionId] = result
+      })
+    },
+
+    /**
+     * Set WinRM test result for a specific connection (ensures reactivity)
+     */
+    setWinRMTestResult(connectionId, result) {
+      // Use $patch for reliable Pinia reactivity
+      this.$patch((state) => {
+        state.winrmTestResultById[connectionId] = result
+      })
     },
 
     /**
