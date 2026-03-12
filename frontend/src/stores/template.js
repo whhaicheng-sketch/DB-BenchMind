@@ -1,211 +1,335 @@
-/**
- * Template Pinia Store
- * Manages benchmark template state for DB-BenchMind Wails frontend.
- */
 import { defineStore } from 'pinia'
+import { TEMPLATE_CAPABILITIES } from '../constants/templateCapabilities'
 import {
-  ListTemplates,
-  ListTemplatesByType,
-  GetTemplate,
-  GetTemplateParams,
-  ValidateTemplateForDB
-} from '../../wailsjs/go/bindings/TemplateBinding'
+  cloneTemplate,
+  createDefaultTemplate,
+  createTemplateId,
+  DB_FAMILY_LABELS,
+  TEMPLATE_SCOPE_LABELS,
+  TEMPLATE_STATUS_LABELS,
+  TEMPLATE_TOOL_LABELS,
+  WORKLOAD_LABELS
+} from '../models/template'
+import { templateMocks } from '../mock/templates'
+
+function filterTemplate(template, filters) {
+  const search = filters.search.trim().toLowerCase()
+  const inSearch = !search || [
+    template.name,
+    template.description,
+    template.dbFamily,
+    template.tool,
+    template.workloadFamily,
+    ...(template.tags || [])
+  ].join(' ').toLowerCase().includes(search)
+
+  const inDb = !filters.dbFamily || template.dbFamily === filters.dbFamily
+  const inTool = !filters.tool || template.tool === filters.tool
+  const inScope = !filters.scope || template.scope === filters.scope
+  const inTag = !filters.tag || template.tags.includes(filters.tag)
+
+  return inSearch && inDb && inTool && inScope && inTag
+}
 
 export const useTemplateStore = defineStore('template', {
   state: () => ({
-    // Template list
     templates: [],
-    // Currently selected template ID
-    selectedTemplateId: null,
-    // Selected template details
-    selectedTemplate: null,
-    // Template parameters
-    templateParams: [],
-    // Parameter values (user input)
-    paramValues: {},
-    // Loading state
+    selectedTemplateId: '',
+    editingTemplateDraft: null,
+    editorState: 'view',
+    editorMode: 'standard',
     loading: false,
-    // Error message
-    error: null
+    error: null,
+    notice: null,
+    filters: {
+      search: '',
+      dbFamily: '',
+      tool: '',
+      scope: '',
+      tag: ''
+    },
+    templateParams: [],
+    paramValues: {},
+    pendingApi: {
+      loadTemplates: null,
+      createTemplate: null,
+      updateTemplate: null,
+      deleteTemplate: null,
+      duplicateTemplate: null,
+      exportTemplate: null,
+      importTemplate: null,
+      createTaskFromTemplate: null
+    },
+    isDirty: false
   }),
 
   getters: {
-    // Get tool label
-    toolLabels: () => ({
-      sysbench: 'Sysbench',
-      hammerdb: 'HammerDB',
-      swingbench: 'SwingBench'
-    }),
-
-    // Get selected template tool type
-    selectedTool: (state) => {
-      return state.selectedTemplate?.tool || null
-    },
-
-    // Check if template supports a database type
-    supportsDatabase: (state) => (dbType) => {
-      if (!state.selectedTemplate) return false
-      return state.selectedTemplate.database_types?.includes(dbType) || false
-    },
-
-    // Group templates by tool
-    templatesByTool: (state) => {
-      const grouped = {}
-      for (const tmpl of state.templates) {
-        if (!grouped[tmpl.tool]) {
-          grouped[tmpl.tool] = []
-        }
-        grouped[tmpl.tool].push(tmpl)
+    toolLabels: () => TEMPLATE_TOOL_LABELS,
+    dbFamilyLabels: () => DB_FAMILY_LABELS,
+    scopeLabels: () => TEMPLATE_SCOPE_LABELS,
+    statusLabels: () => TEMPLATE_STATUS_LABELS,
+    workloadLabels: () => WORKLOAD_LABELS,
+    selectedTemplate: (state) => state.templates.find((template) => template.id === state.selectedTemplateId) || null,
+    activeTemplate: (state) => {
+      if (state.editorState === 'creating' || state.editorState === 'editing') {
+        return state.editingTemplateDraft
       }
-      return grouped
+      return state.templates.find((template) => template.id === state.selectedTemplateId) || null
     },
-
-    // Get templates filtered by database type
-    getTemplatesForDbType: (state) => (dbType) => {
-      if (!dbType) return state.templates
-      return state.templates.filter(t =>
-        t.database_types?.includes(dbType)
-      )
+    displayTemplates: (state) => {
+      if (state.editorState === 'creating' && state.editingTemplateDraft) {
+        return [state.editingTemplateDraft, ...state.templates]
+      }
+      return state.templates
+    },
+    filteredTemplates() {
+      return this.displayTemplates.filter((template) => filterTemplate(template, this.filters))
+    },
+    hasActiveFilters: (state) => Object.values(state.filters).some(Boolean),
+    hasSearchOnly: (state) => !!state.filters.search.trim() &&
+      !state.filters.dbFamily &&
+      !state.filters.tool &&
+      !state.filters.scope &&
+      !state.filters.tag,
+    allTags() {
+      return [...new Set(this.displayTemplates.flatMap((template) => template.tags || []))].sort()
+    },
+    canEditSelected(state) {
+      const selected = state.templates.find((template) => template.id === state.selectedTemplateId)
+      return !!selected && selected.scope === 'user'
+    },
+    supportsDatabase: (state) => (dbType) => {
+      const template = state.editingTemplateDraft || state.templates.find((item) => item.id === state.selectedTemplateId)
+      return !!template && template.dbFamily === dbType
+    },
+    templatesByTool(state) {
+      return state.templates.reduce((grouped, template) => {
+        if (!grouped[template.tool]) {
+          grouped[template.tool] = []
+        }
+        grouped[template.tool].push(template)
+        return grouped
+      }, {})
+    },
+    selectedTool(state) {
+      const selected = state.editingTemplateDraft || state.templates.find((template) => template.id === state.selectedTemplateId)
+      return selected?.tool || null
     }
   },
 
   actions: {
-    /**
-     * Fetch all templates from backend
-     */
     async fetchTemplates() {
       this.loading = true
       this.error = null
 
       try {
-        const result = await ListTemplates()
-        if (result.error) {
-          this.error = result.error
-          console.error('Failed to fetch templates:', result.error)
-        } else {
-          this.templates = result.templates || []
-        }
+        this.templates = templateMocks.map((template) => cloneTemplate(template))
       } catch (err) {
-        this.error = err.message || 'Failed to fetch templates'
-        console.error('fetchTemplates error:', err)
+        this.error = err.message || 'Failed to load templates'
       } finally {
         this.loading = false
       }
     },
 
-    /**
-     * Fetch templates filtered by database type
-     */
-    async fetchTemplatesByType(dbType) {
-      this.loading = true
-      this.error = null
-
-      try {
-        const result = await ListTemplatesByType(dbType)
-        if (result.error) {
-          this.error = result.error
-          console.error('Failed to fetch templates by type:', result.error)
-        } else {
-          this.templates = result.templates || []
-        }
-      } catch (err) {
-        this.error = err.message || 'Failed to fetch templates by type'
-        console.error('fetchTemplatesByType error:', err)
-      } finally {
-        this.loading = false
+    async initializeTemplates() {
+      if (this.templates.length === 0) {
+        await this.fetchTemplates()
       }
     },
 
-    /**
-     * Select a template by ID and load its details
-     */
-    async selectTemplate(id) {
+    setFilter(key, value) {
+      this.filters[key] = value
+    },
+
+    resetFilters() {
+      this.filters = {
+        search: '',
+        dbFamily: '',
+        tool: '',
+        scope: '',
+        tag: ''
+      }
+    },
+
+    selectTemplate(id) {
+      if (this.isDirty && this.selectedTemplateId && this.selectedTemplateId !== id) {
+        this.showNotice('Unsaved changes were discarded when switching templates.', 'warning')
+      }
+
       this.selectedTemplateId = id
+      this.editorState = 'view'
+      this.isDirty = false
+      this.editingTemplateDraft = null
+    },
 
-      if (!id) {
-        this.selectedTemplate = null
-        this.templateParams = []
-        this.paramValues = {}
+    clearSelection() {
+      this.selectedTemplateId = ''
+      this.editingTemplateDraft = null
+      this.editorState = 'view'
+      this.isDirty = false
+    },
+
+    startEditing() {
+      if (!this.selectedTemplate || this.selectedTemplate.scope !== 'user') return
+      this.editingTemplateDraft = cloneTemplate(this.selectedTemplate)
+      this.editorState = 'editing'
+      this.isDirty = false
+    },
+
+    cancelEditing() {
+      if (this.editorState === 'creating') {
+        this.clearSelection()
+      } else {
+        this.editorState = 'view'
+        this.editingTemplateDraft = null
+        this.isDirty = false
+      }
+    },
+
+    createTemplate() {
+      const draft = createDefaultTemplate({
+        id: createTemplateId(),
+        name: `New Template ${this.templates.filter((template) => template.scope === 'user').length + 1}`
+      })
+
+      this.selectedTemplateId = draft.id
+      this.editingTemplateDraft = draft
+      this.editorState = 'creating'
+      this.isDirty = true
+      this.showNotice('New template draft created. Configure it and save locally.', 'info')
+    },
+
+    markDirty() {
+      if (this.editorState === 'editing' || this.editorState === 'creating') {
+        this.isDirty = true
+      }
+    },
+
+    updateDraftForTool(tool) {
+      if (!this.editingTemplateDraft) return
+      const capability = TEMPLATE_CAPABILITIES[tool]
+      if (!capability) return
+
+      this.editingTemplateDraft.tool = tool
+      this.editingTemplateDraft.dbFamily = capability.dbFamilies[0]
+      this.editingTemplateDraft.workloadFamily = capability.workloads[0]
+      this.editingTemplateDraft.runtime.concurrency.mode = capability.concurrencyModes[0]
+      this.markDirty()
+    },
+
+    updateDraftDbFamily(dbFamily) {
+      if (!this.editingTemplateDraft) return
+      this.editingTemplateDraft.dbFamily = dbFamily
+      this.editingTemplateDraft.compatibility.supportedDatabases = [dbFamily]
+      this.markDirty()
+    },
+
+    updateDraftWorkload(workloadFamily) {
+      if (!this.editingTemplateDraft) return
+      this.editingTemplateDraft.workloadFamily = workloadFamily
+      if (this.editingTemplateDraft.tool === 'hammerdb') {
+        this.editingTemplateDraft.toolConfig.hammerdb.benchmark = workloadFamily
+      }
+      this.markDirty()
+    },
+
+    saveTemplate() {
+      const draft = this.editingTemplateDraft
+      if (!draft) return
+
+      draft.updatedAt = new Date().toISOString()
+      draft.status = draft.status === 'deprecated' ? 'deprecated' : 'ready'
+
+      if (this.editorState === 'creating') {
+        this.templates.unshift(cloneTemplate(draft))
+      } else {
+        this.templates = this.templates.map((template) => (
+          template.id === draft.id ? cloneTemplate(draft) : template
+        ))
+      }
+
+      this.selectedTemplateId = draft.id
+      this.editorState = 'view'
+      this.editingTemplateDraft = null
+      this.isDirty = false
+      this.showNotice('Template saved to local mock state.', 'success')
+    },
+
+    duplicateTemplate(id = this.selectedTemplateId) {
+      const source = this.displayTemplates.find((template) => template.id === id)
+      if (!source) return
+
+      const copy = cloneTemplate(source)
+      copy.id = createTemplateId()
+      copy.scope = 'user'
+      copy.status = 'draft'
+      copy.name = `${source.name} Copy`
+      copy.version = '0.1.0'
+      copy.createdAt = new Date().toISOString()
+      copy.updatedAt = copy.createdAt
+
+      this.templates.unshift(copy)
+      this.selectedTemplateId = copy.id
+      this.editorState = 'editing'
+      this.editingTemplateDraft = cloneTemplate(copy)
+      this.isDirty = false
+      this.showNotice('Template duplicated as a user draft.', 'success')
+    },
+
+    saveAsTemplate() {
+      const source = this.activeTemplate
+      if (!source) return
+
+      const copy = cloneTemplate(source)
+      copy.id = createTemplateId()
+      copy.scope = 'user'
+      copy.status = 'draft'
+      copy.name = `${source.name} Save As`
+      copy.version = '0.1.0'
+      copy.createdAt = new Date().toISOString()
+      copy.updatedAt = copy.createdAt
+
+      this.selectedTemplateId = copy.id
+      this.editorState = 'creating'
+      this.editingTemplateDraft = copy
+      this.isDirty = true
+      this.showNotice('Save As created a new user template draft.', 'info')
+    },
+
+    deleteTemplate(id = this.selectedTemplateId) {
+      const template = this.templates.find((item) => item.id === id)
+      if (!template || template.scope !== 'user') {
+        this.showNotice('Built-in templates cannot be deleted in this phase.', 'warning')
         return
       }
 
-      this.loading = true
-      this.error = null
+      this.templates = this.templates.filter((item) => item.id !== id)
 
-      try {
-        // Get template details
-        const tmpl = await GetTemplate(id)
-        if (tmpl) {
-          this.selectedTemplate = tmpl
-
-          // Get template parameters
-          const paramsResult = await GetTemplateParams(id)
-          if (paramsResult.error) {
-            console.error('Failed to get template params:', paramsResult.error)
-          } else {
-            this.templateParams = paramsResult.params || []
-
-            // Initialize param values with defaults
-            this.paramValues = {}
-            for (const param of this.templateParams) {
-              this.paramValues[param.name] = param.default
-            }
-          }
-        } else {
-          this.error = 'Template not found'
-        }
-      } catch (err) {
-        this.error = err.message || 'Failed to load template'
-        console.error('selectTemplate error:', err)
-      } finally {
-        this.loading = false
+      if (this.selectedTemplateId === id) {
+        this.clearSelection()
       }
+
+      this.showNotice('User template removed from local mock state.', 'success')
     },
 
-    /**
-     * Validate template compatibility with database type
-     */
-    async validateForDatabase(templateId, dbType) {
-      try {
-        return await ValidateTemplateForDB(templateId, dbType)
-      } catch (err) {
-        console.error('validateForDatabase error:', err)
-        return false
+    placeholderAction(action) {
+      const messages = {
+        import: 'Import is a placeholder in this phase. Keep the button for later backend/parser wiring.',
+        export: 'Export is a placeholder in this phase. Data stays in local mock state.',
+        createTask: 'Create Task from Template is reserved for Tasks & Monitor integration.',
+        save: 'Save placeholder executed.',
+        unsupportedEdit: 'Built-in templates are read-only. Use Save As to create a user copy.'
       }
+
+      this.showNotice(messages[action] || 'This action is reserved for a later phase.', 'info')
     },
 
-    /**
-     * Update a parameter value
-     */
-    setParamValue(name, value) {
-      this.paramValues[name] = value
+    clearNotice() {
+      this.notice = null
     },
 
-    /**
-     * Reset parameter values to defaults
-     */
-    resetParamValues() {
-      this.paramValues = {}
-      for (const param of this.templateParams) {
-        this.paramValues[param.name] = param.default
-      }
-    },
-
-    /**
-     * Clear template selection
-     */
-    clearSelection() {
-      this.selectedTemplateId = null
-      this.selectedTemplate = null
-      this.templateParams = []
-      this.paramValues = {}
-    },
-
-    /**
-     * Clear error
-     */
-    clearError() {
-      this.error = null
+    showNotice(message, tone = 'info') {
+      this.notice = { message, tone, timestamp: Date.now() }
     }
   }
 })

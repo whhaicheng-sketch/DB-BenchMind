@@ -1,67 +1,131 @@
 <template>
   <div class="templates-tab">
-    <div class="tab-header">
-      <h2>Templates</h2>
+    <TemplateHeader @create="handleCreate" />
+
+    <div v-if="templateStore.notice" class="notice-banner" :class="`notice-${templateStore.notice.tone}`">
+      <span>{{ templateStore.notice.message }}</span>
+      <button class="notice-dismiss" @click="templateStore.clearNotice()">Dismiss</button>
     </div>
-    <TemplateList
-      v-model="selectedTemplateId"
-      :disabled="isRunning"
-      db-type=""
-      @template-selected="handleTemplateSelected"
+
+    <TemplateFilterBar
+      :filters="templateStore.filters"
+      :tool-options="toolOptions"
+      :db-options="dbOptions"
+      :tag-options="tagOptions"
+      :scope-options="scopeOptions"
+      @filter-change="handleFilterChange"
+      @reset="templateStore.resetFilters()"
     />
-    <div v-if="selectedTemplate" class="template-details">
-      <h3>{{ selectedTemplate.name }}</h3>
-      <p>{{ selectedTemplate.description }}</p>
+
+    <div class="templates-workbench">
+      <TemplateList
+        :templates="templateStore.filteredTemplates"
+        :selected-id="templateStore.selectedTemplateId"
+        :all-count="templateStore.displayTemplates.length"
+        :has-filters="templateStore.hasActiveFilters"
+        :has-search-only="templateStore.hasSearchOnly"
+        @select="templateStore.selectTemplate"
+        @duplicate="templateStore.duplicateTemplate"
+        @delete="templateStore.deleteTemplate"
+        @reset-filters="templateStore.resetFilters()"
+      />
+
+      <TemplateDetailPanel />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useTemplateStore } from '../../stores/template'
-import { useBenchmarkStore } from '../../stores/benchmark'
+import { computed, onMounted } from 'vue'
+import { DB_OPTIONS, TOOL_OPTIONS } from '../../constants/templateCapabilities'
+import TemplateDetailPanel from '../template/TemplateDetailPanel.vue'
+import TemplateFilterBar from '../template/TemplateFilterBar.vue'
+import TemplateHeader from '../template/TemplateHeader.vue'
 import TemplateList from '../template/TemplateList.vue'
+import { useTemplateStore } from '../../stores/template'
 
 const templateStore = useTemplateStore()
-const benchmarkStore = useBenchmarkStore()
 
-const selectedTemplateId = ref('')
+const toolOptions = TOOL_OPTIONS
+const dbOptions = DB_OPTIONS
 
-const selectedTemplate = computed(() => templateStore.selectedTemplate)
-const isRunning = computed(() => benchmarkStore.isRunning)
+const scopeOptions = [
+  { value: 'builtin', label: 'Built-in' },
+  { value: 'user', label: 'User' }
+]
 
-const handleTemplateSelected = (template) => {
-  console.log('Selected template:', template)
+const tagOptions = computed(() => templateStore.allTags.map((tag) => ({ value: tag, label: tag })))
+
+const handleFilterChange = ({ key, value }) => {
+  templateStore.setFilter(key, value)
 }
+
+const handleCreate = () => {
+  templateStore.createTemplate()
+}
+
+onMounted(async () => {
+  await templateStore.initializeTemplates()
+})
 </script>
 
 <style scoped>
 .templates-tab {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
 }
 
-.tab-header {
-  margin-bottom: 20px;
-}
-
-.tab-header h2 {
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.template-details {
-  margin-top: 20px;
-  padding: 16px;
-  background-color: #2a3a4a;
+.notice-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
   border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13px;
 }
 
-.template-details h3 {
-  font-size: 18px;
-  margin-bottom: 8px;
+.notice-info {
+  background: rgba(66, 153, 225, 0.12);
+  border-color: rgba(66, 153, 225, 0.3);
+  color: #90cdf4;
 }
 
-.template-details p {
-  color: #a0aec0;
+.notice-success {
+  background: rgba(72, 187, 120, 0.12);
+  border-color: rgba(72, 187, 120, 0.28);
+  color: #9ae6b4;
+}
+
+.notice-warning {
+  background: rgba(237, 137, 54, 0.12);
+  border-color: rgba(237, 137, 54, 0.28);
+  color: #f6ad55;
+}
+
+.notice-dismiss {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.templates-workbench {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1180px) {
+  .templates-workbench {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
