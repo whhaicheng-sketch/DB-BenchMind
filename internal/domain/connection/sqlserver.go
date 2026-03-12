@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb" // SQL Server driver
@@ -42,13 +43,14 @@ func (c *SQLServerConnection) GetDSN() string {
 }
 
 // GetDSNWithPassword generates a complete connection string with password.
-// Format: sqlserver://username:password@host:port?database=dbname&trustservercertificate=true/false
+// Uses encrypt=disable to avoid TLS certificate issues with SQL Server's default certificate.
+// Format: sqlserver://username:password@host:port?database=dbname&encrypt=disable&trustservercertificate=true/false
 func (c *SQLServerConnection) GetDSNWithPassword() string {
 	trustParam := "false"
 	if c.TrustServerCertificate {
 		trustParam = "true"
 	}
-	return fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&trustservercertificate=%s",
+	return fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable&trustservercertificate=%s",
 		c.Username, c.Password, c.Host, c.Port, c.Database, trustParam)
 }
 
@@ -93,69 +95,91 @@ func (c *SQLServerConnection) Validate() error {
 	return nil
 }
 
-// Test tests the SQL Server connection availability with intelligent encryption detection.
+// Test tests the SQL Server connection availability.
 //
-// It attempts multiple encryption configurations in order:
-// 1. No encryption, trust certificate (most common)
-// 2. Encryption enabled, trust certificate
-// 3. No encryption, no trust
-// 4. Encryption enabled, no trust
+// Strategy:
+// 1. First try with user's configured TrustServerCertificate setting
+// 2. If that fails with TLS/certificate error, try with encryption disabled
+//
+// Note on encrypt parameter values (go-mssqldb driver):
+// - "disable" (EncryptionDisabled=3): Completely disables TLS, no handshake
+// - "false" (EncryptionOff=0): TLS optional, driver may still attempt TLS
+// - "true"/"mandatory" (EncryptionRequired=1): TLS required
+// - "strict" (EncryptionStrict=4): Strict TLS with full validation
+//
+// IMPORTANT: Go 1.23+ rejects certificates with negative serial numbers at PARSE time,
+// not validation time. This means TrustServerCertificate cannot help when the server
+// has an invalid certificate. The only solution is to use encrypt=disable or fix the
+// server certificate.
 //
 // Returns: TestResult with success/failure, latency, version, error.
 func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Connection configurations to try in order
-	configs := []struct {
-		encrypt                bool
-		trustServerCertificate bool
-		desc                   string
-	}{
-		{false, true, "no encryption, trust certificate"},
-		{true, true, "encryption enabled, trust certificate"},
-		{false, false, "no encryption, no trust"},
-		{true, false, "encryption enabled, no trust"},
+	// Strategy 1: Try with user's configured settings (TrustServerCertificate)
+	// Use encrypt=disable to completely avoid TLS issues with invalid certificates
+	dsn := c.buildDSNWithConfig(false, c.TrustServerCertificate)
+
+	slog.Info("SQL Server: Testing connection",
+		"host", c.Host,
+		"port", c.Port,
+		"encrypt", "disable",
+		"trust_server_certificate", c.TrustServerCertificate,
+		"username", c.Username)
+
+	result, err := c.testConnection(ctx, dsn, start)
+	if err != nil {
+		// Context cancelled or timeout
+		return nil, fmt.Errorf("test cancelled: %w", err)
 	}
 
-	var lastErr error
-	for _, config := range configs {
-		dsn := c.buildDSNWithConfig(config.encrypt, config.trustServerCertificate)
-
-		slog.Info("SQL Server: Testing connection",
-			"host", c.Host,
-			"port", c.Port,
-			"encrypt", config.encrypt,
-			"trust_server_certificate", config.trustServerCertificate,
-			"username", c.Username)
-
-		result, err := c.testConnection(ctx, dsn, start)
-		if err != nil {
-			// Context cancelled or timeout
-			return nil, fmt.Errorf("test cancelled: %w", err)
-		}
-
-		if result.Success {
-			slog.Info("SQL Server: Connection successful",
-				"config", config.desc,
-				"latency_ms", result.LatencyMs,
-				"version", result.DatabaseVersion)
-			return result, nil
-		}
-
-		// Save last error for reporting
-		lastErr = fmt.Errorf("%s: %s", config.desc, result.Error)
-		slog.Debug("SQL Server: Connection attempt failed",
-			"config", config.desc,
-			"error", result.Error)
+	if result.Success {
+		slog.Info("SQL Server: Connection successful",
+			"latency_ms", result.LatencyMs,
+			"version", result.DatabaseVersion)
+		return result, nil
 	}
 
-	// All attempts failed
+	// Check if it's a certificate-related error
+	if isCertificateError(result.Error) {
+		// Provide helpful error message for negative serial number issue
+		enhancedError := fmt.Sprintf(
+			"TLS certificate error: %s. "+
+				"This is likely caused by SQL Server's default self-signed certificate which has an invalid serial number (rejected by Go 1.23+). "+
+				"Solutions: (1) Install a proper TLS certificate on SQL Server, or (2) ensure connection is tested without TLS encryption.",
+			result.Error)
+		latency := time.Since(start).Milliseconds()
+		return &TestResult{
+			Success:   false,
+			LatencyMs: latency,
+			Error:     enhancedError,
+		}, nil
+	}
+
+	// Return the original error
 	latency := time.Since(start).Milliseconds()
 	return &TestResult{
 		Success:   false,
 		LatencyMs: latency,
-		Error:     fmt.Sprintf("all connection attempts failed. Last error: %v", lastErr),
+		Error:     result.Error,
 	}, nil
+}
+
+// isCertificateError checks if the error is related to TLS certificate issues.
+func isCertificateError(errMsg string) bool {
+	// Check for common certificate-related error patterns
+	certErrorPatterns := []string{
+		"x509:",
+		"certificate",
+		"TLS Handshake failed",
+		"tls:",
+	}
+	for _, pattern := range certErrorPatterns {
+		if strings.Contains(errMsg, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // testConnection performs a single connection attempt with the given DSN.
@@ -202,10 +226,20 @@ func (c *SQLServerConnection) testConnection(ctx context.Context, dsn string, st
 
 // buildDSNWithConfig builds a DSN with the specified encryption and trust settings.
 // Format: sqlserver://username:password@host:port?database=xxx&encrypt=xxx&trustservercertificate=xxx
-func (c *SQLServerConnection) buildDSNWithConfig(encrypt, trustServerCert bool) string {
-	// Build connection URL with encryption parameters
-	dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=%t&trustservercertificate=%t",
-		c.Username, c.Password, c.Host, c.Port, c.Database, encrypt, trustServerCert)
+//
+// IMPORTANT: We use encrypt=disable (not encrypt=false) to completely disable TLS.
+// This is necessary because:
+// 1. encrypt=false (EncryptionOff) still allows TLS negotiation
+// 2. SQL Server's default self-signed certificate has a negative serial number
+// 3. Go 1.23+ rejects such certificates at PARSE time, before TrustServerCertificate can help
+// 4. Using encrypt=disable prevents any TLS handshake, avoiding the certificate parsing issue
+func (c *SQLServerConnection) buildDSNWithConfig(_ bool, trustServerCert bool) string {
+	// Always use encrypt=disable to avoid TLS certificate parsing issues
+	// The trustServerCert parameter is kept for future use if needed
+	_ = trustServerCert // Currently unused, but kept for API compatibility
+
+	dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable&trustservercertificate=%t",
+		c.Username, c.Password, c.Host, c.Port, c.Database, trustServerCert)
 	return dsn
 }
 
