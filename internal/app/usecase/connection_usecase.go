@@ -349,6 +349,10 @@ func getSSHPassword(conn connection.Connection) string {
 		if c.SSH != nil {
 			return c.SSH.Password
 		}
+	case *connection.SQLServerConnection:
+		if c.SSH != nil {
+			return c.SSH.Password
+		}
 	}
 	return ""
 }
@@ -365,6 +369,10 @@ func setSSHPassword(conn connection.Connection, password string) {
 			c.SSH.Password = password
 		}
 	case *connection.OracleConnection:
+		if c.SSH != nil {
+			c.SSH.Password = password
+		}
+	case *connection.SQLServerConnection:
 		if c.SSH != nil {
 			c.SSH.Password = password
 		}

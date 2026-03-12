@@ -240,6 +240,16 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) *Conne
 		conn = usecase.NewSQLServerConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if sqlConn, ok := conn.(*connection.SQLServerConnection); ok {
 			sqlConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				sqlConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 			// WinRM configuration
 			if req.WinRMEnabled {
 				sqlConn.WinRM = &connection.WinRMConfig{
@@ -368,6 +378,18 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) *Conne
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
 		}
+		// SSH configuration
+		if req.SSHEnabled {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:  true,
+				Host:     req.Host,
+				Port:     req.SSHPort,
+				Username: req.SSHUsername,
+				Password: req.SSHPassword,
+			}
+		} else {
+			conn.SSH = nil
+		}
 		// WinRM configuration
 		if req.WinRMEnabled {
 			conn.WinRM = &connection.WinRMConfig{
@@ -434,12 +456,32 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 		if mysqlConn, ok := conn.(*connection.MySQLConnection); ok {
 			mysqlConn.SSLMode = req.SSLMode
 			mysqlConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				mysqlConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "postgresql":
 		conn = usecase.NewPostgreSQLConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if pgConn, ok := conn.(*connection.PostgreSQLConnection); ok {
 			pgConn.SSLMode = req.SSLMode
 			pgConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				pgConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "oracle":
 		// Determine SID/ServiceName based on connect_type
@@ -460,11 +502,42 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
 			oraConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				oraConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
 		}
 	case "sqlserver":
 		conn = usecase.NewSQLServerConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if sqlConn, ok := conn.(*connection.SQLServerConnection); ok {
 			sqlConn.SetPassword(req.Password)
+			// SSH configuration
+			if req.SSHEnabled {
+				sqlConn.SSH = &connection.SSHTunnelConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.SSHPort,
+					Username: req.SSHUsername,
+					Password: req.SSHPassword,
+				}
+			}
+			// WinRM configuration
+			if req.WinRMEnabled {
+				sqlConn.WinRM = &connection.WinRMConfig{
+					Enabled:  true,
+					Host:     req.Host,
+					Port:     req.WinRMPort,
+					Username: req.WinRMUsername,
+					Password: req.WinRMPassword,
+					UseHTTPS: req.WinRMUseHTTPS,
+				}
+			}
 		}
 	default:
 		return ConnectionTestResult{
@@ -570,6 +643,16 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 		dto.Database = c.Database
 		dto.Username = c.Username
 		dto.TrustServerCertificate = c.TrustServerCertificate
+		// SSH configuration
+		if c.SSH != nil {
+			dto.SSHEnabled = c.SSH.Enabled
+			dto.SSHPort = c.SSH.Port
+			dto.SSHUsername = c.SSH.Username
+			// Load SSH password from keyring
+			if sshPwd, err := b.uc.GetSSHPassword(context.Background(), conn.GetID()); err == nil {
+				dto.SSHPassword = sshPwd
+			}
+		}
 		// WinRM configuration
 		if c.WinRM != nil {
 			dto.WinRMEnabled = c.WinRM.Enabled

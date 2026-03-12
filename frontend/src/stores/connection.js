@@ -34,7 +34,8 @@ export const useConnectionStore = defineStore('connection', {
     // Per-connection test states (for list page feedback)
     testingById: {},
     testResultById: {},
-    sshTestResultById: {}
+    sshTestResultById: {},
+    winrmTestResultById: {}
   }),
 
   getters: {
@@ -54,6 +55,9 @@ export const useConnectionStore = defineStore('connection', {
     },
     getSSHTestResultById: (state) => (id) => {
       return state.sshTestResultById[id] || null
+    },
+    getWinRMTestResultById: (state) => (id) => {
+      return state.winrmTestResultById[id] || null
     },
     // Get connections grouped by type
     connectionsByType: (state) => {
@@ -328,8 +332,19 @@ export const useConnectionStore = defineStore('connection', {
     },
     /**
      * Test WinRM connection
+     * @param {string|object} idOrConfig - Connection ID or WinRM config (for backward compatibility)
+     * @param {object} winrmConfigMaybe - WinRM configuration (when first param is ID)
      */
-    async testWinRMConnection(winrmConfig) {
+    async testWinRMConnection(idOrConfig, winrmConfigMaybe) {
+      // Support both signatures: (winrmConfig) and (id, winrmConfig)
+      let id, winrmConfig
+      if (typeof idOrConfig === 'string') {
+        id = idOrConfig
+        winrmConfig = winrmConfigMaybe
+      } else {
+        winrmConfig = idOrConfig
+      }
+
       this.loading = true
       this.winrmTestResult = null
 
@@ -342,14 +357,22 @@ export const useConnectionStore = defineStore('connection', {
           use_https: winrmConfig.use_https || false
         })
         this.winrmTestResult = result
+        // Store result by connection ID if provided
+        if (id) {
+          this.winrmTestResultById[id] = result
+        }
         return result
       } catch (err) {
-        this.winrmTestResult = {
+        const errorResult = {
           success: false,
           host: winrmConfig.host,
           error: err.message || 'Failed to test WinRM connection'
         }
-        return this.winrmTestResult
+        this.winrmTestResult = errorResult
+        if (id) {
+          this.winrmTestResultById[id] = errorResult
+        }
+        return errorResult
       } finally {
         this.loading = false
       }

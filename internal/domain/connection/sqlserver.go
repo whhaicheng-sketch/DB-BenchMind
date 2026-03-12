@@ -27,6 +27,9 @@ type SQLServerConnection struct {
 	Password               string `json:"-"`                        // Password (stored in keyring)
 	TrustServerCertificate bool   `json:"trust_server_certificate"` // Trust server certificate
 
+	// SSH tunnel configuration (for secure remote access)
+	SSH *SSHTunnelConfig `json:"ssh,omitempty"` // SSH tunnel configuration (optional)
+
 	// WinRM configuration (for Windows Server monitoring)
 	WinRM *WinRMConfig `json:"winrm,omitempty"` // WinRM configuration (optional)
 }
@@ -98,8 +101,9 @@ func (c *SQLServerConnection) Validate() error {
 // Test tests the SQL Server connection availability.
 //
 // Strategy:
-// 1. First try with user's configured TrustServerCertificate setting
-// 2. If that fails with TLS/certificate error, try with encryption disabled
+// 1. If SSH tunnel is enabled, create tunnel and connect through it
+// 2. Try with user's configured TrustServerCertificate setting
+// 3. Use encrypt=disable to avoid TLS issues with invalid certificates
 //
 // Note on encrypt parameter values (go-mssqldb driver):
 // - "disable" (EncryptionDisabled=3): Completely disables TLS, no handshake
@@ -116,13 +120,38 @@ func (c *SQLServerConnection) Validate() error {
 func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Strategy 1: Try with user's configured settings (TrustServerCertificate)
-	// Use encrypt=disable to completely avoid TLS issues with invalid certificates
-	dsn := c.buildDSNWithConfig(false, c.TrustServerCertificate)
+	// Variables to track connection target
+	targetHost := c.Host
+	targetPort := c.Port
+
+	// Create SSH tunnel if enabled
+	var tunnel *SSHTunnel
+	if c.SSH != nil && c.SSH.Enabled {
+		var err error
+		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
+		if err != nil {
+			slog.Error("SQL Server: Failed to create SSH tunnel", "error", err)
+			return &TestResult{
+				Success:   false,
+				LatencyMs: time.Since(start).Milliseconds(),
+				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
+			}, nil
+		}
+		defer tunnel.Close()
+
+		// Use tunnel's local port
+		targetHost = "127.0.0.1"
+		targetPort = tunnel.GetLocalPort()
+		slog.Info("SQL Server: Using SSH tunnel", "local_port", targetPort)
+	}
+
+	// Build DSN with target host/port (through SSH tunnel if enabled)
+	dsn := c.buildDSNWithConfig(targetHost, targetPort, c.TrustServerCertificate)
 
 	slog.Info("SQL Server: Testing connection",
-		"host", c.Host,
-		"port", c.Port,
+		"host", targetHost,
+		"port", targetPort,
+		"ssh_tunnel", tunnel != nil,
 		"encrypt", "disable",
 		"trust_server_certificate", c.TrustServerCertificate,
 		"username", c.Username)
@@ -136,7 +165,8 @@ func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	if result.Success {
 		slog.Info("SQL Server: Connection successful",
 			"latency_ms", result.LatencyMs,
-			"version", result.DatabaseVersion)
+			"version", result.DatabaseVersion,
+			"ssh_tunnel", tunnel != nil)
 		return result, nil
 	}
 
@@ -224,7 +254,7 @@ func (c *SQLServerConnection) testConnection(ctx context.Context, dsn string, st
 	}, nil
 }
 
-// buildDSNWithConfig builds a DSN with the specified encryption and trust settings.
+// buildDSNWithConfig builds a DSN with the specified host, port, and trust settings.
 // Format: sqlserver://username:password@host:port?database=xxx&encrypt=xxx&trustservercertificate=xxx
 //
 // IMPORTANT: We use encrypt=disable (not encrypt=false) to completely disable TLS.
@@ -233,13 +263,10 @@ func (c *SQLServerConnection) testConnection(ctx context.Context, dsn string, st
 // 2. SQL Server's default self-signed certificate has a negative serial number
 // 3. Go 1.23+ rejects such certificates at PARSE time, before TrustServerCertificate can help
 // 4. Using encrypt=disable prevents any TLS handshake, avoiding the certificate parsing issue
-func (c *SQLServerConnection) buildDSNWithConfig(_ bool, trustServerCert bool) string {
+func (c *SQLServerConnection) buildDSNWithConfig(host string, port int, trustServerCert bool) string {
 	// Always use encrypt=disable to avoid TLS certificate parsing issues
-	// The trustServerCert parameter is kept for future use if needed
-	_ = trustServerCert // Currently unused, but kept for API compatibility
-
 	dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable&trustservercertificate=%t",
-		c.Username, c.Password, c.Host, c.Port, c.Database, trustServerCert)
+		c.Username, c.Password, host, port, c.Database, trustServerCert)
 	return dsn
 }
 
@@ -262,5 +289,16 @@ func (c *SQLServerConnection) GetWinRMConfig() *WinRMConfig {
 // SetWinRMConfig sets the WinRM configuration.
 func (c *SQLServerConnection) SetWinRMConfig(config *WinRMConfig) {
 	c.WinRM = config
+	c.UpdatedAt = time.Now()
+}
+
+// GetSSHConfig returns the SSH tunnel configuration.
+func (c *SQLServerConnection) GetSSHConfig() *SSHTunnelConfig {
+	return c.SSH
+}
+
+// SetSSHConfig sets the SSH tunnel configuration.
+func (c *SQLServerConnection) SetSSHConfig(config *SSHTunnelConfig) {
+	c.SSH = config
 	c.UpdatedAt = time.Now()
 }

@@ -227,6 +227,23 @@ func (r *SQLiteConnectionRepository) serializeConnection(conn connection.Connect
 		data["database"] = c.Database
 		data["username"] = c.Username
 		data["trust_server_certificate"] = c.TrustServerCertificate
+		// Serialize SSH configuration if enabled
+		if c.SSH != nil {
+			data["ssh"] = map[string]interface{}{
+				"enabled":    c.SSH.Enabled,
+				"host":       c.SSH.Host,
+				"port":       c.SSH.Port,
+				"username":   c.SSH.Username,
+				"local_port": c.SSH.LocalPort,
+			}
+			slog.Info("Repository: Serializing SQL Server connection with SSH",
+				"conn_id", conn.GetID(),
+				"name", conn.GetName(),
+				"ssh_enabled", c.SSH.Enabled,
+				"ssh_host", c.SSH.Host,
+				"ssh_port", c.SSH.Port,
+				"ssh_user", c.SSH.Username)
+		}
 		// Serialize WinRM configuration if enabled
 		if c.WinRM != nil {
 			data["winrm"] = map[string]interface{}{
@@ -379,6 +396,23 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			Database:               getString(data, "database"),
 			Username:               getString(data, "username"),
 			TrustServerCertificate: getBool(data, "trust_server_certificate"),
+		}
+		// Load SSH configuration if present
+		if sshData, ok := data["ssh"].(map[string]interface{}); ok {
+			conn.SSH = &connection.SSHTunnelConfig{
+				Enabled:   getBool(sshData, "enabled"),
+				Host:      getString(sshData, "host"),
+				Port:      getInt(sshData, "port"),
+				Username:  getString(sshData, "username"),
+				LocalPort: getInt(sshData, "local_port"),
+			}
+			slog.Info("Repository: Deserialized SQL Server connection with SSH",
+				"conn_id", id,
+				"name", name,
+				"ssh_enabled", conn.SSH.Enabled,
+				"ssh_host", conn.SSH.Host,
+				"ssh_port", conn.SSH.Port,
+				"ssh_user", conn.SSH.Username)
 		}
 		// Load WinRM configuration if present
 		if winrmData, ok := data["winrm"].(map[string]interface{}); ok {

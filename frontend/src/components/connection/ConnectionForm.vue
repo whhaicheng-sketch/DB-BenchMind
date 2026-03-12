@@ -111,7 +111,7 @@ const DB_SCHEMA = {
     databaseRequired: false,
     databasePlaceholder: 'mydb (optional)',
     databaseHelper: 'If omitted, connection will be established to default database.',
-    supportsSSH: false,
+    supportsSSH: true,
     supportsWinRM: true,
     supportsAuthType: true,
     supportsConnectAs: false,
