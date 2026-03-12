@@ -111,7 +111,8 @@ func (c *PostgreSQLConnection) Validate() error {
 
 // Test tests the PostgreSQL connection availability with intelligent SSL detection.
 //
-// If SSH tunnel is enabled, it establishes the tunnel first.
+// This is a DIRECT database connection test (easy connection).
+// It does NOT use SSH tunnel - SSH testing is handled separately by TestSSHConnection.
 //
 // It attempts multiple SSL configurations in order:
 // 1. disable (no SSL - fastest)
@@ -122,30 +123,9 @@ func (c *PostgreSQLConnection) Validate() error {
 func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Variables to track connection target
+	// Direct database connection - always use original host/port
 	targetHost := c.Host
 	targetPort := c.Port
-
-	// Create SSH tunnel if enabled
-	var tunnel *SSHTunnel
-	if c.SSH != nil && c.SSH.Enabled {
-		var err error
-		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
-		if err != nil {
-			slog.Error("PostgreSQL: Failed to create SSH tunnel", "error", err)
-			return &TestResult{
-				Success:   false,
-				LatencyMs: time.Since(start).Milliseconds(),
-				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
-			}, nil
-		}
-		defer tunnel.Close()
-
-		// Use tunnel's local port
-		targetHost = "127.0.0.1"
-		targetPort = tunnel.GetLocalPort()
-		slog.Info("PostgreSQL: Using SSH tunnel", "local_port", targetPort)
-	}
 
 	// SSL modes to try in order (most common first)
 	sslModes := []struct {
@@ -161,10 +141,9 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 	for _, sslConfig := range sslModes {
 		dsn := c.buildDSNWithSSL(sslConfig.mode, targetHost, targetPort)
 
-		slog.Info("PostgreSQL: Testing connection",
+		slog.Info("PostgreSQL: Testing direct connection",
 			"host", targetHost,
 			"port", targetPort,
-			"ssh_tunnel", tunnel != nil,
 			"sslmode", sslConfig.mode,
 			"username", c.Username)
 
@@ -175,9 +154,8 @@ func (c *PostgreSQLConnection) Test(ctx context.Context) (*TestResult, error) {
 		}
 
 		if result.Success {
-			slog.Info("PostgreSQL: Connection successful",
+			slog.Info("PostgreSQL: Direct connection successful",
 				"sslmode", sslConfig.mode,
-				"ssh_tunnel", tunnel != nil,
 				"latency_ms", result.LatencyMs,
 				"version", result.DatabaseVersion)
 			return result, nil

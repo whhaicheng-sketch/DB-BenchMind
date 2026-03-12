@@ -445,6 +445,8 @@ func (b *ConnectionBinding) TestConnection(id string) ConnectionTestResult {
 }
 
 // TestConnectionDirect tests a connection directly from request data (Wails binding).
+// This is a DIRECT database connection test (easy connection).
+// It does NOT use SSH tunnel - SSH testing is handled separately by TestSSHConnection.
 // This allows testing without saving to database first.
 func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) ConnectionTestResult {
 	ctx := context.Background()
@@ -456,32 +458,14 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 		if mysqlConn, ok := conn.(*connection.MySQLConnection); ok {
 			mysqlConn.SSLMode = req.SSLMode
 			mysqlConn.SetPassword(req.Password)
-			// SSH configuration
-			if req.SSHEnabled {
-				mysqlConn.SSH = &connection.SSHTunnelConfig{
-					Enabled:  true,
-					Host:     req.Host,
-					Port:     req.SSHPort,
-					Username: req.SSHUsername,
-					Password: req.SSHPassword,
-				}
-			}
+			// NOTE: SSH is intentionally NOT set - this is a direct DB test only
 		}
 	case "postgresql":
 		conn = usecase.NewPostgreSQLConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if pgConn, ok := conn.(*connection.PostgreSQLConnection); ok {
 			pgConn.SSLMode = req.SSLMode
 			pgConn.SetPassword(req.Password)
-			// SSH configuration
-			if req.SSHEnabled {
-				pgConn.SSH = &connection.SSHTunnelConfig{
-					Enabled:  true,
-					Host:     req.Host,
-					Port:     req.SSHPort,
-					Username: req.SSHUsername,
-					Password: req.SSHPassword,
-				}
-			}
+			// NOTE: SSH is intentionally NOT set - this is a direct DB test only
 		}
 	case "oracle":
 		// Determine SID/ServiceName based on connect_type
@@ -502,42 +486,14 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
 			oraConn.SetPassword(req.Password)
-			// SSH configuration
-			if req.SSHEnabled {
-				oraConn.SSH = &connection.SSHTunnelConfig{
-					Enabled:  true,
-					Host:     req.Host,
-					Port:     req.SSHPort,
-					Username: req.SSHUsername,
-					Password: req.SSHPassword,
-				}
-			}
+			// NOTE: SSH is intentionally NOT set - this is a direct DB test only
 		}
 	case "sqlserver":
 		conn = usecase.NewSQLServerConnection(req.Name, req.Host, req.Database, req.Username, req.Port)
 		if sqlConn, ok := conn.(*connection.SQLServerConnection); ok {
 			sqlConn.SetPassword(req.Password)
-			// SSH configuration
-			if req.SSHEnabled {
-				sqlConn.SSH = &connection.SSHTunnelConfig{
-					Enabled:  true,
-					Host:     req.Host,
-					Port:     req.SSHPort,
-					Username: req.SSHUsername,
-					Password: req.SSHPassword,
-				}
-			}
-			// WinRM configuration
-			if req.WinRMEnabled {
-				sqlConn.WinRM = &connection.WinRMConfig{
-					Enabled:  true,
-					Host:     req.Host,
-					Port:     req.WinRMPort,
-					Username: req.WinRMUsername,
-					Password: req.WinRMPassword,
-					UseHTTPS: req.WinRMUseHTTPS,
-				}
-			}
+			// Use default TrustServerCertificate=false for direct connection test
+			// NOTE: SSH and WinRM are intentionally NOT set - this is a direct DB test only
 		}
 	default:
 		return ConnectionTestResult{
@@ -546,7 +502,7 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 		}
 	}
 
-	// Test the connection
+	// Test the connection (direct database connection only)
 	result, err := conn.Test(ctx)
 	if err != nil {
 		slog.Error("TestConnectionDirect failed", "type", req.Type, "host", req.Host, "error", err)

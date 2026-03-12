@@ -82,22 +82,11 @@
               <div v-if="moreMenuId === conn.id" class="more-menu">
                 <button class="menu-item danger" @click.stop="deleteConnection(conn)">Delete</button>
               </div>
-              <!-- Test Result Message -->
-              <div v-if="connectionStore.getTestResultById(conn.id) || (conn.ssh_enabled && connectionStore.getSSHTestResultById(conn.id)) || (conn.winrm_enabled && connectionStore.getWinRMTestResultById(conn.id))"
+              <!-- Test Result Message - Database only (SSH/WinRM tested separately in Edit form) -->
+              <div v-if="connectionStore.getTestResultById(conn.id)"
                    class="conn-test-result">
-                <!-- Database 测试结果 -->
                 <span :class="connectionStore.getTestResultById(conn.id)?.success ? 'conn-test-result--success' : 'conn-test-result--error'">
                   DB: {{ connectionStore.getTestResultById(conn.id)?.success ? 'OK' : 'FAIL' }}
-                </span>
-                <!-- SSH 测试结果 (如果有SSH配置) -->
-                <span v-if="conn.ssh_enabled && connectionStore.getSSHTestResultById(conn.id)" style="margin-left: 10px;"
-                      :class="connectionStore.getSSHTestResultById(conn.id).success ? 'conn-test-result--success' : 'conn-test-result--error'">
-                  SSH: {{ connectionStore.getSSHTestResultById(conn.id).success ? 'OK' : 'FAIL' }}
-                </span>
-                <!-- WinRM 测试结果 (如果有WinRM配置) -->
-                <span v-if="conn.winrm_enabled && connectionStore.getWinRMTestResultById(conn.id)" style="margin-left: 10px;"
-                      :class="connectionStore.getWinRMTestResultById(conn.id).success ? 'conn-test-result--success' : 'conn-test-result--error'">
-                  WinRM: {{ connectionStore.getWinRMTestResultById(conn.id).success ? 'OK' : 'FAIL' }}
                 </span>
               </div>
             </div>
@@ -218,29 +207,9 @@ const testConnection = async (conn) => {
   selectedId.value = conn.id
   selectedConnection.value = conn
 
-  // 运行数据库连接测试
+  // Only run database connection test (direct connection)
+  // SSH and WinRM tests are handled separately via dedicated test buttons
   await connectionStore.testConnectionById(conn.id)
-
-  // 如果启用了 SSH，同时运行 SSH 测试
-  if (conn.ssh_enabled) {
-    await connectionStore.testSSHConnection(conn.id, {
-      host: conn.host,
-      port: conn.ssh_port || 22,
-      username: conn.ssh_username,
-      password: conn.ssh_password || ''
-    })
-  }
-
-  // 如果启用了 WinRM，同时运行 WinRM 测试
-  if (conn.winrm_enabled) {
-    await connectionStore.testWinRMConnection(conn.id, {
-      host: conn.host,
-      port: conn.winrm_port || 5985,
-      username: conn.winrm_username,
-      password: conn.winrm_password || '',
-      use_https: conn.winrm_use_https || false
-    })
-  }
 }
 
 const editConnection = (conn) => {

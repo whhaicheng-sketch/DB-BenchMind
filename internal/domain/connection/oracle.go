@@ -115,7 +115,8 @@ func (c *OracleConnection) Validate() error {
 
 // Test tests the Oracle connection availability (REQ-CONN-003, REQ-CONN-004, REQ-CONN-005).
 //
-// If SSH tunnel is enabled, it establishes the tunnel first.
+// This is a DIRECT database connection test (easy connection).
+// It does NOT use SSH tunnel - SSH testing is handled separately by TestSSHConnection.
 //
 // It attempts to connect to the Oracle database and returns:
 // - Success: Whether the connection succeeded
@@ -127,40 +128,18 @@ func (c *OracleConnection) Validate() error {
 func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Variables to track connection target
+	// Direct database connection - always use original host/port
 	targetHost := c.Host
 	targetPort := c.Port
-
-	// Create SSH tunnel if enabled
-	var tunnel *SSHTunnel
-	if c.SSH != nil && c.SSH.Enabled {
-		var err error
-		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
-		if err != nil {
-			slog.Error("Oracle: Failed to create SSH tunnel", "error", err)
-			return &TestResult{
-				Success:   false,
-				LatencyMs: time.Since(start).Milliseconds(),
-				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
-			}, nil
-		}
-		defer tunnel.Close()
-
-		// Use tunnel's local port
-		targetHost = "127.0.0.1"
-		targetPort = tunnel.GetLocalPort()
-		slog.Info("Oracle: Using SSH tunnel", "local_port", targetPort)
-	}
 
 	// Log connection parameters for debugging
 	identifier := c.SID
 	if identifier == "" {
 		identifier = c.ServiceName
 	}
-	slog.Info("Oracle: Testing connection",
+	slog.Info("Oracle: Testing direct connection",
 		"host", targetHost,
 		"port", targetPort,
-		"ssh_tunnel", tunnel != nil,
 		"sid", c.SID,
 		"service_name", c.ServiceName,
 		"identifier", identifier,

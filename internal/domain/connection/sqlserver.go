@@ -100,10 +100,12 @@ func (c *SQLServerConnection) Validate() error {
 
 // Test tests the SQL Server connection availability.
 //
+// This is a DIRECT database connection test (easy connection).
+// It does NOT use SSH tunnel - SSH testing is handled separately by TestSSHConnection.
+//
 // Strategy:
-// 1. If SSH tunnel is enabled, create tunnel and connect through it
-// 2. Try with user's configured TrustServerCertificate setting
-// 3. Use encrypt=disable to avoid TLS issues with invalid certificates
+// 1. Try with user's configured TrustServerCertificate setting
+// 2. Use encrypt=disable to avoid TLS issues with invalid certificates
 //
 // Note on encrypt parameter values (go-mssqldb driver):
 // - "disable" (EncryptionDisabled=3): Completely disables TLS, no handshake
@@ -120,38 +122,16 @@ func (c *SQLServerConnection) Validate() error {
 func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	start := time.Now()
 
-	// Variables to track connection target
+	// Direct database connection - always use original host/port
 	targetHost := c.Host
 	targetPort := c.Port
 
-	// Create SSH tunnel if enabled
-	var tunnel *SSHTunnel
-	if c.SSH != nil && c.SSH.Enabled {
-		var err error
-		tunnel, err = NewSSHTunnel(ctx, c.SSH, c.Host, c.Port)
-		if err != nil {
-			slog.Error("SQL Server: Failed to create SSH tunnel", "error", err)
-			return &TestResult{
-				Success:   false,
-				LatencyMs: time.Since(start).Milliseconds(),
-				Error:     fmt.Sprintf("SSH tunnel failed: %v", err),
-			}, nil
-		}
-		defer tunnel.Close()
-
-		// Use tunnel's local port
-		targetHost = "127.0.0.1"
-		targetPort = tunnel.GetLocalPort()
-		slog.Info("SQL Server: Using SSH tunnel", "local_port", targetPort)
-	}
-
-	// Build DSN with target host/port (through SSH tunnel if enabled)
+	// Build DSN with target host/port (direct connection)
 	dsn := c.buildDSNWithConfig(targetHost, targetPort, c.TrustServerCertificate)
 
-	slog.Info("SQL Server: Testing connection",
+	slog.Info("SQL Server: Testing direct connection",
 		"host", targetHost,
 		"port", targetPort,
-		"ssh_tunnel", tunnel != nil,
 		"encrypt", "disable",
 		"trust_server_certificate", c.TrustServerCertificate,
 		"username", c.Username)
@@ -163,10 +143,9 @@ func (c *SQLServerConnection) Test(ctx context.Context) (*TestResult, error) {
 	}
 
 	if result.Success {
-		slog.Info("SQL Server: Connection successful",
+		slog.Info("SQL Server: Direct connection successful",
 			"latency_ms", result.LatencyMs,
-			"version", result.DatabaseVersion,
-			"ssh_tunnel", tunnel != nil)
+			"version", result.DatabaseVersion)
 		return result, nil
 	}
 
