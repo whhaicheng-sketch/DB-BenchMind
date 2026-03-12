@@ -450,11 +450,22 @@ const handleTestSSH = async () => {
 
     sshTestResult.value = result
     sshTestStatus.value = result.success ? 'success' : 'error'
+
+    // Write to global store for list page display (only in edit mode with connectionId)
+    if (props.mode === 'edit' && props.connectionId) {
+      connectionStore.sshTestResultById[props.connectionId] = result
+    }
   } catch (err) {
     sshTestStatus.value = 'error'
-    sshTestResult.value = {
+    const errorResult = {
       success: false,
       error: err.message || 'SSH test failed'
+    }
+    sshTestResult.value = errorResult
+
+    // Write error to global store as well
+    if (props.mode === 'edit' && props.connectionId) {
+      connectionStore.sshTestResultById[props.connectionId] = errorResult
     }
   } finally {
     sshTesting.value = false

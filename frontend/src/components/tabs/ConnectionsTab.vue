@@ -82,11 +82,22 @@
               <div v-if="moreMenuId === conn.id" class="more-menu">
                 <button class="menu-item danger" @click.stop="deleteConnection(conn)">Delete</button>
               </div>
-              <!-- Test Result Message - Database only (SSH/WinRM tested separately in Edit form) -->
-              <div v-if="connectionStore.getTestResultById(conn.id)"
-                   class="conn-test-result">
-                <span :class="connectionStore.getTestResultById(conn.id)?.success ? 'conn-test-result--success' : 'conn-test-result--error'">
-                  DB: {{ connectionStore.getTestResultById(conn.id)?.success ? 'OK' : 'FAIL' }}
+              <!-- Test Result Message -->
+              <!-- Always show test results area for consistency -->
+              <div class="conn-test-result">
+                <!-- DB Test result (triggered by Test button) -->
+                <span :class="getDbTestStatusClass(conn)">
+                  DB: {{ getDbTestStatusText(conn) }}
+                </span>
+                <!-- SSH Test result (from Edit form, always shown if SSH enabled) -->
+                <span v-if="conn.ssh_enabled" style="margin-left: 10px;"
+                      :class="getSshTestStatusClass(conn)">
+                  SSH: {{ getSshTestStatusText(conn) }}
+                </span>
+                <!-- WinRM Test result (from Edit form, always shown if WinRM enabled) -->
+                <span v-if="conn.winrm_enabled" style="margin-left: 10px;"
+                      :class="getWinrmTestStatusClass(conn)">
+                  WinRM: {{ getWinrmTestStatusText(conn) }}
                 </span>
               </div>
             </div>
@@ -259,6 +270,43 @@ const closeModal = () => {
 const handleSaved = () => {
   closeModal()
   connectionStore.fetchConnections()
+}
+
+// Helper functions for test status display
+const getDbTestStatusText = (conn) => {
+  const result = connectionStore.getTestResultById(conn.id)
+  if (!result) return 'NOT TESTED'
+  return result.success ? 'OK' : 'FAIL'
+}
+
+const getDbTestStatusClass = (conn) => {
+  const result = connectionStore.getTestResultById(conn.id)
+  if (!result) return 'conn-test-result--not-tested'
+  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
+}
+
+const getSshTestStatusText = (conn) => {
+  const result = connectionStore.getSSHTestResultById(conn.id)
+  if (!result) return 'NOT TESTED'
+  return result.success ? 'OK' : 'FAIL'
+}
+
+const getSshTestStatusClass = (conn) => {
+  const result = connectionStore.getSSHTestResultById(conn.id)
+  if (!result) return 'conn-test-result--not-tested'
+  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
+}
+
+const getWinrmTestStatusText = (conn) => {
+  const result = connectionStore.getWinRMTestResultById(conn.id)
+  if (!result) return 'NOT TESTED'
+  return result.success ? 'OK' : 'FAIL'
+}
+
+const getWinrmTestStatusClass = (conn) => {
+  const result = connectionStore.getWinRMTestResultById(conn.id)
+  if (!result) return 'conn-test-result--not-tested'
+  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
 }
 </script>
 
@@ -541,6 +589,11 @@ const handleSaved = () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.conn-test-result--not-tested {
+  background: rgba(160, 174, 192, 0.2);
+  color: #a0aec0;
 }
 
 .conn-test-result--success {
