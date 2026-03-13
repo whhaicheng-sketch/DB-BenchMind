@@ -1,10 +1,44 @@
 <template>
   <div class="tasks-monitor-tab">
     <div class="tab-header">
-      <h2>Tasks & Monitor</h2>
-      <div class="status" :class="{ running: isRunning }">
-        {{ isRunning ? 'Running' : 'Idle' }}
+      <div class="header-main">
+        <h2>Tasks & Monitor</h2>
+        <p class="page-subtitle">Bind templates to connections in a later phase. This page now accepts a template handoff shell from Templates.</p>
       </div>
+      <div class="status-group">
+        <div class="status" :class="{ running: isRunning }">
+          {{ isRunning ? 'Running' : 'Idle' }}
+        </div>
+      </div>
+    </div>
+
+    <div v-if="pendingTaskTemplate" class="template-handoff-card">
+      <div class="handoff-head">
+        <div>
+          <div class="handoff-label">Pending Task Shell</div>
+          <h3>{{ pendingTaskTemplate.templateName }}</h3>
+        </div>
+        <button class="btn btn-secondary" @click="clearPendingTask">Clear</button>
+      </div>
+      <div class="handoff-grid">
+        <div class="handoff-item">
+          <span>Template ID</span>
+          <strong>{{ pendingTaskTemplate.templateId }}</strong>
+        </div>
+        <div class="handoff-item">
+          <span>Tool</span>
+          <strong>{{ pendingTaskTemplate.tool }}</strong>
+        </div>
+        <div class="handoff-item">
+          <span>Database</span>
+          <strong>{{ pendingTaskTemplate.dbFamily }}</strong>
+        </div>
+        <div class="handoff-item">
+          <span>Workload</span>
+          <strong>{{ pendingTaskTemplate.workloadFamily }}</strong>
+        </div>
+      </div>
+      <p class="handoff-note">Connection binding and real task submission are intentionally deferred. This shell only verifies front-end navigation and state handoff.</p>
     </div>
     
     <div class="monitor-content">
@@ -53,11 +87,13 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useAppStore } from '../../stores/app'
 import { useMonitorStore } from '../../stores/monitor'
 import { useBenchmarkStore } from '../../stores/benchmark'
 
 const monitorStore = useMonitorStore()
 const benchmarkStore = useBenchmarkStore()
+const appStore = useAppStore()
 
 const isRunning = computed(() => benchmarkStore.isRunning)
 const currentTPM = computed(() => monitorStore.currentTPM || 'N/A')
@@ -65,6 +101,7 @@ const currentTPS = computed(() => monitorStore.currentTPS || 'N/A')
 const cpuUsage = computed(() => monitorStore.cpuUsage?.toFixed(2) || '0')
 const diskRead = computed(() => '0 B/s')
 const logLines = computed(() => benchmarkStore.logLines || [])
+const pendingTaskTemplate = computed(() => appStore.pendingTaskTemplate)
 
 const handleRun = async () => {
   // TODO: Implement benchmark run
@@ -72,6 +109,10 @@ const handleRun = async () => {
 
 const handleStop = async () => {
   await benchmarkStore.stopBenchmark()
+}
+
+const clearPendingTask = () => {
+  appStore.clearPendingTaskTemplate()
 }
 </script>
 
@@ -83,13 +124,27 @@ const handleStop = async () => {
 .tab-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 16px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .tab-header h2 {
   font-size: 24px;
   font-weight: 600;
+}
+
+.page-subtitle {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #718096;
+  max-width: 760px;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
 }
 
 .status {
@@ -101,6 +156,62 @@ const handleStop = async () => {
 
 .status.running {
   background-color: #48bb78;
+}
+
+.template-handoff-card {
+  margin-bottom: 20px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid #2d3748;
+  background: linear-gradient(135deg, rgba(49, 130, 206, 0.12), rgba(17, 24, 39, 0.96));
+}
+
+.handoff-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.handoff-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #90cdf4;
+  margin-bottom: 4px;
+}
+
+.handoff-head h3 {
+  font-size: 20px;
+}
+
+.handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.handoff-item {
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #1e293b;
+}
+
+.handoff-item span {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.handoff-note {
+  margin-top: 14px;
+  color: #cbd5e0;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .monitor-content {
@@ -182,8 +293,28 @@ const handleStop = async () => {
   color: white;
 }
 
+.btn-secondary {
+  background: #1a202c;
+  color: #e2e8f0;
+  border: 1px solid #3a4a5a;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 980px) {
+  .handoff-grid,
+  .metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .handoff-grid,
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

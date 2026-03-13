@@ -6,6 +6,7 @@
  */
 import { ref, onMounted, onUnmounted, onErrorCaptured } from 'vue'
 import { useMonitorStore } from './stores/monitor'
+import { useAppStore } from './stores/app'
 
 // Tab components
 import ConnectionsTab from './components/tabs/ConnectionsTab.vue'
@@ -17,8 +18,6 @@ import ReportsTab from './components/tabs/ReportsTab.vue'
 import SettingsTab from './components/tabs/SettingsTab.vue'
 
 // Active tab
-const activeTab = ref('connections')
-
 // Tabs configuration
 const tabs = [
   { id: 'connections', label: 'Connections', icon: '🔌' },
@@ -36,6 +35,7 @@ const showError = ref(false)
 
 // Monitor store
 const monitorStore = useMonitorStore()
+const appStore = useAppStore()
 
 // Error boundary
 onErrorCaptured((error, instance, info) => {
@@ -103,8 +103,8 @@ onUnmounted(async () => {
         <button
           v-for="tab in tabs"
           :key="tab.id"
-          :class="['tab-item', { active: activeTab === tab.id }]"
-          @click="activeTab = tab.id"
+          :class="['tab-item', { active: appStore.activeTab === tab.id }]"
+          @click="appStore.setActiveTab(tab.id)"
         >
           <span class="tab-icon">{{ tab.icon }}</span>
           <span class="tab-label">{{ tab.label }}</span>
@@ -114,13 +114,13 @@ onUnmounted(async () => {
 
     <!-- Tab Content -->
     <div class="tab-content">
-      <ConnectionsTab v-if="activeTab === 'connections'" />
-      <TemplatesTab v-else-if="activeTab === 'templates'" />
-      <TasksMonitorTab v-else-if="activeTab === 'tasks'" />
-      <HistoryTab v-else-if="activeTab === 'history'" />
-      <ComparisonTab v-else-if="activeTab === 'comparison'" />
-      <ReportsTab v-else-if="activeTab === 'reports'" />
-      <SettingsTab v-else-if="activeTab === 'settings'" />
+      <ConnectionsTab v-if="appStore.activeTab === 'connections'" />
+      <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
+      <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
+      <HistoryTab v-else-if="appStore.activeTab === 'history'" />
+      <ComparisonTab v-else-if="appStore.activeTab === 'comparison'" />
+      <ReportsTab v-else-if="appStore.activeTab === 'reports'" />
+      <SettingsTab v-else-if="appStore.activeTab === 'settings'" />
     </div>
   </div>
 </template>

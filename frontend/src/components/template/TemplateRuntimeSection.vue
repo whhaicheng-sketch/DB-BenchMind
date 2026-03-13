@@ -8,14 +8,25 @@
     </div>
 
     <div class="phase-grid">
-      <label v-for="phase in phaseKeys" :key="phase" class="phase-pill" :class="{ active: templateModel.phases[phase]?.enabled }">
+      <label
+        v-for="phase in phaseKeys"
+        :key="phase"
+        class="phase-pill"
+        :class="{
+          active: templateModel.phases[phase]?.enabled,
+          unavailable: !isPhaseAllowed(phase),
+          required: isPhaseRequired(phase)
+        }"
+      >
         <input
           type="checkbox"
           :checked="templateModel.phases[phase]?.enabled"
-          :disabled="readonly"
+          :disabled="readonly || !isPhaseAllowed(phase) || isPhaseRequired(phase)"
           @change="handlePhaseToggle(phase, $event.target.checked)"
         >
         <span>{{ phase }}</span>
+        <small v-if="!isPhaseAllowed(phase)">Unavailable</small>
+        <small v-else-if="isPhaseRequired(phase)">Required</small>
       </label>
     </div>
 
@@ -24,59 +35,67 @@
         <span class="field-label">Concurrency Mode</span>
         <select
           class="field-input"
-          v-model="templateModel.runtime.concurrency.mode"
+          :class="{ invalid: errors.concurrencyMode }"
+          :value="templateModel.runtime.concurrency.mode"
           :disabled="readonly"
-          @change="templateStore.markDirty()"
+          @change="templateStore.updateDraftConcurrencyMode($event.target.value)"
         >
           <option v-for="mode in availableModes" :key="mode" :value="mode">{{ concurrencyLabels[mode] }}</option>
         </select>
+        <span v-if="errors.concurrencyMode" class="field-error">{{ errors.concurrencyMode }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Concurrency Value</span>
         <input
-          v-model.number="templateModel.runtime.concurrency.value"
+          :value="templateModel.runtime.concurrency.value"
           class="field-input"
+          :class="{ invalid: errors.concurrencyValue }"
           type="number"
           min="1"
           :disabled="readonly"
-          @input="templateStore.markDirty()"
+          @input="templateStore.updateDraftConcurrencyValue(Number($event.target.value))"
         >
+        <span v-if="errors.concurrencyValue" class="field-error">{{ errors.concurrencyValue }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Duration (s)</span>
-        <input v-model.number="templateModel.runtime.durationSeconds" class="field-input" type="number" min="1" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.durationSeconds" class="field-input" :class="{ invalid: errors.durationSeconds }" type="number" min="1" :disabled="readonly" @input="handleRuntimeInput">
+        <span v-if="errors.durationSeconds" class="field-error">{{ errors.durationSeconds }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Warm-up (s)</span>
-        <input v-model.number="templateModel.runtime.warmupSeconds" class="field-input" type="number" min="0" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.warmupSeconds" class="field-input" type="number" min="0" :disabled="readonly" @input="handleRuntimeInput">
       </label>
 
       <label class="field">
         <span class="field-label">Ramp-up (s)</span>
-        <input v-model.number="templateModel.runtime.rampUpSeconds" class="field-input" type="number" min="0" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.rampUpSeconds" class="field-input" type="number" min="0" :disabled="readonly" @input="handleRuntimeInput">
       </label>
 
       <label class="field">
         <span class="field-label">Report Interval (s)</span>
-        <input v-model.number="templateModel.runtime.reportIntervalSeconds" class="field-input" type="number" min="1" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.reportIntervalSeconds" class="field-input" type="number" min="1" :disabled="readonly" @input="handleRuntimeInput">
       </label>
 
       <label class="field">
         <span class="field-label">Percentile</span>
-        <input v-model.number="templateModel.runtime.percentile" class="field-input" type="number" min="1" max="100" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.percentile" class="field-input" type="number" min="1" max="100" :disabled="readonly" @input="handleRuntimeInput">
       </label>
 
       <label class="field">
         <span class="field-label">Iterations</span>
-        <input v-model.number="templateModel.runtime.iterations" class="field-input" type="number" min="0" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.iterations" class="field-input" type="number" min="0" :disabled="readonly" @input="handleRuntimeInput">
       </label>
 
       <label class="field">
         <span class="field-label">Rate Limit</span>
-        <input v-model.number="templateModel.runtime.rateLimit" class="field-input" type="number" min="0" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model.number="templateModel.runtime.rateLimit" class="field-input" type="number" min="0" :disabled="readonly" @input="handleRuntimeInput">
+      </label>
+      <label v-if="errors.phaseCombination || errors.phaseRun" class="field field-wide">
+        <span class="field-error">{{ errors.phaseCombination || errors.phaseRun }}</span>
       </label>
     </div>
 
@@ -94,29 +113,34 @@
               v-if="field.type === 'select'"
               v-model="toolModel[field.key]"
               class="field-input"
-              :disabled="readonly"
+              :class="{ invalid: getToolFieldError(field) }"
+              :disabled="readonly || isFieldPinned(field)"
               @change="handleToolFieldChange(field)"
             >
-              <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+              <option v-for="option in getToolFieldOptions(field)" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
 
             <textarea
               v-else-if="field.type === 'textarea'"
               v-model="toolModel[field.key]"
               class="field-input textarea"
+              :class="{ invalid: getToolFieldError(field) }"
               :disabled="readonly"
-              @input="templateStore.markDirty()"
+              @input="handleRuntimeInput"
             />
 
             <input
               v-else
               v-model.number="toolModel[field.key]"
               class="field-input"
+              :class="{ invalid: getToolFieldError(field) }"
               type="number"
               :min="field.min || 0"
               :disabled="readonly"
-              @input="templateStore.markDirty()"
+              @input="handleRuntimeInput"
             >
+
+            <span v-if="getToolFieldError(field)" class="field-error">{{ getToolFieldError(field) }}</span>
           </label>
         </template>
 
@@ -127,7 +151,7 @@
             class="field-input textarea"
             :disabled="readonly"
             placeholder="Add operator guidance or future backend mapping notes"
-            @input="templateStore.markDirty()"
+            @input="handleRuntimeInput"
           />
         </label>
       </div>
@@ -153,6 +177,7 @@ const props = defineProps({
 })
 
 const templateStore = useTemplateStore()
+const errors = computed(() => templateStore.validationErrors)
 
 const phaseKeys = PHASE_KEYS
 const concurrencyLabels = CONCURRENCY_MODE_LABELS
@@ -166,8 +191,15 @@ const visibleToolFields = computed(() => capability.value.toolFields.filter((fie
 }))
 
 const handlePhaseToggle = (phase, enabled) => {
-  props.templateModel.phases[phase].enabled = enabled
+  templateStore.updateDraftPhase(phase, enabled)
+}
+
+const isPhaseAllowed = (phase) => capability.value.allowedPhases.includes(phase)
+const isPhaseRequired = (phase) => capability.value.requiredPhases.includes(phase)
+
+const handleRuntimeInput = () => {
   templateStore.markDirty()
+  templateStore.validateTemplate(props.templateModel)
 }
 
 const handleToolFieldChange = (field) => {
@@ -185,7 +217,36 @@ const handleToolFieldChange = (field) => {
       props.templateModel.workloadFamily = swingbenchWorkloads[toolModel.value[field.key]] || props.templateModel.workloadFamily
     }
   }
-  templateStore.markDirty()
+  handleRuntimeInput()
+}
+
+const getToolFieldError = (field) => {
+  const keyMap = {
+    scriptType: 'sysbenchScriptType',
+    benchmark: props.templateModel.tool === 'swingbench' ? 'swingbenchBenchmark' : 'hammerdbBenchmark',
+    warehouses: 'hammerdbWarehouses',
+    scaleFactor: 'hammerdbScaleFactor'
+  }
+
+  return errors.value[keyMap[field.key] || field.key] || ''
+}
+
+const getToolFieldOptions = (field) => {
+  if (field.key === 'scriptType') {
+    const mappedValue = capability.value.workloadFieldMap?.[props.templateModel.workloadFamily]?.scriptType
+    return field.options.filter((option) => option.value === mappedValue)
+  }
+
+  if (field.key === 'benchmark') {
+    const mappedValue = capability.value.workloadFieldMap?.[props.templateModel.workloadFamily]?.benchmark
+    return mappedValue ? field.options.filter((option) => option.value === mappedValue) : field.options
+  }
+
+  return field.options || []
+}
+
+const isFieldPinned = (field) => {
+  return ['scriptType', 'benchmark'].includes(field.key) && getToolFieldOptions(field).length === 1
 }
 </script>
 
@@ -224,6 +285,7 @@ const handleToolFieldChange = (field) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-content: space-between;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid #334155;
@@ -236,6 +298,20 @@ const handleToolFieldChange = (field) => {
 .phase-pill.active {
   border-color: #4299e1;
   background: rgba(66, 153, 225, 0.12);
+}
+
+.phase-pill.unavailable {
+  opacity: 0.45;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.phase-pill.required {
+  border-color: rgba(96, 165, 250, 0.35);
+}
+
+.phase-pill small {
+  font-size: 10px;
+  color: #94a3b8;
 }
 
 .runtime-grid {
@@ -266,6 +342,36 @@ const handleToolFieldChange = (field) => {
   background: #1e293b;
   color: #e2e8f0;
   padding: 10px 12px;
+}
+
+select.field-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+select.field-input option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.field-input.invalid {
+  border-color: #f87171;
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.25);
+}
+
+.field-error {
+  font-size: 11px;
+  color: #fca5a5;
 }
 
 .textarea {

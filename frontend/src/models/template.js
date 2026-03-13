@@ -17,7 +17,10 @@ export const DB_FAMILY_LABELS = {
 
 export const TEMPLATE_SCOPE_LABELS = {
   builtin: 'Built-in',
-  user: 'User'
+  user: 'User',
+  project: 'Project',
+  readonlyShared: 'Readonly Shared',
+  test: 'Test'
 }
 
 export const TEMPLATE_STATUS_LABELS = {

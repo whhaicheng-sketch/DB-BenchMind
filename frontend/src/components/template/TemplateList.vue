@@ -12,9 +12,7 @@
         title="No templates yet"
         description="Create your first benchmark scenario template to start building reusable workload definitions."
         primary-label="Create Template"
-        secondary-label="Import Template"
         @primary="templateStore.createTemplate()"
-        @secondary="templateStore.placeholderAction('import')"
       />
     </div>
 

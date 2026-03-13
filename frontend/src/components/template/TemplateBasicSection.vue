@@ -10,13 +10,15 @@
     <div class="form-grid">
       <label class="field">
         <span class="field-label">Template Name</span>
-        <input v-model="templateModel.name" class="field-input" :disabled="readonly" @input="templateStore.markDirty()">
+        <input v-model="templateModel.name" class="field-input" :class="{ invalid: errors.name }" :disabled="readonly" @input="handleFieldInput('name')">
+        <span v-if="errors.name" class="field-error">{{ errors.name }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Database Type</span>
         <select
           class="field-input"
+          :class="{ invalid: errors.dbFamily }"
           :disabled="readonly"
           :value="templateModel.dbFamily"
           @change="handleDbChange($event.target.value)"
@@ -29,24 +31,28 @@
             {{ templateStore.dbFamilyLabels[option] || option }}
           </option>
         </select>
+        <span v-if="errors.dbFamily" class="field-error">{{ errors.dbFamily }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Benchmark Tool</span>
         <select
           class="field-input"
+          :class="{ invalid: errors.tool }"
           :disabled="readonly"
           :value="templateModel.tool"
           @change="handleToolChange($event.target.value)"
         >
           <option v-for="(label, value) in templateStore.toolLabels" :key="value" :value="value">{{ label }}</option>
         </select>
+        <span v-if="errors.tool" class="field-error">{{ errors.tool }}</span>
       </label>
 
       <label class="field">
         <span class="field-label">Workload Family</span>
         <select
           class="field-input"
+          :class="{ invalid: errors.workloadFamily }"
           :disabled="readonly"
           :value="templateModel.workloadFamily"
           @change="handleWorkloadChange($event.target.value)"
@@ -55,6 +61,7 @@
             {{ templateStore.workloadLabels[workload] || workload }}
           </option>
         </select>
+        <span v-if="errors.workloadFamily" class="field-error">{{ errors.workloadFamily }}</span>
       </label>
 
       <label class="field field-wide">
@@ -118,6 +125,7 @@ const props = defineProps({
 })
 
 const templateStore = useTemplateStore()
+const errors = computed(() => templateStore.validationErrors)
 
 const availableDbOptions = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool]?.dbFamilies || [])
 const availableWorkloads = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool]?.workloads || [])
@@ -139,6 +147,11 @@ const handleWorkloadChange = (value) => {
 const handleTagsInput = (value) => {
   props.templateModel.tags = value.split(',').map((tag) => tag.trim()).filter(Boolean)
   templateStore.markDirty()
+}
+
+const handleFieldInput = () => {
+  templateStore.markDirty()
+  templateStore.validateTemplate(props.templateModel)
 }
 </script>
 
@@ -198,9 +211,39 @@ const handleTagsInput = (value) => {
   padding: 10px 12px;
 }
 
+select.field-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+select.field-input option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.field-input.invalid {
+  border-color: #f87171;
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.25);
+}
+
 .field-input:disabled {
   opacity: 0.72;
   cursor: not-allowed;
+}
+
+.field-error {
+  font-size: 11px;
+  color: #fca5a5;
 }
 
 .textarea {

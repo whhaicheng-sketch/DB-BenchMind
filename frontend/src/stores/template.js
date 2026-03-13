@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
-import { TEMPLATE_CAPABILITIES } from '../constants/templateCapabilities'
+import { getCapabilityForTool } from '../constants/templateCapabilities'
 import {
   cloneTemplate,
   createDefaultTemplate,
   createTemplateId,
   DB_FAMILY_LABELS,
+  createPhaseState,
+  PHASE_KEYS,
   TEMPLATE_SCOPE_LABELS,
   TEMPLATE_STATUS_LABELS,
   TEMPLATE_TOOL_LABELS,
@@ -29,6 +31,134 @@ function filterTemplate(template, filters) {
   const inTag = !filters.tag || template.tags.includes(filters.tag)
 
   return inSearch && inDb && inTool && inScope && inTag
+}
+
+function getValueByPath(obj, path) {
+  return path.split('.').reduce((value, segment) => value?.[segment], obj)
+}
+
+function buildValidationErrorKey(fieldPath) {
+  const map = {
+    'toolConfig.sysbench.scriptType': 'sysbenchScriptType',
+    'toolConfig.swingbench.benchmark': 'swingbenchBenchmark',
+    'toolConfig.hammerdb.benchmark': 'hammerdbBenchmark',
+    'toolConfig.hammerdb.warehouses': 'hammerdbWarehouses',
+    'toolConfig.hammerdb.scaleFactor': 'hammerdbScaleFactor'
+  }
+
+  return map[fieldPath] || fieldPath.replace(/\./g, '_')
+}
+
+function canEditScope(scope) {
+  return ['user', 'project', 'test'].includes(scope)
+}
+
+function canDeleteScope(scope) {
+  return ['user', 'test'].includes(scope)
+}
+
+function applyPhaseRules(template, capability, changeLabels) {
+  const nextPhases = createPhaseState(template.phases)
+
+  PHASE_KEYS.forEach((phase) => {
+    const allowed = capability.allowedPhases.includes(phase)
+    const wasEnabled = !!nextPhases[phase].enabled
+    nextPhases[phase].enabled = allowed ? nextPhases[phase].enabled : false
+    nextPhases[phase].required = capability.requiredPhases.includes(phase)
+
+    if (!allowed && wasEnabled) {
+      changeLabels.push(`phase:${phase}`)
+    }
+
+    if (nextPhases[phase].required) {
+      nextPhases[phase].enabled = true
+    }
+  })
+
+  return nextPhases
+}
+
+function normalizeDraftForCapability(template) {
+  const capability = getCapabilityForTool(template.tool)
+  const normalized = cloneTemplate(template)
+  const changeLabels = []
+
+  if (!capability.dbFamilies.includes(normalized.dbFamily)) {
+    normalized.dbFamily = capability.dbFamilies[0]
+    changeLabels.push('Database Type')
+  }
+
+  if (!capability.workloads.includes(normalized.workloadFamily)) {
+    normalized.workloadFamily = capability.workloads[0]
+    changeLabels.push('Workload Family')
+  }
+
+  if (!capability.concurrencyModes.includes(normalized.runtime.concurrency.mode)) {
+    normalized.runtime.concurrency.mode = capability.concurrencyModes[0]
+    changeLabels.push('Concurrency Mode')
+  }
+
+  normalized.compatibility.supportedDatabases = [normalized.dbFamily]
+  normalized.phases = applyPhaseRules(normalized, capability, changeLabels)
+
+  const workloadDefaults = capability.workloadFieldMap?.[normalized.workloadFamily] || {}
+  Object.entries(workloadDefaults).forEach(([key, value]) => {
+    if (normalized.toolConfig[capability.toolConfigKey][key] !== value) {
+      changeLabels.push(key)
+      normalized.toolConfig[capability.toolConfigKey][key] = value
+    }
+  })
+
+  if (normalized.tool === 'sysbench') {
+    const nextDriver = normalized.dbFamily === 'postgresql' ? 'pgsql' : 'mysql'
+    if (normalized.toolConfig.sysbench.dbDriver !== nextDriver) {
+      changeLabels.push('dbDriver')
+    }
+    normalized.toolConfig.sysbench.dbDriver = nextDriver
+  }
+
+  if (normalized.tool === 'swingbench') {
+    if (normalized.dbFamily !== 'oracle') {
+      changeLabels.push('Database Type')
+    }
+    normalized.dbFamily = 'oracle'
+    if (normalized.toolConfig.swingbench.userCount !== normalized.runtime.concurrency.value) {
+      changeLabels.push('userCount')
+    }
+    normalized.toolConfig.swingbench.userCount = normalized.runtime.concurrency.value
+  }
+
+  if (normalized.tool === 'hammerdb') {
+    if (normalized.toolConfig.hammerdb.benchmark !== normalized.workloadFamily) {
+      changeLabels.push('benchmark')
+    }
+    normalized.toolConfig.hammerdb.benchmark = normalized.workloadFamily
+    if (normalized.toolConfig.hammerdb.virtualUsers !== normalized.runtime.concurrency.value) {
+      changeLabels.push('virtualUsers')
+    }
+    normalized.toolConfig.hammerdb.virtualUsers = normalized.runtime.concurrency.value
+
+    if (normalized.workloadFamily === 'tproc-c') {
+      const nextScaleFactor = Math.max(1, normalized.toolConfig.hammerdb.scaleFactor || 10)
+      if (normalized.toolConfig.hammerdb.scaleFactor !== nextScaleFactor) {
+        changeLabels.push('scaleFactor')
+      }
+      normalized.toolConfig.hammerdb.scaleFactor = nextScaleFactor
+    }
+
+    if (normalized.workloadFamily === 'tproc-h') {
+      const nextWarehouses = Math.max(1, normalized.toolConfig.hammerdb.warehouses || 10)
+      if (normalized.toolConfig.hammerdb.warehouses !== nextWarehouses) {
+        changeLabels.push('warehouses')
+      }
+      normalized.toolConfig.hammerdb.warehouses = nextWarehouses
+    }
+  }
+
+  return {
+    normalized,
+    changedFields: [...new Set(changeLabels)]
+  }
 }
 
 export const useTemplateStore = defineStore('template', {
@@ -56,11 +186,11 @@ export const useTemplateStore = defineStore('template', {
       updateTemplate: null,
       deleteTemplate: null,
       duplicateTemplate: null,
-      exportTemplate: null,
-      importTemplate: null,
       createTaskFromTemplate: null
     },
-    isDirty: false
+    isDirty: false,
+    validationErrors: {},
+    deleteCandidateId: ''
   }),
 
   getters: {
@@ -96,7 +226,7 @@ export const useTemplateStore = defineStore('template', {
     },
     canEditSelected(state) {
       const selected = state.templates.find((template) => template.id === state.selectedTemplateId)
-      return !!selected && selected.scope === 'user'
+      return !!selected && canEditScope(selected.scope)
     },
     supportsDatabase: (state) => (dbType) => {
       const template = state.editingTemplateDraft || state.templates.find((item) => item.id === state.selectedTemplateId)
@@ -114,6 +244,10 @@ export const useTemplateStore = defineStore('template', {
     selectedTool(state) {
       const selected = state.editingTemplateDraft || state.templates.find((template) => template.id === state.selectedTemplateId)
       return selected?.tool || null
+    },
+    hasValidationErrors: (state) => Object.keys(state.validationErrors).length > 0,
+    deleteCandidate(state) {
+      return state.displayTemplates.find((template) => template.id === state.deleteCandidateId) || null
     }
   },
 
@@ -160,6 +294,7 @@ export const useTemplateStore = defineStore('template', {
       this.editorState = 'view'
       this.isDirty = false
       this.editingTemplateDraft = null
+      this.validationErrors = {}
     },
 
     clearSelection() {
@@ -167,13 +302,15 @@ export const useTemplateStore = defineStore('template', {
       this.editingTemplateDraft = null
       this.editorState = 'view'
       this.isDirty = false
+      this.validationErrors = {}
     },
 
     startEditing() {
-      if (!this.selectedTemplate || this.selectedTemplate.scope !== 'user') return
+      if (!this.selectedTemplate || !canEditScope(this.selectedTemplate.scope)) return
       this.editingTemplateDraft = cloneTemplate(this.selectedTemplate)
       this.editorState = 'editing'
       this.isDirty = false
+      this.validationErrors = {}
     },
 
     cancelEditing() {
@@ -183,6 +320,7 @@ export const useTemplateStore = defineStore('template', {
         this.editorState = 'view'
         this.editingTemplateDraft = null
         this.isDirty = false
+        this.validationErrors = {}
       }
     },
 
@@ -196,6 +334,7 @@ export const useTemplateStore = defineStore('template', {
       this.editingTemplateDraft = draft
       this.editorState = 'creating'
       this.isDirty = true
+      this.validationErrors = {}
       this.showNotice('New template draft created. Configure it and save locally.', 'info')
     },
 
@@ -205,37 +344,207 @@ export const useTemplateStore = defineStore('template', {
       }
     },
 
+    applyNormalization(template, reason = 'updated') {
+      const { normalized, changedFields } = normalizeDraftForCapability(template)
+
+      if (changedFields.length > 0) {
+        const preview = changedFields.slice(0, 3).join(', ')
+        const suffix = changedFields.length > 3 ? ' and more' : ''
+        this.showNotice(`Adjusted incompatible fields after ${reason}: ${preview}${suffix}.`, 'info')
+      }
+
+      return normalized
+    },
+
+    validateTemplate(template) {
+      const targetTemplate = template || this.editingTemplateDraft || this.activeTemplate
+      const errors = {}
+      const capability = targetTemplate ? getCapabilityForTool(targetTemplate.tool) : null
+
+      if (!targetTemplate) {
+        this.validationErrors = { form: 'No template selected.' }
+        return false
+      }
+
+      if (!targetTemplate.name?.trim()) {
+        errors.name = 'Template name is required.'
+      }
+
+      if (!targetTemplate.tool) {
+        errors.tool = 'Benchmark tool is required.'
+      }
+
+      if (!targetTemplate.dbFamily) {
+        errors.dbFamily = 'Database type is required.'
+      }
+
+      if (!targetTemplate.workloadFamily) {
+        errors.workloadFamily = 'Workload family is required.'
+      }
+
+      if (capability && !capability.dbFamilies.includes(targetTemplate.dbFamily)) {
+        errors.dbFamily = `${TEMPLATE_TOOL_LABELS[targetTemplate.tool]} templates can only use ${capability.dbFamilies.map((db) => DB_FAMILY_LABELS[db]).join(', ')}.`
+      }
+
+      if (capability && !capability.workloads.includes(targetTemplate.workloadFamily)) {
+        errors.workloadFamily = `Choose a workload family supported by ${TEMPLATE_TOOL_LABELS[targetTemplate.tool]}.`
+      }
+
+      if (!targetTemplate.runtime?.concurrency?.mode) {
+        errors.concurrencyMode = 'Concurrency mode is required.'
+      }
+
+      if (!Number.isFinite(Number(targetTemplate.runtime?.concurrency?.value)) || Number(targetTemplate.runtime?.concurrency?.value) < 1) {
+        errors.concurrencyValue = 'Concurrency must be at least 1.'
+      }
+
+      if (capability && targetTemplate.runtime?.concurrency?.mode && !capability.concurrencyModes.includes(targetTemplate.runtime.concurrency.mode)) {
+        errors.concurrencyMode = `${TEMPLATE_TOOL_LABELS[targetTemplate.tool]} only supports ${capability.concurrencyModes.join(', ')} mode here.`
+      }
+
+      if (!Number.isFinite(Number(targetTemplate.runtime?.durationSeconds)) || Number(targetTemplate.runtime?.durationSeconds) < 1) {
+        errors.durationSeconds = 'Duration must be at least 1 second.'
+      }
+
+      const enabledPhases = Object.entries(targetTemplate.phases || {})
+        .filter(([, config]) => config.enabled)
+        .map(([phase]) => phase)
+
+      if (!enabledPhases.includes('run')) {
+        errors.phaseRun = 'Run phase is mandatory for every template.'
+      }
+
+      const invalidPhases = enabledPhases.filter((phase) => capability && !capability.allowedPhases.includes(phase))
+      if (invalidPhases.length > 0) {
+        errors.phaseCombination = `${TEMPLATE_TOOL_LABELS[targetTemplate.tool]} does not use ${invalidPhases.join(', ')} in this workflow.`
+      }
+
+      if (targetTemplate.tool === 'sysbench' && targetTemplate.toolConfig.sysbench?.scriptType && !Object.values(capability.workloadFieldMap).some((entry) => entry.scriptType === targetTemplate.toolConfig.sysbench.scriptType)) {
+        errors.sysbenchScriptType = 'Sysbench script is locked to the selected OLTP workload.'
+      }
+
+      if (targetTemplate.tool === 'swingbench' && targetTemplate.dbFamily !== 'oracle') {
+        errors.dbFamily = 'Swingbench is limited to Oracle templates.'
+      }
+
+      if (targetTemplate.tool === 'swingbench') {
+        const benchmark = targetTemplate.toolConfig.swingbench?.benchmark
+        const expectedBenchmark = capability.workloadFieldMap?.[targetTemplate.workloadFamily]?.benchmark
+        if (!benchmark) {
+          errors.swingbenchBenchmark = 'Swingbench benchmark is required.'
+        } else if (expectedBenchmark && benchmark !== expectedBenchmark) {
+          errors.swingbenchBenchmark = 'Swingbench benchmark follows the selected workload family.'
+        }
+      }
+
+      if (targetTemplate.tool === 'hammerdb') {
+        const benchmark = targetTemplate.toolConfig.hammerdb?.benchmark
+        if (benchmark !== targetTemplate.workloadFamily) {
+          errors.hammerdbBenchmark = 'HammerDB profile follows the selected workload family.'
+        }
+
+        if (targetTemplate.workloadFamily === 'tproc-c') {
+          if (!Number.isFinite(Number(targetTemplate.toolConfig.hammerdb?.warehouses)) || Number(targetTemplate.toolConfig.hammerdb?.warehouses) < 1) {
+            errors.hammerdbWarehouses = 'TPROC-C requires warehouses >= 1.'
+          }
+        }
+
+        if (targetTemplate.workloadFamily === 'tproc-h') {
+          if (!Number.isFinite(Number(targetTemplate.toolConfig.hammerdb?.scaleFactor)) || Number(targetTemplate.toolConfig.hammerdb?.scaleFactor) < 1) {
+            errors.hammerdbScaleFactor = 'TPROC-H requires scale factor >= 1.'
+          }
+        }
+      }
+
+      const dynamicRequiredFields = [
+        ...(capability?.requiredFields || []),
+        ...((capability?.requiredFieldsByWorkload?.[targetTemplate.workloadFamily]) || [])
+      ]
+
+      dynamicRequiredFields.forEach((fieldPath) => {
+        const value = getValueByPath(targetTemplate, fieldPath)
+        const isEmpty = value === undefined || value === null || value === '' || (typeof value === 'number' && Number(value) < 1)
+        if (isEmpty) {
+          const key = buildValidationErrorKey(fieldPath)
+          if (!errors[key]) {
+            errors[key] = `${fieldPath.split('.').slice(-1)[0]} is required for the current tool/workload.`
+          }
+        }
+      })
+
+      this.validationErrors = errors
+
+      if (Object.keys(errors).length > 0) {
+        this.showNotice('Please fix validation errors before saving.', 'warning')
+        return false
+      }
+
+      return true
+    },
+
     updateDraftForTool(tool) {
       if (!this.editingTemplateDraft) return
-      const capability = TEMPLATE_CAPABILITIES[tool]
-      if (!capability) return
-
       this.editingTemplateDraft.tool = tool
-      this.editingTemplateDraft.dbFamily = capability.dbFamilies[0]
-      this.editingTemplateDraft.workloadFamily = capability.workloads[0]
-      this.editingTemplateDraft.runtime.concurrency.mode = capability.concurrencyModes[0]
+      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing tool')
       this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
     },
 
     updateDraftDbFamily(dbFamily) {
       if (!this.editingTemplateDraft) return
       this.editingTemplateDraft.dbFamily = dbFamily
-      this.editingTemplateDraft.compatibility.supportedDatabases = [dbFamily]
+      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing database type')
       this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
     },
 
     updateDraftWorkload(workloadFamily) {
       if (!this.editingTemplateDraft) return
       this.editingTemplateDraft.workloadFamily = workloadFamily
-      if (this.editingTemplateDraft.tool === 'hammerdb') {
-        this.editingTemplateDraft.toolConfig.hammerdb.benchmark = workloadFamily
-      }
+      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing workload family')
       this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
+    },
+
+    updateDraftConcurrencyMode(mode) {
+      if (!this.editingTemplateDraft) return
+      this.editingTemplateDraft.runtime.concurrency.mode = mode
+      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing concurrency mode')
+      this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
+    },
+
+    updateDraftConcurrencyValue(value) {
+      if (!this.editingTemplateDraft) return
+      this.editingTemplateDraft.runtime.concurrency.value = value
+
+      if (this.editingTemplateDraft.tool === 'swingbench') {
+        this.editingTemplateDraft.toolConfig.swingbench.userCount = value
+      }
+
+      if (this.editingTemplateDraft.tool === 'hammerdb') {
+        this.editingTemplateDraft.toolConfig.hammerdb.virtualUsers = value
+      }
+
+      this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
+    },
+
+    updateDraftPhase(phase, enabled) {
+      if (!this.editingTemplateDraft) return
+      this.editingTemplateDraft.phases[phase].enabled = enabled
+      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing phases')
+      this.markDirty()
+      this.validateTemplate(this.editingTemplateDraft)
     },
 
     saveTemplate() {
       const draft = this.editingTemplateDraft
       if (!draft) return
+
+      if (!this.validateTemplate(draft)) {
+        return
+      }
 
       draft.updatedAt = new Date().toISOString()
       draft.status = draft.status === 'deprecated' ? 'deprecated' : 'ready'
@@ -252,6 +561,7 @@ export const useTemplateStore = defineStore('template', {
       this.editorState = 'view'
       this.editingTemplateDraft = null
       this.isDirty = false
+      this.validationErrors = {}
       this.showNotice('Template saved to local mock state.', 'success')
     },
 
@@ -273,6 +583,7 @@ export const useTemplateStore = defineStore('template', {
       this.editorState = 'editing'
       this.editingTemplateDraft = cloneTemplate(copy)
       this.isDirty = false
+      this.validationErrors = {}
       this.showNotice('Template duplicated as a user draft.', 'success')
     },
 
@@ -293,13 +604,30 @@ export const useTemplateStore = defineStore('template', {
       this.editorState = 'creating'
       this.editingTemplateDraft = copy
       this.isDirty = true
+      this.validationErrors = {}
       this.showNotice('Save As created a new user template draft.', 'info')
     },
 
-    deleteTemplate(id = this.selectedTemplateId) {
+    requestDeleteTemplate(id = this.selectedTemplateId) {
       const template = this.templates.find((item) => item.id === id)
-      if (!template || template.scope !== 'user') {
-        this.showNotice('Built-in templates cannot be deleted in this phase.', 'warning')
+      if (!template || !canDeleteScope(template.scope)) {
+        this.showNotice('Only editable user or test templates can be deleted in this phase.', 'warning')
+        return
+      }
+
+      this.deleteCandidateId = id
+    },
+
+    cancelDeleteTemplate() {
+      this.deleteCandidateId = ''
+    },
+
+    confirmDeleteTemplate() {
+      const id = this.deleteCandidateId
+      const template = this.templates.find((item) => item.id === id)
+      if (!template || !canDeleteScope(template.scope)) {
+        this.deleteCandidateId = ''
+        this.showNotice('Only editable user or test templates can be deleted in this phase.', 'warning')
         return
       }
 
@@ -309,16 +637,34 @@ export const useTemplateStore = defineStore('template', {
         this.clearSelection()
       }
 
+      this.deleteCandidateId = ''
       this.showNotice('User template removed from local mock state.', 'success')
+    },
+
+    createTaskFromTemplate() {
+      const template = this.activeTemplate || this.selectedTemplate
+      if (!template) {
+        this.showNotice('Select a template before creating a task shell.', 'warning')
+        return null
+      }
+
+      return {
+        templateId: template.id,
+        templateName: template.name,
+        tool: template.tool,
+        dbFamily: template.dbFamily,
+        workloadFamily: template.workloadFamily,
+        createdAt: new Date().toISOString(),
+        source: 'templates'
+      }
     },
 
     placeholderAction(action) {
       const messages = {
-        import: 'Import is a placeholder in this phase. Keep the button for later backend/parser wiring.',
-        export: 'Export is a placeholder in this phase. Data stays in local mock state.',
         createTask: 'Create Task from Template is reserved for Tasks & Monitor integration.',
         save: 'Save placeholder executed.',
-        unsupportedEdit: 'Built-in templates are read-only. Use Save As to create a user copy.'
+        unsupportedEdit: 'This template is read-only. Use Save As to create an editable copy.',
+        readonlySaveAs: 'This template remains read-only. Save As creates a user-editable copy.'
       }
 
       this.showNotice(messages[action] || 'This action is reserved for a later phase.', 'info')

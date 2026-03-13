@@ -26,7 +26,7 @@
         :has-search-only="templateStore.hasSearchOnly"
         @select="templateStore.selectTemplate"
         @duplicate="templateStore.duplicateTemplate"
-        @delete="templateStore.deleteTemplate"
+        @delete="templateStore.requestDeleteTemplate"
         @reset-filters="templateStore.resetFilters()"
       />
 
@@ -49,10 +49,7 @@ const templateStore = useTemplateStore()
 const toolOptions = TOOL_OPTIONS
 const dbOptions = DB_OPTIONS
 
-const scopeOptions = [
-  { value: 'builtin', label: 'Built-in' },
-  { value: 'user', label: 'User' }
-]
+const scopeOptions = Object.entries(templateStore.scopeLabels).map(([value, label]) => ({ value, label }))
 
 const tagOptions = computed(() => templateStore.allTags.map((tag) => ({ value: tag, label: tag })))
 

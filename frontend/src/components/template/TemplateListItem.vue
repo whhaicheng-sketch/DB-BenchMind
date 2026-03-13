@@ -10,7 +10,7 @@
         <button class="action-btn" title="Duplicate" @click="$emit('duplicate')">Copy</button>
         <button
           class="action-btn danger"
-          :disabled="template.scope !== 'user'"
+          :disabled="!['user', 'test'].includes(template.scope)"
           title="Delete"
           @click="$emit('delete')"
         >
@@ -174,6 +174,21 @@ const scopeLabels = computed(() => templateStore.scopeLabels)
 .tag.scope.user {
   background: rgba(245, 158, 11, 0.15);
   color: #fcd34d;
+}
+
+.tag.scope.project {
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+}
+
+.tag.scope.readonlyShared {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+}
+
+.tag.scope.test {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fde68a;
 }
 
 .tag.neutral {

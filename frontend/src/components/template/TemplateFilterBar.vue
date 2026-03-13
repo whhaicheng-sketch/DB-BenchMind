@@ -124,6 +124,26 @@ defineEmits(['filter-change', 'reset'])
   color: #e2e8f0;
 }
 
+.field-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+.field-select option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
 .field-input:focus,
 .field-select:focus {
   border-color: #4299e1;

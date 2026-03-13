@@ -2,9 +2,20 @@ import { DB_FAMILY_LABELS, TEMPLATE_TOOL_LABELS, WORKLOAD_LABELS } from '../mode
 
 export const TEMPLATE_CAPABILITIES = {
   sysbench: {
+    toolConfigKey: 'sysbench',
     dbFamilies: ['mysql', 'postgresql'],
     workloads: ['oltp-read-write', 'oltp-read-only', 'oltp-write-only', 'oltp-point-select'],
     concurrencyModes: ['threads'],
+    allowedPhases: ['prepare', 'warmup', 'run', 'verify', 'cleanup'],
+    requiredPhases: ['run'],
+    defaultEnabledPhases: ['prepare', 'warmup', 'run', 'cleanup'],
+    workloadFieldMap: {
+      'oltp-read-write': { scriptType: 'oltp_read_write' },
+      'oltp-read-only': { scriptType: 'oltp_read_only' },
+      'oltp-write-only': { scriptType: 'oltp_write_only' },
+      'oltp-point-select': { scriptType: 'oltp_point_select' }
+    },
+    requiredFields: ['toolConfig.sysbench.scriptType'],
     toolFields: [
       {
         key: 'scriptType',
@@ -23,9 +34,19 @@ export const TEMPLATE_CAPABILITIES = {
     ]
   },
   swingbench: {
+    toolConfigKey: 'swingbench',
     dbFamilies: ['oracle'],
     workloads: ['order-entry', 'sales-history', 'stress-test'],
     concurrencyModes: ['users'],
+    allowedPhases: ['build', 'generate', 'warmup', 'run', 'delete'],
+    requiredPhases: ['run'],
+    defaultEnabledPhases: ['build', 'generate', 'warmup', 'run'],
+    workloadFieldMap: {
+      'order-entry': { benchmark: 'orderEntry' },
+      'sales-history': { benchmark: 'salesHistory' },
+      'stress-test': { benchmark: 'stressTest' }
+    },
+    requiredFields: ['toolConfig.swingbench.benchmark'],
     toolFields: [
       {
         key: 'benchmark',
@@ -52,9 +73,21 @@ export const TEMPLATE_CAPABILITIES = {
     ]
   },
   hammerdb: {
+    toolConfigKey: 'hammerdb',
     dbFamilies: ['oracle', 'sqlserver', 'db2', 'postgresql', 'mysql', 'mariadb'],
     workloads: ['tproc-c', 'tproc-h'],
     concurrencyModes: ['virtualUsers'],
+    allowedPhases: ['build', 'prepare', 'run', 'verify', 'cleanup', 'delete'],
+    requiredPhases: ['run'],
+    defaultEnabledPhases: ['build', 'prepare', 'run', 'cleanup'],
+    workloadFieldMap: {
+      'tproc-c': { benchmark: 'tproc-c' },
+      'tproc-h': { benchmark: 'tproc-h' }
+    },
+    requiredFieldsByWorkload: {
+      'tproc-c': ['toolConfig.hammerdb.benchmark', 'toolConfig.hammerdb.warehouses'],
+      'tproc-h': ['toolConfig.hammerdb.benchmark', 'toolConfig.hammerdb.scaleFactor']
+    },
     toolFields: [
       {
         key: 'benchmark',
@@ -88,3 +121,7 @@ export const TEMPLATE_CAPABILITIES = {
 export const TOOL_OPTIONS = Object.entries(TEMPLATE_TOOL_LABELS).map(([value, label]) => ({ value, label }))
 export const DB_OPTIONS = Object.entries(DB_FAMILY_LABELS).map(([value, label]) => ({ value, label }))
 export const WORKLOAD_OPTIONS = Object.entries(WORKLOAD_LABELS).map(([value, label]) => ({ value, label }))
+
+export function getCapabilityForTool(tool) {
+  return TEMPLATE_CAPABILITIES[tool] || TEMPLATE_CAPABILITIES.sysbench
+}

@@ -1,13 +1,24 @@
 <template>
   <section class="detail-panel">
+    <div v-if="templateStore.deleteCandidate" class="confirm-overlay" @click.self="templateStore.cancelDeleteTemplate()">
+      <div class="confirm-modal">
+        <div class="confirm-title">Delete Template</div>
+        <p class="confirm-body">
+          Delete editable template "{{ templateStore.deleteCandidate.name }}" from local mock state? This cannot be undone in the current session.
+        </p>
+        <div class="confirm-actions">
+          <button class="btn btn-ghost" @click="templateStore.cancelDeleteTemplate()">Cancel</button>
+          <button class="btn btn-danger" @click="templateStore.confirmDeleteTemplate()">Delete</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="!activeTemplate" class="empty-wrap">
       <TemplateEmptyState
         title="No template selected"
         description="Choose a template from the left list to inspect it, or create a new user template draft."
         primary-label="Create Template"
-        secondary-label="Import Template"
         @primary="templateStore.createTemplate()"
-        @secondary="templateStore.placeholderAction('import')"
       />
     </div>
 
@@ -39,7 +50,7 @@
 
           <div class="action-row">
             <button
-              v-if="templateStore.editorState === 'view' && templateStore.selectedTemplate?.scope === 'user'"
+              v-if="templateStore.editorState === 'view' && canDirectEdit"
               class="btn btn-secondary"
               @click="templateStore.startEditing()"
             >
@@ -48,14 +59,14 @@
             <button
               v-else-if="templateStore.editorState === 'view'"
               class="btn btn-secondary"
-              @click="templateStore.saveAsTemplate()"
+              @click="handleSaveAs"
             >
               Save As User Template
             </button>
             <button
-              v-if="templateStore.selectedTemplate?.scope === 'user' && templateStore.editorState === 'view'"
+              v-if="canDeleteSelected && templateStore.editorState === 'view'"
               class="btn btn-danger"
-              @click="templateStore.deleteTemplate()"
+              @click="templateStore.requestDeleteTemplate()"
             >
               Delete
             </button>
@@ -64,6 +75,21 @@
       </div>
 
       <div class="detail-scroll">
+        <div v-if="isReadonlyScope && templateStore.editorState === 'view'" class="readonly-banner">
+          <div>
+            <strong>{{ readonlyBannerTitle }}</strong>
+            <span> {{ readonlyBannerBody }}</span>
+          </div>
+          <button class="btn btn-secondary" @click="handleSaveAsReadonly">Save As User Template</button>
+        </div>
+
+        <div v-if="templateStore.hasValidationErrors" class="validation-summary">
+          <div class="validation-title">Validation issues</div>
+          <ul class="validation-list">
+            <li v-for="(message, key) in templateStore.validationErrors" :key="key">{{ message }}</li>
+          </ul>
+        </div>
+
         <TemplateBasicSection :template-model="activeTemplate" :readonly="isReadOnly" />
         <TemplateRuntimeSection :template-model="activeTemplate" :readonly="isReadOnly" />
         <TemplatePreviewSection :template-model="activeTemplate" />
@@ -87,8 +113,8 @@
           >
             Save
           </button>
-          <button class="btn btn-secondary" @click="templateStore.saveAsTemplate()">Save As</button>
-          <button class="btn btn-secondary" @click="templateStore.placeholderAction('createTask')">Create Task from Template</button>
+          <button class="btn btn-secondary" @click="handleSaveAs">Save As</button>
+          <button class="btn btn-secondary" @click="handleCreateTask">Create Task from Template</button>
         </div>
       </div>
     </template>
@@ -101,9 +127,11 @@ import TemplateBasicSection from './TemplateBasicSection.vue'
 import TemplateEmptyState from './TemplateEmptyState.vue'
 import TemplatePreviewSection from './TemplatePreviewSection.vue'
 import TemplateRuntimeSection from './TemplateRuntimeSection.vue'
+import { useAppStore } from '../../stores/app'
 import { useTemplateStore } from '../../stores/template'
 
 const templateStore = useTemplateStore()
+const appStore = useAppStore()
 
 const editorModes = [
   { value: 'standard', label: 'Standard' },
@@ -113,15 +141,30 @@ const editorModes = [
 
 const activeTemplate = computed(() => templateStore.activeTemplate)
 const isReadOnly = computed(() => templateStore.editorState === 'view')
+const canDirectEdit = computed(() => ['user', 'project', 'test'].includes(templateStore.selectedTemplate?.scope))
+const canDeleteSelected = computed(() => ['user', 'test'].includes(templateStore.selectedTemplate?.scope))
+const isReadonlyScope = computed(() => ['builtin', 'readonlyShared'].includes(templateStore.selectedTemplate?.scope))
 const editorLabel = computed(() => {
   if (templateStore.editorState === 'creating') return 'New Template'
   if (templateStore.editorState === 'editing') return 'Editing'
   return 'Overview'
 })
+const readonlyBannerTitle = computed(() => {
+  if (templateStore.selectedTemplate?.scope === 'readonlyShared') {
+    return 'Readonly Shared templates are read-only.'
+  }
+  return 'Built-in templates are read-only.'
+})
+const readonlyBannerBody = computed(() => {
+  if (templateStore.selectedTemplate?.scope === 'readonlyShared') {
+    return 'Use Save As to create your own editable copy, or create a task directly from the shared template.'
+  }
+  return 'Use Save As to create a user-editable copy before making changes.'
+})
 
 const handleSave = () => {
   if (isReadOnly.value) {
-    if (templateStore.selectedTemplate?.scope === 'user') {
+    if (['user', 'project', 'test'].includes(templateStore.selectedTemplate?.scope)) {
       templateStore.showNotice('Switch to edit mode before saving updates.', 'info')
     } else {
       templateStore.placeholderAction('unsupportedEdit')
@@ -131,10 +174,33 @@ const handleSave = () => {
 
   templateStore.saveTemplate()
 }
+
+const handleSaveAsReadonly = () => {
+  templateStore.placeholderAction('readonlySaveAs')
+  templateStore.saveAsTemplate()
+}
+
+const handleSaveAs = () => {
+  if (['builtin', 'readonlyShared'].includes(templateStore.selectedTemplate?.scope) && templateStore.editorState === 'view') {
+    handleSaveAsReadonly()
+    return
+  }
+
+  templateStore.saveAsTemplate()
+}
+
+const handleCreateTask = () => {
+  const payload = templateStore.createTaskFromTemplate()
+  if (!payload) return
+
+  appStore.queueTemplateForTask(payload)
+  templateStore.showNotice(`Task shell opened in Tasks & Monitor for template "${payload.templateName}".`, 'success')
+}
 </script>
 
 <style scoped>
 .detail-panel {
+  position: relative;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -150,6 +216,46 @@ const handleSave = () => {
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+
+.confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 24px;
+}
+
+.confirm-modal {
+  width: min(460px, 100%);
+  border-radius: 14px;
+  border: 1px solid #334155;
+  background: #111827;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  padding: 20px;
+}
+
+.confirm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.confirm-body {
+  margin-top: 10px;
+  color: #cbd5e1;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.confirm-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .detail-header {
@@ -246,6 +352,44 @@ const handleSave = () => {
   gap: 16px;
 }
 
+.readonly-banner,
+.validation-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.86);
+}
+
+.readonly-banner {
+  border-color: rgba(96, 165, 250, 0.3);
+  background: rgba(30, 64, 175, 0.12);
+  color: #dbeafe;
+}
+
+.validation-summary {
+  flex-direction: column;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(127, 29, 29, 0.16);
+}
+
+.validation-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fecaca;
+}
+
+.validation-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #fecaca;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 .footer-actions {
   display: flex;
   justify-content: space-between;
@@ -313,7 +457,8 @@ const handleSave = () => {
 
   .action-row,
   .right-actions,
-  .left-actions {
+  .left-actions,
+  .readonly-banner {
     flex-wrap: wrap;
   }
 }
