@@ -60,8 +60,8 @@ func main() {
 	connUC := usecase.NewConnectionUseCase(connRepo, keyringProvider)
 
 	// Initialize template repository and use case
-	templateRepo := usecase.NewMemoryTemplateRepository()
-	templateUC := usecase.NewTemplateUseCase(templateRepo, "contracts/templates")
+	templateRepo := repository.NewTemplateRepository(db)
+	templateUC := usecase.NewTemplateUseCase(templateRepo, "")
 
 	// Load built-in templates
 	if err := templateUC.LoadBuiltinTemplates(ctx); err != nil {
@@ -79,7 +79,7 @@ func main() {
 	slog.Info("Benchmark adapters registered")
 
 	// Initialize run repository (in-memory for now)
-	runRepo := usecase.NewMemoryRunRepository()
+	runRepo := usecase.NewMemoryRunRepository(filepath.Join(dataDir, "run-logs"))
 
 	// Initialize benchmark use case
 	benchmarkUC := usecase.NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
@@ -92,10 +92,12 @@ func main() {
 	templateBinding := bindings.NewTemplateBinding(templateUC)
 	benchmarkBinding := bindings.NewBenchmarkBinding(benchmarkUC, connUC, templateUC)
 	monitorBinding := bindings.NewMonitorBinding()
+	taskBinding := bindings.NewTaskBinding(benchmarkUC, connUC, templateUC, runRepo)
 
 	// Store benchmark binding for context injection
 	app.SetBenchmarkBinding(benchmarkBinding)
 	app.SetMonitorBinding(monitorBinding)
+	app.SetTaskBinding(taskBinding)
 
 	// Create application with options
 	err = wails.Run(&options.App{
@@ -114,6 +116,7 @@ func main() {
 			templateBinding,
 			benchmarkBinding,
 			monitorBinding,
+			taskBinding,
 		},
 	})
 

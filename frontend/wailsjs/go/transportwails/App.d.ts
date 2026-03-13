@@ -12,3 +12,5 @@ export function GetCurrentContext():Promise<context.Context>;
 export function SetBenchmarkBinding(arg1:bindings.BenchmarkBinding):Promise<void>;
 
 export function SetMonitorBinding(arg1:bindings.MonitorBinding):Promise<void>;
+
+export function SetTaskBinding(arg1:bindings.TaskBinding):Promise<void>;

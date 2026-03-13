@@ -1,9 +1,15 @@
 <template>
   <section class="template-list-panel">
     <div class="panel-header">
-      <div>
+      <div class="header-copy">
         <h2 class="panel-title">Template Library</h2>
         <p class="panel-subtitle">{{ templates.length }} visible / {{ allCount }} total</p>
+      </div>
+      <div v-if="templates.length > 0" class="table-head">
+        <span>Name</span>
+        <span>Attributes</span>
+        <span>Updated</span>
+        <span>Actions</span>
       </div>
     </div>
 
@@ -30,8 +36,8 @@
         v-for="template in templates"
         :key="template.id"
         :template="template"
-        :selected="template.id === selectedId"
-        @select="$emit('select', template.id)"
+        :selected="editorOpen && template.id === selectedId"
+        @open="$emit('open', template.id)"
         @duplicate="$emit('duplicate', template.id)"
         @delete="$emit('delete', template.id)"
       />
@@ -53,6 +59,10 @@ defineProps({
     type: String,
     default: ''
   },
+  editorOpen: {
+    type: Boolean,
+    default: false
+  },
   allCount: {
     type: Number,
     default: 0
@@ -67,7 +77,7 @@ defineProps({
   }
 })
 
-defineEmits(['select', 'duplicate', 'delete', 'reset-filters'])
+defineEmits(['open', 'duplicate', 'delete', 'reset-filters'])
 
 const templateStore = useTemplateStore()
 </script>
@@ -86,6 +96,11 @@ const templateStore = useTemplateStore()
 .panel-header {
   padding: 16px;
   border-bottom: 1px solid #1f2937;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .panel-title {
@@ -98,6 +113,18 @@ const templateStore = useTemplateStore()
   margin-top: 4px;
   color: #64748b;
   font-size: 12px;
+}
+
+.table-head {
+  min-width: 540px;
+  display: grid;
+  grid-template-columns: minmax(280px, 1.4fr) minmax(280px, 1fr) 140px 150px;
+  gap: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
 }
 
 .list-scroll {
@@ -116,5 +143,12 @@ const templateStore = useTemplateStore()
   align-items: center;
   justify-content: center;
   padding: 20px;
+}
+
+@media (max-width: 920px) {
+  .table-head {
+    display: none;
+    min-width: 0;
+  }
 }
 </style>

@@ -92,10 +92,10 @@ defineEmits(['filter-change', 'reset'])
 <style scoped>
 .filter-bar {
   display: grid;
-  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(180px, 1fr)) auto;
-  gap: 12px;
+  grid-template-columns: minmax(260px, 1.6fr) repeat(3, minmax(150px, 0.85fr)) auto;
+  gap: 10px;
   align-items: end;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid #2d3748;
   border-radius: 12px;
   background: #111827;
@@ -109,15 +109,15 @@ defineEmits(['filter-change', 'reset'])
 }
 
 .field-label {
-  font-size: 12px;
+  font-size: 11px;
   color: #94a3b8;
 }
 
 .field-input,
 .field-select {
   width: 100%;
-  min-height: 40px;
-  padding: 10px 12px;
+  min-height: 38px;
+  padding: 9px 12px;
   border: 1px solid #334155;
   border-radius: 8px;
   background: #1e293b;
@@ -157,7 +157,7 @@ defineEmits(['filter-change', 'reset'])
 }
 
 .reset-btn {
-  min-height: 40px;
+  min-height: 38px;
   padding: 0 14px;
   border-radius: 8px;
   border: 1px solid #334155;
@@ -175,11 +175,17 @@ defineEmits(['filter-change', 'reset'])
 
 @media (max-width: 1320px) {
   .filter-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .filter-bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   .filter-bar {
     grid-template-columns: 1fr;
   }

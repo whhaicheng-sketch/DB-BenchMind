@@ -73,7 +73,7 @@ const summaryText = computed(() => {
     return `${templateStore.toolLabels[props.templateModel.tool]} test template uses a minimal dataset and conservative runtime so you can do a quick smoke run and verify the template-to-task execution chain.`
   }
 
-  return `${templateStore.toolLabels[props.templateModel.tool]} will run ${templateStore.workloadLabels[props.templateModel.workloadFamily] || props.templateModel.workloadFamily} against ${templateStore.dbFamilyLabels[props.templateModel.dbFamily]} with ${props.templateModel.runtime.concurrency.value} ${concurrencyLabels[props.templateModel.runtime.concurrency.mode].toLowerCase()} for ${props.templateModel.runtime.durationSeconds} seconds. Connection binding, persistence and execution mapping remain reserved for later phases.`
+  return `${templateStore.toolLabels[props.templateModel.tool]} will run ${templateStore.workloadLabels[props.templateModel.workloadFamily] || props.templateModel.workloadFamily} against ${templateStore.dbFamilyLabels[props.templateModel.dbFamily]} with ${props.templateModel.runtime.concurrency.value} ${concurrencyLabels[props.templateModel.runtime.concurrency.mode].toLowerCase()} for ${props.templateModel.runtime.durationSeconds} seconds. Connection binding still happens later in Tasks & Monitor.`
 })
 </script>
 

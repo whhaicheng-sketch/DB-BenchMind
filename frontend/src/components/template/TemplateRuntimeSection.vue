@@ -9,7 +9,7 @@
 
     <div class="phase-grid">
       <label
-        v-for="phase in phaseKeys"
+        v-for="phase in visiblePhaseKeys"
         :key="phase"
         class="phase-pill"
         :class="{
@@ -185,6 +185,13 @@ const concurrencyLabels = CONCURRENCY_MODE_LABELS
 const capability = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool] || TEMPLATE_CAPABILITIES.sysbench)
 const availableModes = computed(() => capability.value.concurrencyModes)
 const toolModel = computed(() => props.templateModel.toolConfig[props.templateModel.tool])
+const visiblePhaseKeys = computed(() => {
+  if (templateStore.editorMode === 'standard') {
+    return phaseKeys.filter((phase) => capability.value.allowedPhases.includes(phase))
+  }
+
+  return phaseKeys
+})
 const visibleToolFields = computed(() => capability.value.toolFields.filter((field) => {
   if (!field.visibleWhen) return true
   return field.visibleWhen(props.templateModel)

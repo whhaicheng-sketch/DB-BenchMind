@@ -1,9 +1,17 @@
 import { defineStore } from 'pinia'
+import {
+  CreateTemplate as CreateTemplateApi,
+  DeleteTemplate as DeleteTemplateApi,
+  DuplicateTemplate as DuplicateTemplateApi,
+  ListTemplates as ListTemplatesApi,
+  UpdateTemplate as UpdateTemplateApi
+} from '../../wailsjs/go/bindings/TemplateBinding'
 import { getCapabilityForTool } from '../constants/templateCapabilities'
 import {
   cloneTemplate,
   createDefaultTemplate,
   createTemplateId,
+  normalizeTemplateRecord,
   DB_FAMILY_LABELS,
   createPhaseState,
   PHASE_KEYS,
@@ -13,6 +21,8 @@ import {
   WORKLOAD_LABELS
 } from '../models/template'
 import { templateMocks } from '../mock/templates'
+
+const ENABLE_TEMPLATE_BACKEND = typeof window !== 'undefined' && !!window.go?.bindings?.TemplateBinding
 
 function filterTemplate(template, filters) {
   const search = filters.search.trim().toLowerCase()
@@ -161,10 +171,19 @@ function normalizeDraftForCapability(template) {
   }
 }
 
+function sortTemplates(templates) {
+  return [...templates].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function normalizeTemplatesFromBackend(templates = []) {
+  return sortTemplates(templates.map((template) => normalizeTemplateRecord(template)))
+}
+
 export const useTemplateStore = defineStore('template', {
   state: () => ({
     templates: [],
     selectedTemplateId: '',
+    isEditorOpen: false,
     editingTemplateDraft: null,
     editorState: 'view',
     editorMode: 'standard',
@@ -245,6 +264,10 @@ export const useTemplateStore = defineStore('template', {
       const selected = state.editingTemplateDraft || state.templates.find((template) => template.id === state.selectedTemplateId)
       return selected?.tool || null
     },
+    templatesByDatabase: (state) => (dbFamily) => {
+      if (!dbFamily) return []
+      return state.templates.filter((template) => template.dbFamily === dbFamily || template.database_types?.includes(dbFamily))
+    },
     hasValidationErrors: (state) => Object.keys(state.validationErrors).length > 0,
     deleteCandidate(state) {
       return state.displayTemplates.find((template) => template.id === state.deleteCandidateId) || null
@@ -257,9 +280,19 @@ export const useTemplateStore = defineStore('template', {
       this.error = null
 
       try {
-        this.templates = templateMocks.map((template) => cloneTemplate(template))
+        if (ENABLE_TEMPLATE_BACKEND) {
+          const result = await ListTemplatesApi()
+          if (result.error) {
+            throw new Error(result.error)
+          }
+          this.templates = normalizeTemplatesFromBackend(result.templates || [])
+        } else {
+          this.templates = templateMocks.map((template) => normalizeTemplateRecord(cloneTemplate(template)))
+        }
       } catch (err) {
         this.error = err.message || 'Failed to load templates'
+        this.templates = templateMocks.map((template) => normalizeTemplateRecord(cloneTemplate(template)))
+        this.showNotice(`Failed to load templates from backend. Falling back to mock data. ${this.error}`, 'warning')
       } finally {
         this.loading = false
       }
@@ -291,6 +324,20 @@ export const useTemplateStore = defineStore('template', {
       }
 
       this.selectedTemplateId = id
+      this.isEditorOpen = false
+      this.editorState = 'view'
+      this.isDirty = false
+      this.editingTemplateDraft = null
+      this.validationErrors = {}
+    },
+
+    openTemplate(id) {
+      if (this.isDirty && this.selectedTemplateId && this.selectedTemplateId !== id) {
+        this.showNotice('Unsaved changes were discarded when switching templates.', 'warning')
+      }
+
+      this.selectedTemplateId = id
+      this.isEditorOpen = true
       this.editorState = 'view'
       this.isDirty = false
       this.editingTemplateDraft = null
@@ -299,6 +346,24 @@ export const useTemplateStore = defineStore('template', {
 
     clearSelection() {
       this.selectedTemplateId = ''
+      this.isEditorOpen = false
+      this.editingTemplateDraft = null
+      this.editorState = 'view'
+      this.isDirty = false
+      this.validationErrors = {}
+    },
+
+    closeEditor() {
+      if (this.isDirty && (this.editorState === 'editing' || this.editorState === 'creating')) {
+        this.showNotice('Unsaved changes were discarded when closing the template editor.', 'warning')
+      }
+
+      this.isEditorOpen = false
+
+      if (this.editorState === 'creating') {
+        this.selectedTemplateId = ''
+      }
+
       this.editingTemplateDraft = null
       this.editorState = 'view'
       this.isDirty = false
@@ -308,6 +373,7 @@ export const useTemplateStore = defineStore('template', {
     startEditing() {
       if (!this.selectedTemplate || !canEditScope(this.selectedTemplate.scope)) return
       this.editingTemplateDraft = cloneTemplate(this.selectedTemplate)
+      this.isEditorOpen = true
       this.editorState = 'editing'
       this.isDirty = false
       this.validationErrors = {}
@@ -331,6 +397,7 @@ export const useTemplateStore = defineStore('template', {
       })
 
       this.selectedTemplateId = draft.id
+      this.isEditorOpen = true
       this.editingTemplateDraft = draft
       this.editorState = 'creating'
       this.isDirty = true
@@ -538,7 +605,7 @@ export const useTemplateStore = defineStore('template', {
       this.validateTemplate(this.editingTemplateDraft)
     },
 
-    saveTemplate() {
+    async saveTemplate() {
       const draft = this.editingTemplateDraft
       if (!draft) return
 
@@ -549,42 +616,80 @@ export const useTemplateStore = defineStore('template', {
       draft.updatedAt = new Date().toISOString()
       draft.status = draft.status === 'deprecated' ? 'deprecated' : 'ready'
 
-      if (this.editorState === 'creating') {
-        this.templates.unshift(cloneTemplate(draft))
-      } else {
-        this.templates = this.templates.map((template) => (
-          template.id === draft.id ? cloneTemplate(draft) : template
-        ))
-      }
+      try {
+        let savedTemplate = cloneTemplate(draft)
 
-      this.selectedTemplateId = draft.id
-      this.editorState = 'view'
-      this.editingTemplateDraft = null
-      this.isDirty = false
-      this.validationErrors = {}
-      this.showNotice('Template saved to local mock state.', 'success')
+        if (ENABLE_TEMPLATE_BACKEND) {
+          const result = this.editorState === 'creating'
+            ? await CreateTemplateApi(savedTemplate)
+            : await UpdateTemplateApi(savedTemplate)
+
+          if (result.error) {
+            throw new Error(result.error)
+          }
+
+          savedTemplate = normalizeTemplateRecord(result.template || savedTemplate)
+        } else if (this.editorState === 'creating') {
+          savedTemplate.id = savedTemplate.id || createTemplateId()
+        }
+
+        if (this.editorState === 'creating') {
+          this.templates.unshift(savedTemplate)
+        } else {
+          this.templates = this.templates.map((template) => (
+            template.id === savedTemplate.id ? savedTemplate : template
+          ))
+        }
+
+        this.templates = sortTemplates(this.templates)
+        this.selectedTemplateId = savedTemplate.id
+        this.editorState = 'view'
+        this.editingTemplateDraft = null
+        this.isDirty = false
+        this.validationErrors = {}
+        this.showNotice(ENABLE_TEMPLATE_BACKEND ? 'Template saved successfully.' : 'Template saved to local mock state.', 'success')
+      } catch (err) {
+        this.error = err.message || 'Failed to save template'
+        this.showNotice(this.error, 'warning')
+      }
     },
 
-    duplicateTemplate(id = this.selectedTemplateId) {
+    async duplicateTemplate(id = this.selectedTemplateId) {
       const source = this.displayTemplates.find((template) => template.id === id)
       if (!source) return
 
-      const copy = cloneTemplate(source)
-      copy.id = createTemplateId()
-      copy.scope = 'user'
-      copy.status = 'draft'
-      copy.name = `${source.name} Copy`
-      copy.version = '0.1.0'
-      copy.createdAt = new Date().toISOString()
-      copy.updatedAt = copy.createdAt
+      try {
+        let copy
 
-      this.templates.unshift(copy)
-      this.selectedTemplateId = copy.id
-      this.editorState = 'editing'
-      this.editingTemplateDraft = cloneTemplate(copy)
-      this.isDirty = false
-      this.validationErrors = {}
-      this.showNotice('Template duplicated as a user draft.', 'success')
+        if (ENABLE_TEMPLATE_BACKEND) {
+          const result = await DuplicateTemplateApi(id)
+          if (result.error) {
+            throw new Error(result.error)
+          }
+          copy = normalizeTemplateRecord(result.template)
+        } else {
+          copy = cloneTemplate(source)
+          copy.id = createTemplateId()
+          copy.scope = 'user'
+          copy.status = 'draft'
+          copy.name = `${source.name} Copy`
+          copy.version = '0.1.0'
+          copy.createdAt = new Date().toISOString()
+          copy.updatedAt = copy.createdAt
+        }
+
+        this.templates = sortTemplates([copy, ...this.templates.filter((template) => template.id !== copy.id)])
+        this.selectedTemplateId = copy.id
+        this.isEditorOpen = true
+        this.editorState = 'editing'
+        this.editingTemplateDraft = cloneTemplate(copy)
+        this.isDirty = false
+        this.validationErrors = {}
+        this.showNotice(ENABLE_TEMPLATE_BACKEND ? 'Template duplicated successfully.' : 'Template duplicated as a user draft.', 'success')
+      } catch (err) {
+        this.error = err.message || 'Failed to duplicate template'
+        this.showNotice(this.error, 'warning')
+      }
     },
 
     saveAsTemplate() {
@@ -601,6 +706,7 @@ export const useTemplateStore = defineStore('template', {
       copy.updatedAt = copy.createdAt
 
       this.selectedTemplateId = copy.id
+      this.isEditorOpen = true
       this.editorState = 'creating'
       this.editingTemplateDraft = copy
       this.isDirty = true
@@ -622,7 +728,7 @@ export const useTemplateStore = defineStore('template', {
       this.deleteCandidateId = ''
     },
 
-    confirmDeleteTemplate() {
+    async confirmDeleteTemplate() {
       const id = this.deleteCandidateId
       const template = this.templates.find((item) => item.id === id)
       if (!template || !canDeleteScope(template.scope)) {
@@ -631,14 +737,27 @@ export const useTemplateStore = defineStore('template', {
         return
       }
 
-      this.templates = this.templates.filter((item) => item.id !== id)
+      try {
+        if (ENABLE_TEMPLATE_BACKEND) {
+          const result = await DeleteTemplateApi(id)
+          if (result.error) {
+            throw new Error(result.error)
+          }
+        }
 
-      if (this.selectedTemplateId === id) {
-        this.clearSelection()
+        this.templates = this.templates.filter((item) => item.id !== id)
+
+        if (this.selectedTemplateId === id) {
+          this.clearSelection()
+        }
+
+        this.deleteCandidateId = ''
+        this.showNotice(ENABLE_TEMPLATE_BACKEND ? 'Template deleted successfully.' : 'User template removed from local mock state.', 'success')
+      } catch (err) {
+        this.error = err.message || 'Failed to delete template'
+        this.deleteCandidateId = ''
+        this.showNotice(this.error, 'warning')
       }
-
-      this.deleteCandidateId = ''
-      this.showNotice('User template removed from local mock state.', 'success')
     },
 
     createTaskFromTemplate() {

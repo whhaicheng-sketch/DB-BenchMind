@@ -17,28 +17,40 @@
       @reset="templateStore.resetFilters()"
     />
 
-    <div class="templates-workbench">
-      <TemplateList
-        :templates="templateStore.filteredTemplates"
-        :selected-id="templateStore.selectedTemplateId"
-        :all-count="templateStore.displayTemplates.length"
-        :has-filters="templateStore.hasActiveFilters"
-        :has-search-only="templateStore.hasSearchOnly"
-        @select="templateStore.selectTemplate"
-        @duplicate="templateStore.duplicateTemplate"
-        @delete="templateStore.requestDeleteTemplate"
-        @reset-filters="templateStore.resetFilters()"
-      />
+    <TemplateList
+      :templates="templateStore.filteredTemplates"
+      :selected-id="templateStore.selectedTemplateId"
+      :editor-open="templateStore.isEditorOpen"
+      :all-count="templateStore.displayTemplates.length"
+      :has-filters="templateStore.hasActiveFilters"
+      :has-search-only="templateStore.hasSearchOnly"
+      @open="templateStore.openTemplate"
+      @duplicate="templateStore.duplicateTemplate"
+      @delete="templateStore.requestDeleteTemplate"
+      @reset-filters="templateStore.resetFilters()"
+    />
 
-      <TemplateDetailPanel />
+    <div v-if="templateStore.deleteCandidate" class="confirm-overlay" @click.self="templateStore.cancelDeleteTemplate()">
+      <div class="confirm-modal">
+        <div class="confirm-title">Delete Template</div>
+        <p class="confirm-body">
+          Delete editable template "{{ templateStore.deleteCandidate.name }}"? This cannot be undone.
+        </p>
+        <div class="confirm-actions">
+          <button class="btn btn-ghost" @click="templateStore.cancelDeleteTemplate()">Cancel</button>
+          <button class="btn btn-danger" @click="templateStore.confirmDeleteTemplate()">Delete</button>
+        </div>
+      </div>
     </div>
+
+    <TemplateEditorDialog />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted } from 'vue'
 import { DB_OPTIONS, TOOL_OPTIONS } from '../../constants/templateCapabilities'
-import TemplateDetailPanel from '../template/TemplateDetailPanel.vue'
+import TemplateEditorDialog from '../template/TemplateEditorDialog.vue'
 import TemplateFilterBar from '../template/TemplateFilterBar.vue'
 import TemplateHeader from '../template/TemplateHeader.vue'
 import TemplateList from '../template/TemplateList.vue'
@@ -112,17 +124,63 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.templates-workbench {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
-  gap: 16px;
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
-@media (max-width: 1180px) {
-  .templates-workbench {
-    grid-template-columns: 1fr;
-  }
+.confirm-modal {
+  width: min(460px, 100%);
+  border-radius: 14px;
+  border: 1px solid #334155;
+  background: #111827;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  padding: 20px;
+}
+
+.confirm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.confirm-body {
+  margin-top: 10px;
+  color: #cbd5e1;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.confirm-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-ghost {
+  background: #0f172a;
+  color: #cbd5e1;
+}
+
+.btn-danger {
+  background: rgba(127, 29, 29, 0.2);
+  border-color: rgba(248, 113, 113, 0.28);
+  color: #fca5a5;
 }
 </style>

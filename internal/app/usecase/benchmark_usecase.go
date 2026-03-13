@@ -664,12 +664,29 @@ func (uc *BenchmarkUseCase) executeRun(
 		uc.runningProcessesMu.Unlock()
 	}()
 
-	// We'll read stderr after process completes
-	// Don't close stderr here - we'll read it after process.Wait()
-	defer stdout.Close()
+	mirroredStdout := uc.mirrorOutputStream(runCtx, run.ID, "stdout", stdout)
+	defer mirroredStdout.Close()
 
 	// Start realtime collection from stdout only
-	sampleCh, errCh, stdoutBuf := adapt.StartRealtimeCollection(runCtx, stdout)
+	sampleCh, errCh, stdoutBuf := adapt.StartRealtimeCollection(runCtx, mirroredStdout)
+
+	var stderrBuf strings.Builder
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\r")
+			stderrBuf.WriteString(line)
+			stderrBuf.WriteString("\n")
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "stderr",
+				Content:   line,
+			})
+		}
+	}()
 
 	// Monitor process
 	done := make(chan error, 1)
@@ -691,10 +708,9 @@ func (uc *BenchmarkUseCase) executeRun(
 				slog.Info("Benchmark: Waiting for process to complete", "run_id", run.ID)
 				processErr := <-done
 				slog.Info("Benchmark: Process completed, processErr", "run_id", run.ID, "error", processErr)
+				<-stderrDone
 				if processErr != nil {
-					// Read stderr to get actual error message from sysbench
-					stderrBytes, _ := io.ReadAll(stderr)
-					stderrStr := string(stderrBytes)
+					stderrStr := stderrBuf.String()
 
 					// Also check stdoutBuf - sysbench sometimes outputs errors to stdout
 					stdoutStr := stdoutBuf.String()
@@ -1254,14 +1270,16 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 	var sampleCh <-chan adapter.Sample
 	var errCh <-chan error
 	var stdoutBuf *strings.Builder
+	mirroredStdout := uc.mirrorOutputStream(ctx, run.ID, "stdout", stdout)
+	defer mirroredStdout.Close()
 
 	if adapt != nil {
-		sampleCh, errCh, stdoutBuf = adapt.StartRealtimeCollection(ctx, stdout)
+		sampleCh, errCh, stdoutBuf = adapt.StartRealtimeCollection(ctx, mirroredStdout)
 	} else {
 		// No adapter, just collect output
 		stdoutBuf = &strings.Builder{}
 		go func() {
-			io.Copy(stdoutBuf, stdout)
+			io.Copy(stdoutBuf, mirroredStdout)
 		}()
 	}
 
@@ -1321,17 +1339,6 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 						LatencyP95: sample.LatencyP95,
 						ErrorRate:  sample.ErrorRate,
 						RawLine:    sample.RawLine,
-					}
-
-					// Save to log entry for visibility in UI
-					if sample.RawLine != "" {
-						uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-							Timestamp: sample.Timestamp.Format(time.RFC3339),
-							Stream:    "stdout",
-							Content:   sample.RawLine,
-						})
-
-						slog.Info("Benchmark: realtime output", "run_id", run.ID, "line", sample.RawLine)
 					}
 
 					if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
@@ -1418,11 +1425,12 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 		uc.runningProcessesMu.Unlock()
 	}()
 
-	defer stdout.Close()
 	defer stderr.Close()
+	mirroredStdout := uc.mirrorOutputStream(ctx, run.ID, "stdout", stdout)
+	defer mirroredStdout.Close()
 
 	// Start realtime sample collection from stdout
-	sampleCh, errCh, _ := adapt.StartRealtimeCollection(ctx, stdout)
+	sampleCh, errCh, _ := adapt.StartRealtimeCollection(ctx, mirroredStdout)
 
 	// Also capture stderr to log entries
 	var stderrBuf strings.Builder
@@ -1481,18 +1489,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 				Errors:     sample.Errors,
 				Percentage: sample.Percentage,
 				RawLine:    sample.RawLine,
-			}
-
-			// Save to log entry for visibility in UI
-			if sample.RawLine != "" {
-				uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-					Timestamp: sample.Timestamp.Format(time.RFC3339),
-					Stream:    "stdout",
-					Content:   sample.RawLine,
-				})
-
-				// Log to slog for visibility
-				slog.Info("Benchmark: swingbench output", "run_id", run.ID, "stream", "stdout", "line", sample.RawLine)
 			}
 
 			if err := uc.runRepo.SaveMetricSample(ctx, run.ID, metricSample); err != nil {
@@ -1747,6 +1743,35 @@ func (uc *BenchmarkUseCase) captureOutput(ctx context.Context, runID, stream str
 	}
 }
 
+func (uc *BenchmarkUseCase) mirrorOutputStream(ctx context.Context, runID string, stream string, source io.ReadCloser) io.ReadCloser {
+	pipeReader, pipeWriter := io.Pipe()
+
+	go func() {
+		defer source.Close()
+		defer pipeWriter.Close()
+
+		scanner := bufio.NewScanner(source)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\r")
+			uc.runRepo.SaveLogEntry(ctx, runID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    stream,
+				Content:   line,
+			})
+			if _, err := pipeWriter.Write(append([]byte(line), '\n')); err != nil {
+				return
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			pipeWriter.CloseWithError(err)
+		}
+	}()
+
+	return pipeReader
+}
+
 // =============================================================================
 // Run Control
 // Implements: REQ-EXEC-006, REQ-EXEC-007, REQ-EXEC-009
@@ -1770,7 +1795,7 @@ func (uc *BenchmarkUseCase) StopBenchmark(ctx context.Context, runID string, for
 	slog.Info("Benchmark: Run state", "run_id", runID, "state", run.State)
 
 	// Check state
-	if run.State != execution.StateRunning && run.State != execution.StateWarmingUp {
+	if run.State != execution.StateRunning && run.State != execution.StateWarmingUp && run.State != execution.StatePreparing {
 		return fmt.Errorf("%w: run is not running", ErrInvalidState)
 	}
 

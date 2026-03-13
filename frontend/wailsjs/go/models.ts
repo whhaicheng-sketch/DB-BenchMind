@@ -778,14 +778,189 @@ export namespace bindings {
 	        this.disk_total_gb = source["disk_total_gb"];
 	    }
 	}
+	export class TaskActionResult {
+	    success: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskActionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
+	}
+	export class TaskBinding {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskBinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
+	export class TaskDraftRequest {
+	    task_name: string;
+	    database_type?: string;
+	    template_id: string;
+	    connection_id: string;
+	    action: string;
+	    preview_token?: string;
+	    overrides: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskDraftRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_name = source["task_name"];
+	        this.database_type = source["database_type"];
+	        this.template_id = source["template_id"];
+	        this.connection_id = source["connection_id"];
+	        this.action = source["action"];
+	        this.preview_token = source["preview_token"];
+	        this.overrides = source["overrides"];
+	    }
+	}
+	export class TaskListResult {
+	    tasks: task.ExecutionTask[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskListResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tasks = this.convertValues(source["tasks"], task.ExecutionTask);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskLogsRequest {
+	    task_id: string;
+	    limit: number;
+	    query: string;
+	    phase: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskLogsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_id = source["task_id"];
+	        this.limit = source["limit"];
+	        this.query = source["query"];
+	        this.phase = source["phase"];
+	    }
+	}
+	export class TaskLogsResult {
+	    lines: task.LogLine[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskLogsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lines = this.convertValues(source["lines"], task.LogLine);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskResult {
+	    task?: task.ExecutionTask;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task = this.convertValues(source["task"], task.ExecutionTask);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class TemplateDTO {
 	    id: string;
 	    name: string;
 	    description: string;
 	    tool: string;
-	    database_types: string[];
+	    dbFamily: string;
+	    workloadFamily: string;
+	    scope: string;
+	    tags: string[];
+	    status: string;
 	    version: string;
-	    parameters: Record<string, ParamDTO>;
+	    createdAt: string;
+	    updatedAt: string;
+	    compatibility: template.Compatibility;
+	    phases: template.PhaseSet;
+	    runtime: template.Runtime;
+	    toolConfig: template.ToolConfig;
+	    database_types: string[];
+	    parameters?: Record<string, ParamDTO>;
 	    custom_data?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -798,8 +973,19 @@ export namespace bindings {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.tool = source["tool"];
-	        this.database_types = source["database_types"];
+	        this.dbFamily = source["dbFamily"];
+	        this.workloadFamily = source["workloadFamily"];
+	        this.scope = source["scope"];
+	        this.tags = source["tags"];
+	        this.status = source["status"];
 	        this.version = source["version"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.compatibility = this.convertValues(source["compatibility"], template.Compatibility);
+	        this.phases = this.convertValues(source["phases"], template.PhaseSet);
+	        this.runtime = this.convertValues(source["runtime"], template.Runtime);
+	        this.toolConfig = this.convertValues(source["toolConfig"], template.ToolConfig);
+	        this.database_types = source["database_types"];
 	        this.parameters = this.convertValues(source["parameters"], ParamDTO, true);
 	        this.custom_data = source["custom_data"];
 	    }
@@ -821,6 +1007,20 @@ export namespace bindings {
 		    }
 		    return a;
 		}
+	}
+	export class TemplateDeleteResult {
+	    success: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateDeleteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
 	}
 	export class TemplateListResult {
 	    templates: TemplateDTO[];
@@ -865,6 +1065,38 @@ export namespace bindings {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.params = this.convertValues(source["params"], ParamDefinition);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TemplateResult {
+	    template?: TemplateDTO;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.template = this.convertValues(source["template"], TemplateDTO);
 	        this.error = source["error"];
 	    }
 	
@@ -1009,6 +1241,618 @@ export namespace collector {
 	        this.disk_write_bps = source["disk_write_bps"];
 	        this.disk_used_percent = source["disk_used_percent"];
 	    }
+	}
+
+}
+
+export namespace task {
+	
+	export class ConnectionSnapshot {
+	    id: string;
+	    name: string;
+	    type: string;
+	    host: string;
+	    port: number;
+	    database?: string;
+	    username: string;
+	    ssh_enabled: boolean;
+	    ssh_host?: string;
+	    ssh_port?: number;
+	    ssh_username?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.database = source["database"];
+	        this.username = source["username"];
+	        this.ssh_enabled = source["ssh_enabled"];
+	        this.ssh_host = source["ssh_host"];
+	        this.ssh_port = source["ssh_port"];
+	        this.ssh_username = source["ssh_username"];
+	    }
+	}
+	export class LogLine {
+	    timestamp: string;
+	    phase: string;
+	    stream: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogLine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = source["timestamp"];
+	        this.phase = source["phase"];
+	        this.stream = source["stream"];
+	        this.content = source["content"];
+	    }
+	}
+	export class SystemMetricSummary {
+	    current: number;
+	    series: MetricSeriesPoint[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SystemMetricSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.current = source["current"];
+	        this.series = this.convertValues(source["series"], MetricSeriesPoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MetricSeriesPoint {
+	    timestamp: number;
+	    value: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MetricSeriesPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = source["timestamp"];
+	        this.value = source["value"];
+	    }
+	}
+	export class MetricSummary {
+	    current: number;
+	    avg: number;
+	    max: number;
+	    series: MetricSeriesPoint[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MetricSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.current = source["current"];
+	        this.avg = source["avg"];
+	        this.max = source["max"];
+	        this.series = this.convertValues(source["series"], MetricSeriesPoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UnifiedMetrics {
+	    tps: MetricSummary;
+	    tpm: MetricSummary;
+	    cpu_user: SystemMetricSummary;
+	    cpu_sys: SystemMetricSummary;
+	    cpu_iowait: SystemMetricSummary;
+	    disk_read_bps: SystemMetricSummary;
+	    disk_write_bps: SystemMetricSummary;
+	    system_enabled: boolean;
+	    system_message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UnifiedMetrics(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tps = this.convertValues(source["tps"], MetricSummary);
+	        this.tpm = this.convertValues(source["tpm"], MetricSummary);
+	        this.cpu_user = this.convertValues(source["cpu_user"], SystemMetricSummary);
+	        this.cpu_sys = this.convertValues(source["cpu_sys"], SystemMetricSummary);
+	        this.cpu_iowait = this.convertValues(source["cpu_iowait"], SystemMetricSummary);
+	        this.disk_read_bps = this.convertValues(source["disk_read_bps"], SystemMetricSummary);
+	        this.disk_write_bps = this.convertValues(source["disk_write_bps"], SystemMetricSummary);
+	        this.system_enabled = source["system_enabled"];
+	        this.system_message = source["system_message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PhaseRecord {
+	    phase: string;
+	    status: string;
+	    run_id?: string;
+	    // Go type: time
+	    started_at: any;
+	    // Go type: time
+	    ended_at?: any;
+	    message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PhaseRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phase = source["phase"];
+	        this.status = source["status"];
+	        this.run_id = source["run_id"];
+	        this.started_at = this.convertValues(source["started_at"], null);
+	        this.ended_at = this.convertValues(source["ended_at"], null);
+	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Readiness {
+	    template_selected: boolean;
+	    connection_selected: boolean;
+	    action_supported: boolean;
+	    runtime_valid: boolean;
+	    db_valid: boolean;
+	    db_message?: string;
+	    ssh_available: boolean;
+	    ssh_checked: boolean;
+	    ssh_message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Readiness(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.template_selected = source["template_selected"];
+	        this.connection_selected = source["connection_selected"];
+	        this.action_supported = source["action_supported"];
+	        this.runtime_valid = source["runtime_valid"];
+	        this.db_valid = source["db_valid"];
+	        this.db_message = source["db_message"];
+	        this.ssh_available = source["ssh_available"];
+	        this.ssh_checked = source["ssh_checked"];
+	        this.ssh_message = source["ssh_message"];
+	    }
+	}
+	export class TemplateSnapshot {
+	    id: string;
+	    name: string;
+	    tool: string;
+	    db_family: string;
+	    workload_family: string;
+	    phases: Record<string, boolean>;
+	    parameters: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.tool = source["tool"];
+	        this.db_family = source["db_family"];
+	        this.workload_family = source["workload_family"];
+	        this.phases = source["phases"];
+	        this.parameters = source["parameters"];
+	    }
+	}
+	export class ExecutionTask {
+	    id: string;
+	    preview_token?: string;
+	    name: string;
+	    action: string;
+	    status: string;
+	    current_phase: string;
+	    template_snapshot: TemplateSnapshot;
+	    connection_snapshot: ConnectionSnapshot;
+	    resolved_params: Record<string, any>;
+	    readiness: Readiness;
+	    phase_history: PhaseRecord[];
+	    metrics: UnifiedMetrics;
+	    log_tail: LogLine[];
+	    benchmark_tool: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    started_at?: any;
+	    // Go type: time
+	    completed_at?: any;
+	    error_message?: string;
+	    run_log_paths?: Record<string, string>;
+	    system_log_paths?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExecutionTask(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.preview_token = source["preview_token"];
+	        this.name = source["name"];
+	        this.action = source["action"];
+	        this.status = source["status"];
+	        this.current_phase = source["current_phase"];
+	        this.template_snapshot = this.convertValues(source["template_snapshot"], TemplateSnapshot);
+	        this.connection_snapshot = this.convertValues(source["connection_snapshot"], ConnectionSnapshot);
+	        this.resolved_params = source["resolved_params"];
+	        this.readiness = this.convertValues(source["readiness"], Readiness);
+	        this.phase_history = this.convertValues(source["phase_history"], PhaseRecord);
+	        this.metrics = this.convertValues(source["metrics"], UnifiedMetrics);
+	        this.log_tail = this.convertValues(source["log_tail"], LogLine);
+	        this.benchmark_tool = source["benchmark_tool"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.started_at = this.convertValues(source["started_at"], null);
+	        this.completed_at = this.convertValues(source["completed_at"], null);
+	        this.error_message = source["error_message"];
+	        this.run_log_paths = source["run_log_paths"];
+	        this.system_log_paths = source["system_log_paths"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
+	
+	
+
+}
+
+export namespace template {
+	
+	export class Compatibility {
+	    supportedDatabases?: string[];
+	    supportedVersions?: string[];
+	    compatibilityNotes?: string;
+	    requiresPrivileges?: string[];
+	    constraints?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Compatibility(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supportedDatabases = source["supportedDatabases"];
+	        this.supportedVersions = source["supportedVersions"];
+	        this.compatibilityNotes = source["compatibilityNotes"];
+	        this.requiresPrivileges = source["requiresPrivileges"];
+	        this.constraints = source["constraints"];
+	    }
+	}
+	export class Concurrency {
+	    mode: string;
+	    value: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Concurrency(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.value = source["value"];
+	    }
+	}
+	export class HammerDBConfig {
+	    benchmark?: string;
+	    virtualUsers?: number;
+	    warehouses?: number;
+	    scaleFactor?: number;
+	    timeProfile: boolean;
+	    stepTesting: boolean;
+	    xmlConnectPool: boolean;
+	    advancedNotes?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HammerDBConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.benchmark = source["benchmark"];
+	        this.virtualUsers = source["virtualUsers"];
+	        this.warehouses = source["warehouses"];
+	        this.scaleFactor = source["scaleFactor"];
+	        this.timeProfile = source["timeProfile"];
+	        this.stepTesting = source["stepTesting"];
+	        this.xmlConnectPool = source["xmlConnectPool"];
+	        this.advancedNotes = source["advancedNotes"];
+	    }
+	}
+	export class PhaseConfig {
+	    enabled: boolean;
+	    required: boolean;
+	    params?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new PhaseConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.required = source["required"];
+	        this.params = source["params"];
+	    }
+	}
+	export class PhaseSet {
+	    build: PhaseConfig;
+	    prepare: PhaseConfig;
+	    generate: PhaseConfig;
+	    warmup: PhaseConfig;
+	    run: PhaseConfig;
+	    verify: PhaseConfig;
+	    cleanup: PhaseConfig;
+	    delete: PhaseConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new PhaseSet(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.build = this.convertValues(source["build"], PhaseConfig);
+	        this.prepare = this.convertValues(source["prepare"], PhaseConfig);
+	        this.generate = this.convertValues(source["generate"], PhaseConfig);
+	        this.warmup = this.convertValues(source["warmup"], PhaseConfig);
+	        this.run = this.convertValues(source["run"], PhaseConfig);
+	        this.verify = this.convertValues(source["verify"], PhaseConfig);
+	        this.cleanup = this.convertValues(source["cleanup"], PhaseConfig);
+	        this.delete = this.convertValues(source["delete"], PhaseConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Runtime {
+	    concurrency: Concurrency;
+	    durationSeconds: number;
+	    warmupSeconds: number;
+	    rampUpSeconds: number;
+	    reportIntervalSeconds: number;
+	    percentile: number;
+	    iterations: number;
+	    rateLimit: number;
+	    validationEnabled: boolean;
+	    notes?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Runtime(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.concurrency = this.convertValues(source["concurrency"], Concurrency);
+	        this.durationSeconds = source["durationSeconds"];
+	        this.warmupSeconds = source["warmupSeconds"];
+	        this.rampUpSeconds = source["rampUpSeconds"];
+	        this.reportIntervalSeconds = source["reportIntervalSeconds"];
+	        this.percentile = source["percentile"];
+	        this.iterations = source["iterations"];
+	        this.rateLimit = source["rateLimit"];
+	        this.validationEnabled = source["validationEnabled"];
+	        this.notes = source["notes"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SwingbenchConfig {
+	    benchmark?: string;
+	    frontend?: string;
+	    configMode?: string;
+	    wizardOperation?: string;
+	    userCount?: number;
+	    runTimeSeconds?: number;
+	    minThinkTime?: number;
+	    maxThinkTime?: number;
+	    xmlOverrides?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SwingbenchConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.benchmark = source["benchmark"];
+	        this.frontend = source["frontend"];
+	        this.configMode = source["configMode"];
+	        this.wizardOperation = source["wizardOperation"];
+	        this.userCount = source["userCount"];
+	        this.runTimeSeconds = source["runTimeSeconds"];
+	        this.minThinkTime = source["minThinkTime"];
+	        this.maxThinkTime = source["maxThinkTime"];
+	        this.xmlOverrides = source["xmlOverrides"];
+	    }
+	}
+	export class SysbenchConfig {
+	    dbDriver?: string;
+	    scriptType?: string;
+	    tables?: number;
+	    tableSize?: number;
+	    reportChecks: boolean;
+	    extraCliArgs?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SysbenchConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dbDriver = source["dbDriver"];
+	        this.scriptType = source["scriptType"];
+	        this.tables = source["tables"];
+	        this.tableSize = source["tableSize"];
+	        this.reportChecks = source["reportChecks"];
+	        this.extraCliArgs = source["extraCliArgs"];
+	    }
+	}
+	export class ToolConfig {
+	    sysbench: SysbenchConfig;
+	    swingbench: SwingbenchConfig;
+	    hammerdb: HammerDBConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sysbench = this.convertValues(source["sysbench"], SysbenchConfig);
+	        this.swingbench = this.convertValues(source["swingbench"], SwingbenchConfig);
+	        this.hammerdb = this.convertValues(source["hammerdb"], HammerDBConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

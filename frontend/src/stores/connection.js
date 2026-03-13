@@ -78,6 +78,9 @@ export const useConnectionStore = defineStore('connection', {
       oracle: 'Oracle',
       sqlserver: 'SQL Server'
     }),
+    availableTypes(state) {
+      return [...new Set(state.connections.map((conn) => conn.type).filter(Boolean))]
+    },
 
     // Database icons
     typeIcons: () => ({

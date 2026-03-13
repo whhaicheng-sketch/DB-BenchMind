@@ -49,6 +49,11 @@ func InitializeSQLite(ctx context.Context, dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("execute schema: %w", err)
 	}
 
+	if err := ensureTemplateColumns(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate template schema: %w", err)
+	}
+
 	// 5. 验证连接
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
@@ -56,4 +61,45 @@ func InitializeSQLite(ctx context.Context, dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func ensureTemplateColumns(ctx context.Context, db *sql.DB) error {
+	columns := map[string]string{
+		"scope":       "ALTER TABLE templates ADD COLUMN scope TEXT NOT NULL DEFAULT 'builtin'",
+		"status":      "ALTER TABLE templates ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'",
+		"tags_json":   "ALTER TABLE templates ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'",
+		"config_json": "ALTER TABLE templates ADD COLUMN config_json TEXT NOT NULL DEFAULT ''",
+	}
+
+	existing := map[string]bool{}
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(templates)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for name, ddl := range columns {
+		if existing[name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
+	}
+	return nil
 }

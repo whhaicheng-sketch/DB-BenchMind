@@ -21,3 +21,7 @@ export function SetBenchmarkBinding(arg1) {
 export function SetMonitorBinding(arg1) {
   return window['go']['transportwails']['App']['SetMonitorBinding'](arg1);
 }
+
+export function SetTaskBinding(arg1) {
+  return window['go']['transportwails']['App']['SetTaskBinding'](arg1);
+}

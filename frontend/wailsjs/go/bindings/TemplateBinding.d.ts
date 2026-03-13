@@ -3,6 +3,12 @@
 import {bindings} from '../models';
 import {usecase} from '../models';
 
+export function CreateTemplate(arg1:bindings.TemplateDTO):Promise<bindings.TemplateResult>;
+
+export function DeleteTemplate(arg1:string):Promise<bindings.TemplateDeleteResult>;
+
+export function DuplicateTemplate(arg1:string):Promise<bindings.TemplateResult>;
+
 export function GetTemplate(arg1:string):Promise<bindings.TemplateDTO>;
 
 export function GetTemplateMetadata(arg1:string):Promise<usecase.TemplateMetadata>;
@@ -12,5 +18,7 @@ export function GetTemplateParams(arg1:string):Promise<bindings.TemplateParamsRe
 export function ListTemplates():Promise<bindings.TemplateListResult>;
 
 export function ListTemplatesByType(arg1:string):Promise<bindings.TemplateListResult>;
+
+export function UpdateTemplate(arg1:bindings.TemplateDTO):Promise<bindings.TemplateResult>;
 
 export function ValidateTemplateForDB(arg1:string,arg2:string):Promise<boolean>;

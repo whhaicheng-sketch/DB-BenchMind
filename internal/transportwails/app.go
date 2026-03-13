@@ -19,6 +19,7 @@ type App struct {
 type bindingsHolder struct {
 	benchmarkBinding *bindings.BenchmarkBinding
 	monitorBinding   *bindings.MonitorBinding
+	taskBinding      *bindings.TaskBinding
 }
 
 // NewApp creates a new App instance.
@@ -36,6 +37,11 @@ func (a *App) SetMonitorBinding(m *bindings.MonitorBinding) {
 	a.holder.monitorBinding = m
 }
 
+// SetTaskBinding stores the task binding for context injection.
+func (a *App) SetTaskBinding(t *bindings.TaskBinding) {
+	a.holder.taskBinding = t
+}
+
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
@@ -51,6 +57,11 @@ func (a *App) Startup(ctx context.Context) {
 	if a.holder.monitorBinding != nil {
 		a.holder.monitorBinding.SetContext(ctx)
 		slog.Info("MonitorBinding context injected")
+	}
+
+	if a.holder.taskBinding != nil {
+		a.holder.taskBinding.SetContext(ctx)
+		slog.Info("TaskBinding context injected")
 	}
 }
 

@@ -80,76 +80,83 @@ export function createDefaultTemplate(partial = {}) {
   const now = new Date().toISOString()
 
   return {
-    id: partial.id || createTemplateId(),
-    name: partial.name || 'New Template',
-    description: partial.description || 'Benchmark scenario draft for future task binding.',
-    tool: partial.tool || 'sysbench',
-    dbFamily: partial.dbFamily || 'mysql',
-    workloadFamily: partial.workloadFamily || 'oltp-read-write',
-    scope: partial.scope || 'user',
-    tags: partial.tags || ['draft'],
-    status: partial.status || 'draft',
-    version: partial.version || '0.1.0',
+    id: partial.id ?? createTemplateId(),
+    name: partial.name ?? 'New Template',
+    description: partial.description ?? 'Benchmark scenario draft for future task binding.',
+    tool: partial.tool ?? 'sysbench',
+    dbFamily: partial.dbFamily ?? 'mysql',
+    workloadFamily: partial.workloadFamily ?? 'oltp-read-write',
+    scope: partial.scope ?? 'user',
+    tags: partial.tags ?? ['draft'],
+    status: partial.status ?? 'draft',
+    version: partial.version ?? '0.1.0',
     compatibility: {
-      supportedDatabases: partial.compatibility?.supportedDatabases || [partial.dbFamily || 'mysql'],
-      supportedVersions: partial.compatibility?.supportedVersions || ['TBD'],
-      compatibilityNotes: partial.compatibility?.compatibilityNotes || '',
-      requiresPrivileges: partial.compatibility?.requiresPrivileges || [],
-      constraints: partial.compatibility?.constraints || []
+      supportedDatabases: partial.compatibility?.supportedDatabases ?? [partial.dbFamily ?? 'mysql'],
+      supportedVersions: partial.compatibility?.supportedVersions ?? ['TBD'],
+      compatibilityNotes: partial.compatibility?.compatibilityNotes ?? '',
+      requiresPrivileges: partial.compatibility?.requiresPrivileges ?? [],
+      constraints: partial.compatibility?.constraints ?? []
     },
     phases: createPhaseState(partial.phases || {}),
     runtime: {
       concurrency: {
-        mode: partial.runtime?.concurrency?.mode || 'threads',
-        value: partial.runtime?.concurrency?.value || 16
+        mode: partial.runtime?.concurrency?.mode ?? 'threads',
+        value: partial.runtime?.concurrency?.value ?? 16
       },
-      durationSeconds: partial.runtime?.durationSeconds || 300,
-      warmupSeconds: partial.runtime?.warmupSeconds || 30,
-      rampUpSeconds: partial.runtime?.rampUpSeconds || 15,
-      reportIntervalSeconds: partial.runtime?.reportIntervalSeconds || 10,
-      percentile: partial.runtime?.percentile || 95,
-      iterations: partial.runtime?.iterations || 0,
-      rateLimit: partial.runtime?.rateLimit || 0,
+      durationSeconds: partial.runtime?.durationSeconds ?? 300,
+      warmupSeconds: partial.runtime?.warmupSeconds ?? 30,
+      rampUpSeconds: partial.runtime?.rampUpSeconds ?? 15,
+      reportIntervalSeconds: partial.runtime?.reportIntervalSeconds ?? 10,
+      percentile: partial.runtime?.percentile ?? 95,
+      iterations: partial.runtime?.iterations ?? 0,
+      rateLimit: partial.runtime?.rateLimit ?? 0,
       validationEnabled: partial.runtime?.validationEnabled ?? false,
-      notes: partial.runtime?.notes || ''
+      notes: partial.runtime?.notes ?? ''
     },
     toolConfig: {
       sysbench: {
-        dbDriver: 'mysql',
-        scriptType: 'oltp_read_write',
-        tables: 10,
-        tableSize: 100000,
-        reportChecks: true,
-        extraCliArgs: '',
+        dbDriver: partial.toolConfig?.sysbench?.dbDriver ?? 'mysql',
+        scriptType: partial.toolConfig?.sysbench?.scriptType ?? 'oltp_read_write',
+        tables: partial.toolConfig?.sysbench?.tables ?? 10,
+        tableSize: partial.toolConfig?.sysbench?.tableSize ?? 100000,
+        reportChecks: partial.toolConfig?.sysbench?.reportChecks ?? true,
+        extraCliArgs: partial.toolConfig?.sysbench?.extraCliArgs ?? '',
         ...partial.toolConfig?.sysbench
       },
       swingbench: {
-        benchmark: 'orderEntry',
-        frontend: 'charbench',
-        configMode: 'managed',
-        wizardOperation: 'generate',
-        userCount: 64,
-        runTimeSeconds: 1800,
-        minThinkTime: 0,
-        maxThinkTime: 2,
-        xmlOverrides: '',
+        benchmark: partial.toolConfig?.swingbench?.benchmark ?? 'orderEntry',
+        frontend: partial.toolConfig?.swingbench?.frontend ?? 'charbench',
+        configMode: partial.toolConfig?.swingbench?.configMode ?? 'managed',
+        wizardOperation: partial.toolConfig?.swingbench?.wizardOperation ?? 'generate',
+        userCount: partial.toolConfig?.swingbench?.userCount ?? 64,
+        runTimeSeconds: partial.toolConfig?.swingbench?.runTimeSeconds ?? 1800,
+        minThinkTime: partial.toolConfig?.swingbench?.minThinkTime ?? 0,
+        maxThinkTime: partial.toolConfig?.swingbench?.maxThinkTime ?? 2,
+        xmlOverrides: partial.toolConfig?.swingbench?.xmlOverrides ?? '',
         ...partial.toolConfig?.swingbench
       },
       hammerdb: {
-        benchmark: 'tproc-c',
-        virtualUsers: 64,
-        warehouses: 100,
-        scaleFactor: 10,
-        timeProfile: true,
-        stepTesting: false,
-        xmlConnectPool: false,
-        advancedNotes: '',
+        benchmark: partial.toolConfig?.hammerdb?.benchmark ?? 'tproc-c',
+        virtualUsers: partial.toolConfig?.hammerdb?.virtualUsers ?? 64,
+        warehouses: partial.toolConfig?.hammerdb?.warehouses ?? 100,
+        scaleFactor: partial.toolConfig?.hammerdb?.scaleFactor ?? 10,
+        timeProfile: partial.toolConfig?.hammerdb?.timeProfile ?? true,
+        stepTesting: partial.toolConfig?.hammerdb?.stepTesting ?? false,
+        xmlConnectPool: partial.toolConfig?.hammerdb?.xmlConnectPool ?? false,
+        advancedNotes: partial.toolConfig?.hammerdb?.advancedNotes ?? '',
         ...partial.toolConfig?.hammerdb
       }
     },
-    createdAt: partial.createdAt || now,
-    updatedAt: partial.updatedAt || now
+    createdAt: partial.createdAt ?? now,
+    updatedAt: partial.updatedAt ?? now,
+    database_types: partial.database_types ?? [partial.dbFamily ?? 'mysql']
   }
+}
+
+export function normalizeTemplateRecord(template = {}) {
+  const normalized = createDefaultTemplate(template)
+  normalized.database_types = template.database_types ?? [normalized.dbFamily]
+  return normalized
 }
 
 export function createTemplateId() {

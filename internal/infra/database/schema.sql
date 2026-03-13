@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS templates (
     parameters_json TEXT NOT NULL,  -- 参数定义（JSON Schema）
     command_template_json TEXT NOT NULL,  -- 命令模板（prepare/run/cleanup）
     output_parser_json TEXT NOT NULL,  -- 输出解析规则（JSON）
+    scope TEXT NOT NULL DEFAULT 'builtin',
+    status TEXT NOT NULL DEFAULT 'ready',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    config_json TEXT NOT NULL DEFAULT '',
     is_builtin BOOLEAN NOT NULL DEFAULT 0,  -- 是否为内置模板
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL

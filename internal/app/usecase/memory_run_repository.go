@@ -4,7 +4,11 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
@@ -16,16 +20,27 @@ type MemoryRunRepository struct {
 	runs    map[string]*execution.Run
 	samples map[string][]execution.MetricSample
 	logs    map[string][]LogEntry
+	logDir  string
 	mu      sync.RWMutex
 }
 
 // NewMemoryRunRepository creates a new in-memory run repository.
-func NewMemoryRunRepository() *MemoryRunRepository {
-	return &MemoryRunRepository{
+func NewMemoryRunRepository(logDir ...string) *MemoryRunRepository {
+	repo := &MemoryRunRepository{
 		runs:    make(map[string]*execution.Run),
 		samples: make(map[string][]execution.MetricSample),
 		logs:    make(map[string][]LogEntry),
 	}
+	if len(logDir) > 0 {
+		repo.logDir = logDir[0]
+		if repo.logDir != "" {
+			if err := os.MkdirAll(repo.logDir, 0755); err != nil {
+				slog.Warn("MemoryRunRepository: failed to create log dir", "dir", repo.logDir, "error", err)
+				repo.logDir = ""
+			}
+		}
+	}
+	return repo
 }
 
 // Save saves a run to the repository.
@@ -96,7 +111,73 @@ func (r *MemoryRunRepository) SaveLogEntry(ctx context.Context, runID string, en
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.logs[runID] = append(r.logs[runID], entry)
+	if r.logDir != "" {
+		logPath := filepath.Join(r.logDir, fmt.Sprintf("%s.log", runID))
+		file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		if _, err := fmt.Fprintf(file, "%s [%s] %s\n", entry.Timestamp, entry.Stream, entry.Content); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// GetLogs returns all in-memory log entries for a run.
+func (r *MemoryRunRepository) GetLogs(runID string) []LogEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	logs := r.logs[runID]
+	cloned := make([]LogEntry, len(logs))
+	copy(cloned, logs)
+	return cloned
+}
+
+// GetLogPath returns the persisted log file path for a run if log persistence is enabled.
+func (r *MemoryRunRepository) GetLogPath(runID string) string {
+	if r.logDir == "" {
+		return ""
+	}
+	return filepath.Join(r.logDir, fmt.Sprintf("%s.log", runID))
+}
+
+// GetPersistedLogs reads the persisted log file for a run and returns parsed entries.
+func (r *MemoryRunRepository) GetPersistedLogs(runID string) ([]LogEntry, error) {
+	logPath := r.GetLogPath(runID)
+	if logPath == "" {
+		return nil, os.ErrNotExist
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	entries := make([]LogEntry, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		entry := LogEntry{Content: line, Stream: "stdout"}
+		if firstSpace := strings.IndexByte(line, ' '); firstSpace > 0 {
+			entry.Timestamp = line[:firstSpace]
+			rest := strings.TrimSpace(line[firstSpace+1:])
+			if strings.HasPrefix(rest, "[") {
+				if closing := strings.Index(rest, "]"); closing > 1 {
+					entry.Stream = rest[1:closing]
+					entry.Content = strings.TrimSpace(rest[closing+1:])
+				} else {
+					entry.Content = rest
+				}
+			} else {
+				entry.Content = rest
+			}
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 // Delete deletes a run by its ID.
