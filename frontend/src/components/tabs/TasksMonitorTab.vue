@@ -114,20 +114,31 @@
           </div>
           <div class="metric-grid">
             <div class="metric-card" v-for="metric in businessMetrics" :key="metric.label">
-              <div class="metric-top">
+              <div class="metric-card-head">
                 <span>{{ metric.label }}</span>
+                <span class="metric-status" :class="metric.statusClass">{{ metric.statusLabel }}</span>
+              </div>
+              <div class="metric-main">
                 <strong>{{ metric.current }}</strong>
+                <span>{{ metric.unit }}</span>
               </div>
               <div class="metric-stats">
-                <span>avg {{ metric.avg }}</span>
-                <span>max {{ metric.max }}</span>
+                <div>
+                  <span>avg</span>
+                  <strong>{{ metric.avg }}</strong>
+                </div>
+                <div>
+                  <span>max</span>
+                  <strong>{{ metric.max }}</strong>
+                </div>
               </div>
-              <div class="bar-track">
-                <div class="bar-fill" :style="{ width: metric.ratio + '%' }"></div>
+              <div class="metric-history">
+                <svg class="history-chart" viewBox="0 0 320 116" preserveAspectRatio="none">
+                  <path :d="metric.areaPath" :fill="metric.fill" />
+                  <polyline :points="metric.points" :stroke="metric.stroke" stroke-width="3" fill="none" />
+                  <line :x1="0" :x2="320" :y1="metric.avgLineY" :y2="metric.avgLineY" class="history-baseline" />
+                </svg>
               </div>
-              <svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
-                <polyline :points="metric.points" fill="none" stroke="currentColor" stroke-width="2" />
-              </svg>
             </div>
           </div>
         </section>
@@ -135,36 +146,36 @@
         <section class="panel metrics-panel system-panel" :class="{ disabled: !systemEnabled }">
           <div class="card-head">
             <h3>System Metrics</h3>
-            <span>{{ systemEnabled ? 'SSH active' : systemMessage }}</span>
+            <span v-if="!systemEnabled">{{ systemMessage }}</span>
           </div>
           <div class="system-grid">
-            <div v-for="metric in systemMetrics" :key="metric.label" class="system-card">
-              <span>{{ metric.label }}</span>
-              <strong>{{ metric.value }}</strong>
-              <svg class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none">
-                <polyline :points="metric.points" fill="none" stroke="currentColor" stroke-width="2" />
-              </svg>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel trend-panel">
-          <div class="card-head">
-            <h3>Throughput Trend</h3>
-            <span>Last 5 minutes</span>
-          </div>
-          <div class="trend-grid">
-            <div class="trend-card">
-              <span>TPS</span>
-              <svg class="trend-chart" viewBox="0 0 320 110" preserveAspectRatio="none">
-                <polyline :points="buildTrend(currentTask?.metrics?.tps?.series, 320, 110)" fill="none" stroke="#f4a261" stroke-width="3" />
-              </svg>
-            </div>
-            <div class="trend-card">
-              <span>TPM</span>
-              <svg class="trend-chart" viewBox="0 0 320 110" preserveAspectRatio="none">
-                <polyline :points="buildTrend(currentTask?.metrics?.tpm?.series, 320, 110)" fill="none" stroke="#4dd0a8" stroke-width="3" />
-              </svg>
+            <div v-for="chart in systemCharts" :key="chart.label" class="system-card">
+              <div class="system-card-head">
+                <div>
+                  <span>{{ chart.label }}</span>
+                  <strong>{{ chart.summary }}</strong>
+                </div>
+                <div class="chart-legend">
+                  <span v-for="line in chart.lines" :key="line.label" class="legend-item">
+                    <i :style="{ background: line.color }"></i>
+                    {{ line.label }}
+                  </span>
+                </div>
+              </div>
+              <div class="system-chart-wrap">
+                <svg class="system-chart" viewBox="0 0 320 124" preserveAspectRatio="none">
+                  <line v-for="grid in chart.gridLines" :key="grid" :x1="0" :x2="320" :y1="grid" :y2="grid" class="chart-gridline" />
+                  <polyline
+                    v-for="line in chart.lines"
+                    :key="line.label"
+                    :points="line.points"
+                    :stroke="line.color"
+                    stroke-width="3"
+                    fill="none"
+                  />
+                </svg>
+              </div>
+              <p class="system-caption">{{ chart.caption }}</p>
             </div>
           </div>
         </section>
@@ -420,22 +431,26 @@ const statusPopoverItems = computed(() => {
 const businessMetrics = computed(() => {
   const metrics = currentTask.value?.metrics || {}
   return [
-    metricCard('TPS', metrics.tps),
-    metricCard('TPM', metrics.tpm)
+    metricCard('TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.28)'),
+    metricCard('TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.24)')
   ]
 })
 
 const systemEnabled = computed(() => !!currentTask.value?.metrics?.system_enabled)
 const systemMessage = computed(() => currentTask.value?.metrics?.system_message || 'SSH unavailable, benchmark continues without system metrics')
 
-const systemMetrics = computed(() => {
+const systemCharts = computed(() => {
   const metrics = currentTask.value?.metrics || {}
   return [
-    systemMetricCard('CPU user', metrics.cpu_user, '%'),
-    systemMetricCard('CPU sys', metrics.cpu_sys, '%'),
-    systemMetricCard('CPU iowait', metrics.cpu_iowait, '%'),
-    systemMetricCard('Disk read', metrics.disk_read_bps, 'bytes'),
-    systemMetricCard('Disk write', metrics.disk_write_bps, 'bytes')
+    multiMetricChart('CPU', [
+      { label: 'user', metric: metrics.cpu_user, color: '#7dd3fc', formatter: formatPercent },
+      { label: 'sys', metric: metrics.cpu_sys, color: '#f4a261', formatter: formatPercent },
+      { label: 'iowait', metric: metrics.cpu_iowait, color: '#f87171', formatter: formatPercent }
+    ], 'Recent CPU composition across user, sys, and iowait.'),
+    multiMetricChart('Disk IO', [
+      { label: 'read', metric: metrics.disk_read_bps, color: '#60a5fa', formatter: formatBytes },
+      { label: 'write', metric: metrics.disk_write_bps, color: '#34d399', formatter: formatBytes }
+    ], 'Read and write throughput over the current rolling window.')
   ]
 })
 
@@ -641,40 +656,76 @@ function actionLabel(action) {
   return actionOptions.value.find((option) => option.value === action)?.label || action || 'Not selected'
 }
 
-function metricCard(label, metric = {}) {
+function metricCard(label, metric = {}, unit, stroke, fill) {
   const current = Number(metric.current || 0)
   const avg = Number(metric.avg || 0)
   const max = Number(metric.max || 0)
+  const series = Array.isArray(metric.series) ? metric.series : []
+  const trend = buildTrendData(series, 320, 116)
   return {
     label,
     current: formatNumber(current),
     avg: formatNumber(avg),
     max: formatNumber(max),
-    ratio: max > 0 ? Math.min(100, (current / max) * 100) : 0,
-    points: buildTrend(metric.series, 120, 32)
+    unit,
+    stroke,
+    fill,
+    points: trend.points,
+    areaPath: trend.areaPath,
+    avgLineY: mapSeriesValueToY(avg, trend.min, trend.max, 116),
+    statusLabel: metricStatus(metric),
+    statusClass: `metric-${metricStatus(metric).toLowerCase()}`
   }
 }
 
-function systemMetricCard(label, metric = {}, unit) {
-  const value = Number(metric.current || 0)
+function multiMetricChart(label, definitions, caption) {
+  const values = definitions.map((item) => Number(item.metric?.current || 0))
+  const allSeriesValues = definitions.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
+  const min = label === 'CPU' ? 0 : Math.min(...allSeriesValues, 0)
+  const max = label === 'CPU' ? Math.max(100, ...allSeriesValues, 1) : Math.max(...allSeriesValues, 1)
   return {
     label,
-    value: unit === 'bytes' ? formatBytes(value) : `${value.toFixed(1)}%`,
-    points: buildTrend(metric.series, 120, 24)
+    summary: definitions.map((item, index) => `${item.label} ${item.formatter(values[index])}`).join(' · '),
+    caption,
+    gridLines: [20, 62, 104],
+    lines: definitions.map((item) => ({
+      label: item.label,
+      color: item.color,
+      points: buildTrend(item.metric?.series || [], 320, 124, { min, max })
+    }))
   }
 }
 
-function buildTrend(series = [], width, height) {
-  if (!series?.length) return ''
+function buildTrend(series = [], width, height, bounds = null) {
+  return buildTrendData(series, width, height, bounds).points
+}
+
+function buildTrendData(series = [], width, height, bounds = null) {
+  if (!series?.length) {
+    return { points: '', areaPath: '', min: bounds?.min ?? 0, max: bounds?.max ?? 1 }
+  }
   const values = series.map((point) => Number(point.value || 0))
-  const max = Math.max(...values, 1)
-  const min = Math.min(...values, 0)
-  const range = Math.max(max - min, 1)
-  return values.map((value, index) => {
+  const max = bounds?.max ?? Math.max(...values, 1)
+  const min = bounds?.min ?? Math.min(...values, 0)
+  const points = values.map((value, index) => {
     const x = series.length === 1 ? 0 : (index / (series.length - 1)) * width
-    const y = height - ((value - min) / range) * (height - 6) - 3
+    const y = mapSeriesValueToY(value, min, max, height)
     return `${x},${y}`
   }).join(' ')
+  const areaPath = `M 0,${height - 2} L ${points.split(' ').join(' L ')} L ${width},${height - 2} Z`
+  return { points, areaPath, min, max }
+}
+
+function mapSeriesValueToY(value, min, max, height) {
+  const range = Math.max(max - min, 1)
+  return height - ((value - min) / range) * (height - 10) - 5
+}
+
+function metricStatus(metric = {}) {
+  const cv = Number(metric.cv || 0)
+  if (cv >= 0.1) return 'Sawtooth'
+  if (cv >= 0.05) return 'Fluctuating'
+  return 'Stable'
 }
 
 function lineClass(line) {
@@ -725,6 +776,10 @@ function formatBytes(value) {
     index += 1
   }
   return `${current.toFixed(1)} ${units[index]}`
+}
+
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(1)}%`
 }
 
 function formatDate(value) {
@@ -1203,7 +1258,6 @@ select,
 .override-grid,
 .metric-grid,
 .system-grid,
-.trend-grid,
 .preview-grid {
   display: grid;
   gap: 14px;
@@ -1219,16 +1273,11 @@ select,
 }
 
 .system-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.trend-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .metric-card,
-.system-card,
-.trend-card {
+.system-card {
   border: 1px solid #243446;
   border-radius: 12px;
   padding: 16px;
@@ -1246,44 +1295,179 @@ select,
   color: #ff8d8d;
 }
 
-.metric-top,
-.metric-stats {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
 .metric-card,
-.system-card,
-.trend-card {
+.system-card {
   color: #dce4ef;
 }
 
-.bar-track {
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 260px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.04), transparent 38%),
+    linear-gradient(180deg, rgba(17, 24, 33, 0.98), rgba(9, 14, 20, 0.98));
+}
+
+.metric-card-head,
+.metric-main,
+.metric-stats,
+.system-card-head,
+.chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metric-card-head > span:first-child,
+.system-card-head span {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #8ea0b5;
+}
+
+.metric-status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.metric-stable {
+  color: #8ef0cc;
+  border-color: rgba(77, 208, 168, 0.35);
+  background: rgba(77, 208, 168, 0.12);
+}
+
+.metric-fluctuating {
+  color: #f4c287;
+  border-color: rgba(244, 162, 97, 0.35);
+  background: rgba(244, 162, 97, 0.12);
+}
+
+.metric-sawtooth {
+  color: #ff9b9b;
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.metric-main {
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.metric-main strong {
+  font-size: clamp(34px, 4vw, 52px);
+  line-height: 1;
+  color: #f7fafc;
+  letter-spacing: -0.03em;
+}
+
+.metric-main span {
+  font-size: 14px;
+  color: #90a4ba;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric-stats {
+  justify-content: flex-start;
+  gap: 20px;
+}
+
+.metric-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-stats span {
+  font-size: 11px;
+  color: #6f8297;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric-stats strong {
+  color: #dce4ef;
+  font-size: 15px;
+}
+
+.metric-history,
+.system-chart-wrap {
+  flex: 1;
+  min-height: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(74, 90, 109, 0.55);
+  background: linear-gradient(180deg, rgba(13, 19, 27, 0.92), rgba(8, 12, 18, 0.98));
+  padding: 10px;
+}
+
+.history-chart,
+.system-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.history-baseline,
+.chart-gridline {
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+
+.system-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 240px;
+}
+
+.system-card-head {
+  align-items: flex-start;
+}
+
+.system-card-head strong {
+  display: block;
+  margin-top: 6px;
+  color: #e5edf7;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chart-legend {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9fb0c4;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.legend-item i {
+  width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #1d2935;
-  margin: 12px 0;
-  overflow: hidden;
+  display: inline-block;
 }
 
-.bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #4dd0a8, #f4a261);
-}
-
-.sparkline,
-.trend-chart {
-  width: 100%;
-  height: 32px;
-  color: #7bdcb5;
-}
-
-.trend-chart {
-  height: 160px;
-  background: linear-gradient(180deg, rgba(77, 208, 168, 0.08), rgba(19, 27, 36, 0));
-  border-radius: 10px;
+.system-caption {
+  margin: 0;
+  color: #70839a;
+  font-size: 12px;
 }
 
 .system-panel.disabled {
@@ -1362,7 +1546,6 @@ select,
 @media (max-width: 1180px) {
   .workspace-grid,
   .metric-grid,
-  .trend-grid,
   .preview-grid,
   .system-grid,
   .override-grid {
