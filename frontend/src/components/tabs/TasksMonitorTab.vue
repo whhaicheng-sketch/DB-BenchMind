@@ -165,7 +165,7 @@
                       </span>
                     </strong>
                   </div>
-                  <div class="chart-legend">
+                  <div class="chart-legend chart-legend-cpu">
                     <span v-for="line in cpuChart.lines" :key="line.label" class="legend-item">
                       <i :style="{ background: line.color }"></i>
                       {{ line.label }}
@@ -174,7 +174,8 @@
                 </div>
                 <div class="system-chart-wrap">
                   <div class="chart-shell system-chart-shell">
-                    <div class="chart-axis chart-axis-left">
+                    <div class="chart-axis chart-axis-left chart-axis-cpu">
+                      <span class="axis-unit axis-unit-left" data-axis-unit="cpu-left">%</span>
                       <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
@@ -216,12 +217,11 @@
                 </div>
                 <div class="system-chart-wrap disk-chart-combined">
                   <div class="chart-shell system-chart-shell disk-chart-shell">
-                    <div class="chart-axis chart-axis-left">
+                    <div class="chart-axis chart-axis-left chart-axis-bandwidth">
+                      <span class="axis-unit axis-unit-left" data-axis-unit="disk-left">B/S</span>
                       <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
-                      <div class="disk-axis-tag axis-left">B/s</div>
-                      <div class="disk-axis-tag axis-right">ms</div>
                       <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
                         <line v-for="tick in diskChart.leftTicks" :key="`disk-grid-${tick.label}`" :x1="diskChart.plotBounds.x1" :x2="diskChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline
@@ -237,7 +237,8 @@
                         />
                       </svg>
                     </div>
-                    <div class="chart-axis chart-axis-right">
+                    <div class="chart-axis chart-axis-right chart-axis-latency">
+                      <span class="axis-unit axis-unit-right" data-axis-unit="disk-right">MS</span>
                       <span v-for="tick in diskChart.rightTicks" :key="`disk-right-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                   </div>
@@ -375,6 +376,9 @@ const { currentTask, activeTask } = storeToRefs(taskStore)
 const TASKS_DRAFT_STORAGE_KEY = 'db-benchmind.tasks-monitor.draft.v1'
 const CHART_LINE_WIDTH = 1.4
 const CHART_GLOW_WIDTH = 2.2
+const METRIC_PLOT_BOUNDS = { x1: 38, x2: 316, y1: 16, y2: 130 }
+const SYSTEM_PLOT_BOUNDS = { x1: 38, x2: 316, y1: 16, y2: 130 }
+const DISK_PLOT_BOUNDS = { x1: 38, x2: 282, y1: 16, y2: 130 }
 
 const draft = reactive({
   database_type: '',
@@ -534,9 +538,9 @@ const isOracleConnection = computed(() => currentTask.value?.connection_snapshot
 const cpuChart = computed(() => {
   const metrics = currentTask.value?.metrics || {}
   return multiMetricChart('CPU', [
-    { label: 'user', metric: metrics.cpu_user, color: '#34d399', formatter: formatPercent },
-    { label: 'sys', metric: metrics.cpu_sys, color: '#f87171', formatter: formatPercent },
-    { label: 'iowait', metric: metrics.cpu_iowait, color: '#60a5fa', formatter: formatPercent }
+    { label: 'USER', metric: metrics.cpu_user, color: '#34d399', formatter: formatPercent },
+    { label: 'SYS', metric: metrics.cpu_sys, color: '#f87171', formatter: formatPercent },
+    { label: 'IOWAIT', metric: metrics.cpu_iowait, color: '#60a5fa', formatter: formatPercent }
   ], 'Recent CPU composition across user, sys, and iowait.')
 })
 
@@ -818,7 +822,7 @@ function metricCard(label, metric = {}, unit, stroke, fill) {
   const avg = Number(metric.avg || 0)
   const max = Number(metric.max || 0)
   const series = Array.isArray(metric.series) ? metric.series : []
-  const plotBounds = { x1: 38, x2: 316, y1: 10, y2: 132 }
+  const plotBounds = METRIC_PLOT_BOUNDS
   const trend = buildTrendData(series, 320, 140, null, plotBounds)
   const ticks = buildAxisTicks(trend.min, trend.max, formatCompactNumber, 140, plotBounds)
   return {
@@ -850,13 +854,15 @@ function multiMetricChart(label, definitions, caption) {
   const allSeriesValues = definitions.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
   const min = label === 'CPU' ? 0 : Math.min(...allSeriesValues, 0)
   const max = label === 'CPU' ? Math.max(100, ...allSeriesValues, 1) : Math.max(...allSeriesValues, 1)
-  const plotBounds = { x1: 38, x2: 316, y1: 10, y2: 132 }
+  const plotBounds = SYSTEM_PLOT_BOUNDS
   const leftAxisFormatter = label === 'CPU' ? formatAxisPercent : (definitions[0]?.formatter || formatCompactNumber)
   const leftTicks = buildAxisTicks(min, max, leftAxisFormatter, 140, plotBounds, label === 'CPU' ? 5 : 4)
   return {
     label,
     summaryRows: [definitions.map((item, index) => `${item.label} ${item.formatter(values[index])}`)],
-    caption,
+    caption: label === 'CPU'
+      ? 'Percent scale stays on the left axis while USER, SYS, and IOWAIT keep their color-coded traces.'
+      : caption,
     plotBounds,
     leftTicks,
     lines: definitions.map((item) => ({
@@ -881,7 +887,7 @@ function diskMetricChart(metrics = {}) {
   const rightValues = latencyDefs.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
   const leftBounds = { min: 0, max: Math.max(...leftValues, 1) }
   const rightBounds = { min: 0, max: Math.max(...rightValues, 1) }
-  const plotBounds = { x1: 38, x2: 282, y1: 10, y2: 132 }
+  const plotBounds = DISK_PLOT_BOUNDS
   return {
     label: 'Disk IO',
     summaryRows: [[
@@ -890,7 +896,7 @@ function diskMetricChart(metrics = {}) {
       `r_lat ${formatLatency(metrics.disk_read_latency_ms?.current)}`,
       `w_lat ${formatLatency(metrics.disk_write_latency_ms?.current)}`
     ]],
-    caption: 'Read/write and latency share one chart with dual axes for bandwidth and milliseconds.',
+    caption: 'Left axis serves READ/WRITE bandwidth, right axis serves R_LAT/W_LAT milliseconds.',
     plotBounds,
     leftTicks: buildAxisTicks(leftBounds.min, leftBounds.max, formatAxisBytes, 140, plotBounds, 4),
     rightTicks: buildAxisTicks(rightBounds.min, rightBounds.max, formatAxisLatency, 140, plotBounds, 4),
@@ -1097,7 +1103,7 @@ function buildAxisTicks(min, max, formatter, height = 116, plotBounds = null, ti
     return true
   }).map((value) => {
     const y = mapSeriesValueToY(value, min, max, height, bounds)
-    const top = ((y - bounds.y1) / Math.max(bounds.y2 - bounds.y1, 1)) * 100
+    const top = (y / Math.max(height, 1)) * 100
     return {
       value,
       y,
@@ -1778,15 +1784,15 @@ select,
 
 .chart-shell {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   height: 100%;
   min-height: 0;
-  gap: 8px;
+  gap: 6px;
   overflow: hidden;
 }
 
 .metric-chart-shell {
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
 }
 
 .system-chart-shell {
@@ -1835,6 +1841,17 @@ select,
 .chart-axis {
   position: relative;
   min-height: 0;
+  padding: 18px 0 8px;
+}
+
+.chart-axis::after {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.14);
+  pointer-events: none;
 }
 
 .chart-axis span {
@@ -1852,6 +1869,66 @@ select,
 
 .chart-axis-right span {
   left: 0;
+}
+
+.chart-axis-left::after {
+  right: 0;
+}
+
+.chart-axis-right::after {
+  left: 0;
+}
+
+.axis-unit {
+  position: absolute;
+  top: 0;
+  transform: none;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #93a4b8;
+  white-space: nowrap;
+}
+
+.axis-unit-left {
+  right: 0;
+}
+
+.axis-unit-right {
+  left: 0;
+}
+
+.chart-axis-cpu span {
+  color: #9ed5c2;
+}
+
+.chart-axis-cpu::after {
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.22), rgba(52, 211, 153, 0.08));
+}
+
+.chart-axis-bandwidth span {
+  color: #93bfff;
+}
+
+.chart-axis-bandwidth .axis-unit {
+  color: #60a5fa;
+}
+
+.chart-axis-bandwidth::after {
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.24), rgba(96, 165, 250, 0.08));
+}
+
+.chart-axis-latency span {
+  color: #a9e6bf;
+}
+
+.chart-axis-latency .axis-unit {
+  color: #86efac;
+}
+
+.chart-axis-latency::after {
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.24), rgba(134, 239, 172, 0.08));
 }
 
 .history-chart,
@@ -1884,6 +1961,8 @@ select,
 }
 
 .system-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   min-height: 56px;
   gap: 10px;
@@ -1944,6 +2023,14 @@ select,
   max-width: 128px;
 }
 
+.chart-legend-cpu {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  max-width: none;
+  white-space: nowrap;
+}
+
 .chart-legend-single {
   flex-wrap: nowrap;
   gap: 5px;
@@ -1978,24 +2065,6 @@ select,
 
 .disk-chart-combined {
   position: relative;
-  padding-top: 18px;
-}
-
-.disk-axis-tag {
-  position: absolute;
-  top: 4px;
-  font-size: var(--tm-font-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #7f90a7;
-}
-
-.axis-left {
-  left: 8px;
-}
-
-.axis-right {
-  right: 8px;
 }
 
 .capacity-panel {
