@@ -14,41 +14,47 @@ import (
 )
 
 type SSHMetricPoint struct {
-	Timestamp    int64   `json:"timestamp"`
-	CPUUser      float64 `json:"cpu_user"`
-	CPUSys       float64 `json:"cpu_sys"`
-	CPUIOWait    float64 `json:"cpu_iowait"`
-	DiskReadBps  float64 `json:"disk_read_bps"`
-	DiskWriteBps float64 `json:"disk_write_bps"`
+	Timestamp          int64   `json:"timestamp"`
+	CPUUser            float64 `json:"cpu_user"`
+	CPUSys             float64 `json:"cpu_sys"`
+	CPUIOWait          float64 `json:"cpu_iowait"`
+	DiskReadBps        float64 `json:"disk_read_bps"`
+	DiskWriteBps       float64 `json:"disk_write_bps"`
+	DiskReadLatencyMs  float64 `json:"disk_read_latency_ms"`
+	DiskWriteLatencyMs float64 `json:"disk_write_latency_ms"`
 }
 
 type SSHMetricsCollector struct {
 	config   *connection.SSHTunnelConfig
 	interval time.Duration
 
-	mu      sync.RWMutex
-	running bool
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	history []SSHMetricPoint
-	lastCPU *cpuCounters
+	mu       sync.RWMutex
+	running  bool
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	history  []SSHMetricPoint
+	lastCPU  *cpuCounters
 	lastDisk *diskCounters
 }
 
 type cpuCounters struct {
-	user   uint64
-	nice   uint64
-	system uint64
-	idle   uint64
-	iowait uint64
-	irq    uint64
+	user    uint64
+	nice    uint64
+	system  uint64
+	idle    uint64
+	iowait  uint64
+	irq     uint64
 	softirq uint64
-	steal  uint64
+	steal   uint64
 }
 
 type diskCounters struct {
-	readSectors  uint64
-	writeSectors uint64
+	readSectors     uint64
+	writeSectors    uint64
+	readsCompleted  uint64
+	writesCompleted uint64
+	readTimeMs      uint64
+	writeTimeMs     uint64
 }
 
 func NewSSHMetricsCollector(config *connection.SSHTunnelConfig, interval time.Duration) *SSHMetricsCollector {
@@ -135,8 +141,21 @@ func (c *SSHMetricsCollector) collect() {
 		if seconds <= 0 {
 			seconds = 1
 		}
-		point.DiskReadBps = float64(delta(diskNext.readSectors, c.lastDisk.readSectors)*512) / seconds
-		point.DiskWriteBps = float64(delta(diskNext.writeSectors, c.lastDisk.writeSectors)*512) / seconds
+		deltaReadSectors := delta(diskNext.readSectors, c.lastDisk.readSectors)
+		deltaWriteSectors := delta(diskNext.writeSectors, c.lastDisk.writeSectors)
+		deltaReadsCompleted := delta(diskNext.readsCompleted, c.lastDisk.readsCompleted)
+		deltaWritesCompleted := delta(diskNext.writesCompleted, c.lastDisk.writesCompleted)
+		deltaReadTimeMs := delta(diskNext.readTimeMs, c.lastDisk.readTimeMs)
+		deltaWriteTimeMs := delta(diskNext.writeTimeMs, c.lastDisk.writeTimeMs)
+
+		point.DiskReadBps = float64(deltaReadSectors*512) / seconds
+		point.DiskWriteBps = float64(deltaWriteSectors*512) / seconds
+		if deltaReadsCompleted > 0 {
+			point.DiskReadLatencyMs = float64(deltaReadTimeMs) / float64(deltaReadsCompleted)
+		}
+		if deltaWritesCompleted > 0 {
+			point.DiskWriteLatencyMs = float64(deltaWriteTimeMs) / float64(deltaWritesCompleted)
+		}
 	}
 	c.lastCPU = &cpuNext
 	c.lastDisk = &diskNext
@@ -233,12 +252,32 @@ func parseDiskCounters(raw string) (diskCounters, error) {
 		if err != nil {
 			return diskCounters{}, err
 		}
+		readsCompleted, err := strconv.ParseUint(fields[3], 10, 64)
+		if err != nil {
+			return diskCounters{}, err
+		}
+		readTimeMs, err := strconv.ParseUint(fields[6], 10, 64)
+		if err != nil {
+			return diskCounters{}, err
+		}
 		writeSectors, err := strconv.ParseUint(fields[9], 10, 64)
 		if err != nil {
 			return diskCounters{}, err
 		}
+		writesCompleted, err := strconv.ParseUint(fields[7], 10, 64)
+		if err != nil {
+			return diskCounters{}, err
+		}
+		writeTimeMs, err := strconv.ParseUint(fields[10], 10, 64)
+		if err != nil {
+			return diskCounters{}, err
+		}
+		counters.readsCompleted += readsCompleted
 		counters.readSectors += readSectors
+		counters.readTimeMs += readTimeMs
+		counters.writesCompleted += writesCompleted
 		counters.writeSectors += writeSectors
+		counters.writeTimeMs += writeTimeMs
 	}
 	return counters, nil
 }

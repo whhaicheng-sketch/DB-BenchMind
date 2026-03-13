@@ -96,15 +96,17 @@ type SystemMetricSummary struct {
 }
 
 type UnifiedMetrics struct {
-	TPS           MetricSummary       `json:"tps"`
-	TPM           MetricSummary       `json:"tpm"`
-	CPUUser       SystemMetricSummary `json:"cpu_user"`
-	CPUSys        SystemMetricSummary `json:"cpu_sys"`
-	CPUIOWait     SystemMetricSummary `json:"cpu_iowait"`
-	DiskReadBps   SystemMetricSummary `json:"disk_read_bps"`
-	DiskWriteBps  SystemMetricSummary `json:"disk_write_bps"`
-	SystemEnabled bool                `json:"system_enabled"`
-	SystemMessage string              `json:"system_message,omitempty"`
+	TPS                MetricSummary       `json:"tps"`
+	TPM                MetricSummary       `json:"tpm"`
+	CPUUser            SystemMetricSummary `json:"cpu_user"`
+	CPUSys             SystemMetricSummary `json:"cpu_sys"`
+	CPUIOWait          SystemMetricSummary `json:"cpu_iowait"`
+	DiskReadBps        SystemMetricSummary `json:"disk_read_bps"`
+	DiskWriteBps       SystemMetricSummary `json:"disk_write_bps"`
+	DiskReadLatencyMs  SystemMetricSummary `json:"disk_read_latency_ms"`
+	DiskWriteLatencyMs SystemMetricSummary `json:"disk_write_latency_ms"`
+	SystemEnabled      bool                `json:"system_enabled"`
+	SystemMessage      string              `json:"system_message,omitempty"`
 }
 
 type LogLine struct {

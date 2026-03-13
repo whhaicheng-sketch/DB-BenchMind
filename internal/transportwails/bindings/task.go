@@ -833,12 +833,16 @@ func updateSystemMetrics(task *domaintask.ExecutionTask, points []collector.SSHM
 	task.Metrics.CPUIOWait.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.CPUIOWait })
 	task.Metrics.DiskReadBps.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskReadBps })
 	task.Metrics.DiskWriteBps.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskWriteBps })
+	task.Metrics.DiskReadLatencyMs.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskReadLatencyMs })
+	task.Metrics.DiskWriteLatencyMs.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskWriteLatencyMs })
 	last := points[len(points)-1]
 	task.Metrics.CPUUser.Current = last.CPUUser
 	task.Metrics.CPUSys.Current = last.CPUSys
 	task.Metrics.CPUIOWait.Current = last.CPUIOWait
 	task.Metrics.DiskReadBps.Current = last.DiskReadBps
 	task.Metrics.DiskWriteBps.Current = last.DiskWriteBps
+	task.Metrics.DiskReadLatencyMs.Current = last.DiskReadLatencyMs
+	task.Metrics.DiskWriteLatencyMs.Current = last.DiskWriteLatencyMs
 }
 
 func shrinkSystemSeries(points []collector.SSHMetricPoint, fn func(point collector.SSHMetricPoint) float64) []domaintask.MetricSeriesPoint {

@@ -1387,6 +1387,8 @@ export namespace task {
 	    cpu_iowait: SystemMetricSummary;
 	    disk_read_bps: SystemMetricSummary;
 	    disk_write_bps: SystemMetricSummary;
+	    disk_read_latency_ms: SystemMetricSummary;
+	    disk_write_latency_ms: SystemMetricSummary;
 	    system_enabled: boolean;
 	    system_message?: string;
 	
@@ -1403,6 +1405,8 @@ export namespace task {
 	        this.cpu_iowait = this.convertValues(source["cpu_iowait"], SystemMetricSummary);
 	        this.disk_read_bps = this.convertValues(source["disk_read_bps"], SystemMetricSummary);
 	        this.disk_write_bps = this.convertValues(source["disk_write_bps"], SystemMetricSummary);
+	        this.disk_read_latency_ms = this.convertValues(source["disk_read_latency_ms"], SystemMetricSummary);
+	        this.disk_write_latency_ms = this.convertValues(source["disk_write_latency_ms"], SystemMetricSummary);
 	        this.system_enabled = source["system_enabled"];
 	        this.system_message = source["system_message"];
 	    }

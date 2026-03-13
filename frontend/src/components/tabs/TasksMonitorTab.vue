@@ -12,6 +12,9 @@
         <button class="btn btn-danger danger-action" :disabled="!canStop" @click="handleStop">
           Stop
         </button>
+        <button class="btn btn-secondary log-action" :disabled="!currentTask" @click="openLogViewer">
+          Open Log Viewer
+        </button>
         <div class="status-entry">
           <button class="status-summary" :class="statusSummary.stateClass" @click="statusPopoverOpen = !statusPopoverOpen">
             <span class="status-summary-badge">{{ statusSummary.label }}</span>
@@ -181,24 +184,6 @@
         </section>
       </div>
     </div>
-
-    <section class="panel log-summary">
-      <div class="card-head">
-        <h3>Log Output</h3>
-        <button class="btn btn-secondary" :disabled="!currentTask" @click="openLogViewer">Open Log Viewer</button>
-      </div>
-      <p class="log-meta" v-if="currentTask">
-        UI keeps the latest 500 lines. Full phase logs are persisted on disk:
-        {{ logPathSummary }}
-      </p>
-      <div class="terminal-summary">
-        <div v-for="(line, index) in summaryLines" :key="`${line.timestamp}-${index}`" class="terminal-line" :class="lineClass(line)">
-          <span class="phase-tag">{{ line.phase }}</span>
-          <span class="stream-tag">{{ line.stream }}</span>
-          <span>{{ line.content }}</span>
-        </div>
-      </div>
-    </section>
 
     <div v-if="previewOpen" class="modal-backdrop" @click.self="closePreview">
       <div class="modal">
@@ -447,14 +432,10 @@ const systemCharts = computed(() => {
       { label: 'sys', metric: metrics.cpu_sys, color: '#f4a261', formatter: formatPercent },
       { label: 'iowait', metric: metrics.cpu_iowait, color: '#f87171', formatter: formatPercent }
     ], 'Recent CPU composition across user, sys, and iowait.'),
-    multiMetricChart('Disk IO', [
-      { label: 'read', metric: metrics.disk_read_bps, color: '#60a5fa', formatter: formatBytes },
-      { label: 'write', metric: metrics.disk_write_bps, color: '#34d399', formatter: formatBytes }
-    ], 'Read and write throughput over the current rolling window.')
+    diskMetricChart(metrics)
   ]
 })
 
-const summaryLines = computed(() => (currentTask.value?.log_tail || []).slice(-10))
 const elapsedLabel = computed(() => formatElapsed(currentTask.value?.started_at, currentTask.value?.completed_at, nowTick.value))
 const logPathSummary = computed(() => {
   const paths = Object.entries(currentTask.value?.run_log_paths || {})
@@ -696,6 +677,21 @@ function multiMetricChart(label, definitions, caption) {
   }
 }
 
+function diskMetricChart(metrics = {}) {
+  return {
+    ...multiMetricChart('Disk IO', [
+      { label: 'read', metric: metrics.disk_read_bps, color: '#60a5fa', formatter: formatBytes },
+      { label: 'write', metric: metrics.disk_write_bps, color: '#34d399', formatter: formatBytes }
+    ], 'Read and write throughput over the current rolling window.'),
+    summary: [
+      `read ${formatBytes(metrics.disk_read_bps?.current)}`,
+      `write ${formatBytes(metrics.disk_write_bps?.current)}`,
+      `r_lat ${formatLatency(metrics.disk_read_latency_ms?.current)}`,
+      `w_lat ${formatLatency(metrics.disk_write_latency_ms?.current)}`
+    ].join(' · ')
+  }
+}
+
 function buildTrend(series = [], width, height, bounds = null) {
   return buildTrendData(series, width, height, bounds).points
 }
@@ -780,6 +776,10 @@ function formatBytes(value) {
 
 function formatPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`
+}
+
+function formatLatency(value) {
+  return `${Number(value || 0).toFixed(1)} ms`
 }
 
 function formatDate(value) {
@@ -900,8 +900,21 @@ function closeLogViewer() {
 .tasks-monitor-tab {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   color: #e8edf5;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  font-size: 12px;
+  --tm-font-body: 12px;
+  --tm-font-meta: 10px;
+  --tm-font-label: 10px;
+  --tm-font-title: 20px;
+  --tm-font-panel-title: 15px;
+  --tm-font-button: 12px;
+  --tm-font-strong: 13px;
+  --tm-panel-pad: 12px;
+  --tm-card-gap: 10px;
 }
 
 .tab-header,
@@ -928,26 +941,31 @@ function closeLogViewer() {
 .log-meta {
   margin: 4px 0 0;
   color: #94a3b8;
+  font-size: var(--tm-font-body);
 }
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 312px minmax(0, 1fr);
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .left-column,
 .right-column {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  min-height: 0;
 }
 
 .panel {
   background: #131b24;
   border: 1px solid #243446;
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 14px;
+  padding: var(--tm-panel-pad);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -956,23 +974,25 @@ function closeLogViewer() {
 .phase-tag,
 .stream-tag {
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: var(--tm-font-meta);
   background: rgba(120, 135, 160, 0.18);
 }
 
 .top-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   position: relative;
+  flex-wrap: wrap;
 }
 
 .btn {
   border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 8px 12px;
   font-weight: 600;
+  font-size: var(--tm-font-button);
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
 }
@@ -1007,10 +1027,11 @@ function closeLogViewer() {
 }
 
 .primary-action,
-.danger-action {
-  min-width: 112px;
-  padding: 13px 20px;
-  font-size: 14px;
+.danger-action,
+.log-action {
+  min-width: 100px;
+  padding: 10px 14px;
+  font-size: var(--tm-font-button);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1024,10 +1045,10 @@ function closeLogViewer() {
   border-radius: 999px;
   background: #0f151d;
   color: #edf2f7;
-  padding: 8px 12px;
+  padding: 6px 10px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
 }
 
@@ -1047,7 +1068,7 @@ function closeLogViewer() {
 }
 
 .status-summary-badge {
-  font-size: 12px;
+  font-size: var(--tm-font-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -1058,13 +1079,13 @@ function closeLogViewer() {
 
 .status-popover {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 8px);
   right: 0;
   width: 360px;
   border: 1px solid #243446;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #0f151d;
-  padding: 14px;
+  padding: 12px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   z-index: 20;
 }
@@ -1073,25 +1094,25 @@ function closeLogViewer() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .status-popover-head span {
   color: #94a3b8;
-  font-size: 13px;
+  font-size: var(--tm-font-body);
 }
 
 .status-popover-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-popover-item {
   border: 1px solid #243446;
   border-radius: 10px;
   background: #0b1118;
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1099,7 +1120,7 @@ function closeLogViewer() {
 
 .status-popover-item span {
   color: #7f90a7;
-  font-size: 11px;
+  font-size: var(--tm-font-meta);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -1133,8 +1154,8 @@ function closeLogViewer() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 8px 12px;
   background: #101720;
 }
 
@@ -1146,13 +1167,13 @@ function closeLogViewer() {
 .status-strip-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-strip-phase,
 .status-strip-time,
 .status-strip-meta {
-  font-size: 12px;
+  font-size: var(--tm-font-meta);
   color: #9ba9bc;
   letter-spacing: 0.04em;
 }
@@ -1169,13 +1190,13 @@ function closeLogViewer() {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .field span,
 .eyebrow {
-  font-size: 12px;
+  font-size: var(--tm-font-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #7f90a7;
@@ -1186,10 +1207,11 @@ select,
 .params-preview {
   width: 100%;
   border: 1px solid #31475d;
-  border-radius: 10px;
+  border-radius: 9px;
   background: #0f151d;
   color: #edf2f7;
-  padding: 10px 12px;
+  padding: 8px 10px;
+  font-size: var(--tm-font-body);
 }
 
 .readonly-field {
@@ -1198,10 +1220,11 @@ select,
   border-radius: 10px;
   background: linear-gradient(180deg, #0b1118, #0f151d);
   color: #edf2f7;
-  padding: 10px 12px;
-  min-height: 42px;
+  padding: 8px 10px;
+  min-height: 36px;
   display: flex;
   align-items: center;
+  font-size: var(--tm-font-body);
 }
 
 .readonly-field.placeholder {
@@ -1209,9 +1232,9 @@ select,
 }
 
 .compact-help {
-  margin: 14px 0 0;
+  margin: 8px 0 0;
   color: #94a3b8;
-  font-size: 13px;
+  font-size: var(--tm-font-body);
 }
 
 .select-dark {
@@ -1260,7 +1283,7 @@ select,
 .system-grid,
 .preview-grid {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .override-grid,
@@ -1280,7 +1303,7 @@ select,
 .system-card {
   border: 1px solid #243446;
   border-radius: 12px;
-  padding: 16px;
+  padding: 12px;
   background: #0f151d;
 }
 
@@ -1303,8 +1326,8 @@ select,
 .metric-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  min-height: 260px;
+  gap: 10px;
+  min-height: 0;
   background:
     radial-gradient(circle at top right, rgba(255, 255, 255, 0.04), transparent 38%),
     linear-gradient(180deg, rgba(17, 24, 33, 0.98), rgba(9, 14, 20, 0.98));
@@ -1323,16 +1346,16 @@ select,
 
 .metric-card-head > span:first-child,
 .system-card-head span {
-  font-size: 12px;
+  font-size: var(--tm-font-label);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: #8ea0b5;
 }
 
 .metric-status {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--tm-font-meta);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1362,14 +1385,14 @@ select,
 }
 
 .metric-main strong {
-  font-size: clamp(34px, 4vw, 52px);
+  font-size: clamp(28px, 3vw, 42px);
   line-height: 1;
   color: #f7fafc;
   letter-spacing: -0.03em;
 }
 
 .metric-main span {
-  font-size: 14px;
+  font-size: 12px;
   color: #90a4ba;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1377,7 +1400,7 @@ select,
 
 .metric-stats {
   justify-content: flex-start;
-  gap: 20px;
+  gap: 14px;
 }
 
 .metric-stats div {
@@ -1387,7 +1410,7 @@ select,
 }
 
 .metric-stats span {
-  font-size: 11px;
+  font-size: var(--tm-font-meta);
   color: #6f8297;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1395,17 +1418,17 @@ select,
 
 .metric-stats strong {
   color: #dce4ef;
-  font-size: 15px;
+  font-size: var(--tm-font-strong);
 }
 
 .metric-history,
 .system-chart-wrap {
   flex: 1;
   min-height: 0;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid rgba(74, 90, 109, 0.55);
   background: linear-gradient(180deg, rgba(13, 19, 27, 0.92), rgba(8, 12, 18, 0.98));
-  padding: 10px;
+  padding: 8px;
 }
 
 .history-chart,
@@ -1425,8 +1448,8 @@ select,
 .system-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: 240px;
+  gap: 8px;
+  min-height: 0;
 }
 
 .system-card-head {
@@ -1435,31 +1458,31 @@ select,
 
 .system-card-head strong {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   color: #e5edf7;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--tm-font-body);
+  line-height: 1.35;
 }
 
 .chart-legend {
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 5px;
+  font-size: var(--tm-font-meta);
   color: #9fb0c4;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .legend-item i {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   display: inline-block;
 }
@@ -1467,25 +1490,19 @@ select,
 .system-caption {
   margin: 0;
   color: #70839a;
-  font-size: 12px;
+  font-size: var(--tm-font-meta);
 }
 
 .system-panel.disabled {
   opacity: 0.62;
 }
 
-.terminal-summary,
 .terminal-viewer {
   background: #05080d;
   border-radius: 12px;
   border: 1px solid #182431;
   font-family: 'JetBrains Mono', 'SFMono-Regular', monospace;
   overflow: auto;
-}
-
-.terminal-summary {
-  max-height: 200px;
-  padding: 10px 12px;
 }
 
 .terminal-viewer {
@@ -1543,6 +1560,83 @@ select,
   color: #7f90a7;
 }
 
+.tab-header {
+  gap: 12px;
+}
+
+.tab-header h2 {
+  font-size: var(--tm-font-title);
+  line-height: 1.1;
+}
+
+.card-head h3,
+.header-panel h3 {
+  font-size: var(--tm-font-panel-title);
+  line-height: 1.15;
+}
+
+.card-head span,
+.log-toolbar,
+.status-entry,
+.status-popover-item strong,
+.preview-grid strong,
+.preview-grid p,
+.params-preview,
+.text-action,
+.modal,
+.terminal-line {
+  font-size: var(--tm-font-body);
+}
+
+.tab-header,
+.card-head,
+.actions,
+.log-toolbar,
+.header-grid,
+.header-meta {
+  gap: 10px;
+}
+
+.card {
+  height: 100%;
+  min-height: 0;
+}
+
+.metrics-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-column {
+  display: grid;
+  grid-template-rows: minmax(0, 0.86fr) minmax(0, 1fr);
+}
+
+.metric-grid,
+.system-grid {
+  height: 100%;
+  min-height: 0;
+}
+
+.metric-history {
+  min-height: 92px;
+}
+
+.system-chart-wrap {
+  min-height: 84px;
+}
+
+.metrics-panel .card-head {
+  margin-bottom: 8px;
+}
+
+.tab-header .page-subtitle {
+  max-width: 540px;
+  line-height: 1.35;
+}
+
 @media (max-width: 1180px) {
   .workspace-grid,
   .metric-grid,
@@ -1557,6 +1651,14 @@ select,
   .status-strip {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .tasks-monitor-tab {
+    overflow: auto;
+  }
+
+  .right-column {
+    display: flex;
   }
 }
 </style>
