@@ -1247,6 +1247,70 @@ export namespace collector {
 
 export namespace task {
 	
+	export class CapacityEntry {
+	    key: string;
+	    label: string;
+	    used_bytes: number;
+	    total_bytes: number;
+	    free_bytes: number;
+	    use_percent: number;
+	    threshold: string;
+	    status: string;
+	    message?: string;
+	    path?: string;
+	    mount_point?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CapacityEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.used_bytes = source["used_bytes"];
+	        this.total_bytes = source["total_bytes"];
+	        this.free_bytes = source["free_bytes"];
+	        this.use_percent = source["use_percent"];
+	        this.threshold = source["threshold"];
+	        this.status = source["status"];
+	        this.message = source["message"];
+	        this.path = source["path"];
+	        this.mount_point = source["mount_point"];
+	    }
+	}
+	export class CapacitySummary {
+	    filesystem: CapacityEntry[];
+	    oracle_storage: CapacityEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CapacitySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filesystem = this.convertValues(source["filesystem"], CapacityEntry);
+	        this.oracle_storage = this.convertValues(source["oracle_storage"], CapacityEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConnectionSnapshot {
 	    id: string;
 	    name: string;
@@ -1389,6 +1453,7 @@ export namespace task {
 	    disk_write_bps: SystemMetricSummary;
 	    disk_read_latency_ms: SystemMetricSummary;
 	    disk_write_latency_ms: SystemMetricSummary;
+	    capacity: CapacitySummary;
 	    system_enabled: boolean;
 	    system_message?: string;
 	
@@ -1407,6 +1472,7 @@ export namespace task {
 	        this.disk_write_bps = this.convertValues(source["disk_write_bps"], SystemMetricSummary);
 	        this.disk_read_latency_ms = this.convertValues(source["disk_read_latency_ms"], SystemMetricSummary);
 	        this.disk_write_latency_ms = this.convertValues(source["disk_write_latency_ms"], SystemMetricSummary);
+	        this.capacity = this.convertValues(source["capacity"], CapacitySummary);
 	        this.system_enabled = source["system_enabled"];
 	        this.system_message = source["system_message"];
 	    }

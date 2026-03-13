@@ -110,75 +110,180 @@
       </div>
 
       <div class="right-column">
-        <section class="panel metrics-panel">
+        <section class="panel monitor-board">
           <div class="card-head">
-            <h3>Current Throughput</h3>
-            <span>TPS / TPM</span>
-          </div>
-          <div class="metric-grid">
-            <div class="metric-card" v-for="metric in businessMetrics" :key="metric.label">
-              <div class="metric-card-head">
-                <span>{{ metric.label }}</span>
-                <span class="metric-status" :class="metric.statusClass">{{ metric.statusLabel }}</span>
-              </div>
-              <div class="metric-main">
-                <strong>{{ metric.current }}</strong>
-                <span>{{ metric.unit }}</span>
-              </div>
-              <div class="metric-stats">
-                <div>
-                  <span>avg</span>
-                  <strong>{{ metric.avg }}</strong>
-                </div>
-                <div>
-                  <span>max</span>
-                  <strong>{{ metric.max }}</strong>
-                </div>
-              </div>
-              <div class="metric-history">
-                <svg class="history-chart" viewBox="0 0 320 116" preserveAspectRatio="none">
-                  <path :d="metric.areaPath" :fill="metric.fill" />
-                  <polyline :points="metric.points" :stroke="metric.stroke" stroke-width="3" fill="none" />
-                  <line :x1="0" :x2="320" :y1="metric.avgLineY" :y2="metric.avgLineY" class="history-baseline" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel metrics-panel system-panel" :class="{ disabled: !systemEnabled }">
-          <div class="card-head">
-            <h3>System Metrics</h3>
+            <h3>Monitor Overview</h3>
             <span v-if="!systemEnabled">{{ systemMessage }}</span>
           </div>
-          <div class="system-grid">
-            <div v-for="chart in systemCharts" :key="chart.label" class="system-card">
+
+          <div class="monitor-board-grid">
+            <div class="metric-grid">
+              <div class="metric-card" v-for="metric in businessMetrics" :key="metric.label" :data-metric-card="metric.label">
+                <div class="metric-card-head">
+                  <div class="metric-inline-bar">
+                    <span class="metric-title">{{ metric.label }}</span>
+                    <div class="metric-stats">
+                      <div v-for="item in metric.headerStats" :key="`${metric.label}-${item.label}`">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="metric-status" :class="metric.statusClass">{{ metric.statusLabel }}</span>
+                </div>
+                <div class="metric-history">
+                  <div class="chart-shell metric-chart-shell" data-testid="metric-chart-shell">
+                    <div class="chart-axis chart-axis-left">
+                      <span v-for="tick in metric.ticks" :key="`${metric.label}-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                    </div>
+                    <div class="chart-canvas metric-chart-canvas" data-testid="metric-chart-canvas">
+                      <div class="metric-chart-current" data-testid="metric-current-value">
+                        <strong>{{ metric.current }}</strong>
+                        <span>{{ metric.unit }}</span>
+                      </div>
+                      <svg class="history-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                        <path :d="metric.areaPath" :fill="metric.fill" />
+                        <line v-for="tick in metric.tickLines" :key="`${metric.label}-grid-${tick.label}`" :x1="tick.x1" :x2="tick.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
+                        <polyline :points="metric.points" :stroke="metric.glow" :stroke-width="CHART_GLOW_WIDTH" stroke-linecap="round" stroke-linejoin="round" fill="none" class="history-glow metric-line-glow" />
+                        <polyline :points="metric.points" :stroke="metric.stroke" :stroke-width="CHART_LINE_WIDTH" stroke-linecap="round" stroke-linejoin="round" fill="none" class="metric-line-main" />
+                        <line :x1="metric.plotBounds.x1" :x2="metric.plotBounds.x2" :y1="metric.avgLineY" :y2="metric.avgLineY" class="history-baseline" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="system-grid">
+              <div class="system-card" :class="{ disabled: !systemEnabled }" data-system-card="CPU">
+                <div class="system-card-head">
+                  <div class="system-title-block">
+                    <span>{{ cpuChart.label }}</span>
+                    <strong class="system-summary-lines">
+                      <span v-for="(line, index) in cpuChart.summaryRows" :key="`cpu-summary-${index}`" class="summary-line">
+                        <span v-for="item in line" :key="item" class="summary-chip">{{ item }}</span>
+                      </span>
+                    </strong>
+                  </div>
+                  <div class="chart-legend">
+                    <span v-for="line in cpuChart.lines" :key="line.label" class="legend-item">
+                      <i :style="{ background: line.color }"></i>
+                      {{ line.label }}
+                    </span>
+                  </div>
+                </div>
+                <div class="system-chart-wrap">
+                  <div class="chart-shell system-chart-shell">
+                    <div class="chart-axis chart-axis-left">
+                      <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                    </div>
+                    <div class="chart-canvas">
+                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                        <line v-for="tick in cpuChart.leftTicks" :key="`cpu-grid-${tick.label}`" :x1="cpuChart.plotBounds.x1" :x2="cpuChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
+                        <polyline
+                          v-for="line in cpuChart.lines"
+                          :key="line.label"
+                          :points="line.points"
+                          :stroke="line.color"
+                          :stroke-width="CHART_LINE_WIDTH"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          fill="none"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <p class="system-caption">{{ cpuChart.caption }}</p>
+              </div>
+
+              <div class="system-card" :class="{ disabled: !systemEnabled }" data-system-card="Disk IO">
+                <div class="system-card-head">
+                  <div class="system-title-block">
+                    <span>{{ diskChart.label }}</span>
+                    <strong class="system-summary-lines">
+                      <span v-for="(line, index) in diskChart.summaryRows" :key="`disk-summary-${index}`" class="summary-line">
+                        <span v-for="item in line" :key="item" class="summary-chip">{{ item }}</span>
+                      </span>
+                    </strong>
+                  </div>
+                  <div class="chart-legend chart-legend-single">
+                    <span v-for="line in diskChart.lines" :key="line.label" class="legend-item">
+                      <i :style="{ background: line.color }"></i>
+                      {{ line.label }}
+                    </span>
+                  </div>
+                </div>
+                <div class="system-chart-wrap disk-chart-combined">
+                  <div class="chart-shell system-chart-shell disk-chart-shell">
+                    <div class="chart-axis chart-axis-left">
+                      <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                    </div>
+                    <div class="chart-canvas">
+                      <div class="disk-axis-tag axis-left">B/s</div>
+                      <div class="disk-axis-tag axis-right">ms</div>
+                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                        <line v-for="tick in diskChart.leftTicks" :key="`disk-grid-${tick.label}`" :x1="diskChart.plotBounds.x1" :x2="diskChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
+                        <polyline
+                          v-for="line in diskChart.lines"
+                          :key="line.label"
+                          :points="line.points"
+                          :stroke="line.color"
+                          :stroke-dasharray="line.dasharray || ''"
+                          :stroke-width="CHART_LINE_WIDTH"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          fill="none"
+                        />
+                      </svg>
+                    </div>
+                    <div class="chart-axis chart-axis-right">
+                      <span v-for="tick in diskChart.rightTicks" :key="`disk-right-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="system-caption">{{ diskChart.caption }}</p>
+              </div>
+            </div>
+
+            <div class="system-card capacity-panel">
               <div class="system-card-head">
                 <div>
-                  <span>{{ chart.label }}</span>
-                  <strong>{{ chart.summary }}</strong>
-                </div>
-                <div class="chart-legend">
-                  <span v-for="line in chart.lines" :key="line.label" class="legend-item">
-                    <i :style="{ background: line.color }"></i>
-                    {{ line.label }}
-                  </span>
+                  <span>Capacity</span>
+                  <strong>Compact risk summary for current storage bottlenecks.</strong>
                 </div>
               </div>
-              <div class="system-chart-wrap">
-                <svg class="system-chart" viewBox="0 0 320 124" preserveAspectRatio="none">
-                  <line v-for="grid in chart.gridLines" :key="grid" :x1="0" :x2="320" :y1="grid" :y2="grid" class="chart-gridline" />
-                  <polyline
-                    v-for="line in chart.lines"
-                    :key="line.label"
-                    :points="line.points"
-                    :stroke="line.color"
-                    stroke-width="3"
-                    fill="none"
-                  />
-                </svg>
+              <div class="capacity-groups">
+                <div v-for="group in capacityPanel.groups" :key="group.label" class="capacity-group">
+                  <div class="capacity-group-head">
+                    <span>{{ group.label }}</span>
+                  </div>
+                  <div v-if="group.items.length" class="capacity-list">
+                    <div v-for="item in group.items" :key="item.key" class="capacity-row" :data-capacity-row="item.label">
+                      <div class="capacity-row-label">
+                        <strong>{{ item.label }}</strong>
+                        <span>{{ capacityMetaLabel(item) }}</span>
+                      </div>
+                      <div class="capacity-row-bar">
+                        <div class="capacity-bar">
+                          <span class="capacity-fill" :class="`capacity-${item.threshold}`" :style="{ width: `${capacityBarWidth(item)}%` }"></span>
+                        </div>
+                      </div>
+                      <div class="capacity-row-stats">
+                        <strong>{{ capacityPercentLabel(item) }}</strong>
+                        <span>{{ capacityValueLabel(item) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="group.notes.length" class="capacity-notes">
+                    <div v-for="note in group.notes" :key="note.key" class="capacity-note">
+                      <span class="capacity-note-label">{{ note.label }}</span>
+                      <span>{{ note.message }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p class="system-caption">{{ chart.caption }}</p>
+              <p v-if="capacityPanel.emptyMessage" class="capacity-empty">{{ capacityPanel.emptyMessage }}</p>
             </div>
           </div>
         </section>
@@ -268,6 +373,8 @@ const { templates } = storeToRefs(templateStore)
 const { connections } = storeToRefs(connectionStore)
 const { currentTask, activeTask } = storeToRefs(taskStore)
 const TASKS_DRAFT_STORAGE_KEY = 'db-benchmind.tasks-monitor.draft.v1'
+const CHART_LINE_WIDTH = 1.4
+const CHART_GLOW_WIDTH = 2.2
 
 const draft = reactive({
   database_type: '',
@@ -416,25 +523,94 @@ const statusPopoverItems = computed(() => {
 const businessMetrics = computed(() => {
   const metrics = currentTask.value?.metrics || {}
   return [
-    metricCard('TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.28)'),
-    metricCard('TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.24)')
+    metricCard('TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
+    metricCard('TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
   ]
 })
 
 const systemEnabled = computed(() => !!currentTask.value?.metrics?.system_enabled)
 const systemMessage = computed(() => currentTask.value?.metrics?.system_message || 'SSH unavailable, benchmark continues without system metrics')
-
-const systemCharts = computed(() => {
+const isOracleConnection = computed(() => currentTask.value?.connection_snapshot?.type === 'oracle')
+const cpuChart = computed(() => {
   const metrics = currentTask.value?.metrics || {}
-  return [
-    multiMetricChart('CPU', [
-      { label: 'user', metric: metrics.cpu_user, color: '#7dd3fc', formatter: formatPercent },
-      { label: 'sys', metric: metrics.cpu_sys, color: '#f4a261', formatter: formatPercent },
-      { label: 'iowait', metric: metrics.cpu_iowait, color: '#f87171', formatter: formatPercent }
-    ], 'Recent CPU composition across user, sys, and iowait.'),
-    diskMetricChart(metrics)
-  ]
+  return multiMetricChart('CPU', [
+    { label: 'user', metric: metrics.cpu_user, color: '#34d399', formatter: formatPercent },
+    { label: 'sys', metric: metrics.cpu_sys, color: '#f87171', formatter: formatPercent },
+    { label: 'iowait', metric: metrics.cpu_iowait, color: '#60a5fa', formatter: formatPercent }
+  ], 'Recent CPU composition across user, sys, and iowait.')
 })
+
+const diskChart = computed(() => diskMetricChart(currentTask.value?.metrics || {}))
+const capacityPanel = computed(() => {
+  const metrics = currentTask.value?.metrics || {}
+  const filesystemEntries = normalizeCapacityEntries(metrics.capacity?.filesystem, [
+    { key: 'data_disk', label: 'Data Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' },
+    { key: 'binlog_disk', label: 'Binlog Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' },
+    { key: 'archive_log_disk', label: 'Archive Log Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' }
+  ])
+  const oracleEntries = normalizeCapacityEntries(metrics.capacity?.oracle_storage, isOracleConnection.value
+    ? [
+        { key: 'soe', label: 'SOE', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' },
+        { key: 'temp', label: 'TEMP', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' },
+        { key: 'undo', label: 'UNDO', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' }
+      ]
+    : [])
+
+  const groups = isOracleConnection.value
+    ? [
+        buildCapacityGroup('Filesystem', filesystemEntries, ['data_disk', 'archive_log_disk']),
+        buildCapacityGroup('Oracle Storage', oracleEntries, ['soe', 'temp', 'undo'])
+      ]
+    : [
+        buildCapacityGroup('Filesystem', filesystemEntries, ['data_disk', 'binlog_disk'])
+      ]
+
+  const visibleGroups = groups.filter((group) => group.items.length || group.notes.length)
+  return {
+    groups: visibleGroups,
+    emptyMessage: visibleGroups.length ? '' : 'No relevant capacity risks are currently available.'
+  }
+})
+
+function buildCapacityGroup(label, entries, keys) {
+  const entryMap = new Map((entries || []).map((item) => [item.key, item]))
+  const items = []
+  const notes = []
+  const seenLocations = new Map()
+  for (const key of keys) {
+    const entry = entryMap.get(key)
+    if (!entry) continue
+    if (entry.status === 'ok') {
+      const dedupeKey = capacityDedupeKey(entry)
+      const existing = seenLocations.get(dedupeKey)
+      if (existing) {
+        notes.push({
+          key: `${entry.key}-same-as-${existing.label}`,
+          label: entry.label,
+          message: `same mount as ${existing.label}`
+        })
+        continue
+      }
+      seenLocations.set(dedupeKey, { label: entry.label })
+      items.push(entry)
+      continue
+    }
+    if (entry.status === 'not_applicable') {
+      continue
+    }
+    notes.push({
+      key: entry.key,
+      label: entry.label,
+      message: entry.message || capacityStateLabel(entry.status)
+    })
+  }
+  return { label, items, notes }
+}
+
+function normalizeCapacityEntries(items = [], defaults = []) {
+  const map = new Map((items || []).map((item) => [item.key, item]))
+  return defaults.map((fallback) => ({ ...fallback, ...(map.get(fallback.key) || {}) }))
+}
 
 const elapsedLabel = computed(() => formatElapsed(currentTask.value?.started_at, currentTask.value?.completed_at, nowTick.value))
 const logPathSummary = computed(() => {
@@ -642,18 +818,28 @@ function metricCard(label, metric = {}, unit, stroke, fill) {
   const avg = Number(metric.avg || 0)
   const max = Number(metric.max || 0)
   const series = Array.isArray(metric.series) ? metric.series : []
-  const trend = buildTrendData(series, 320, 116)
+  const plotBounds = { x1: 38, x2: 316, y1: 10, y2: 132 }
+  const trend = buildTrendData(series, 320, 140, null, plotBounds)
+  const ticks = buildAxisTicks(trend.min, trend.max, formatCompactNumber, 140, plotBounds)
   return {
     label,
     current: formatNumber(current),
     avg: formatNumber(avg),
     max: formatNumber(max),
+    headerStats: [
+      { label: 'AVG', value: formatNumber(avg) },
+      { label: 'MAX', value: formatNumber(max) }
+    ],
     unit,
     stroke,
-    fill,
+    glow: withAlpha(stroke, 0.11),
+    fill: withAlpha(stroke, label === 'TPS' ? 0.05 : 0.045),
     points: trend.points,
     areaPath: trend.areaPath,
-    avgLineY: mapSeriesValueToY(avg, trend.min, trend.max, 116),
+    avgLineY: mapSeriesValueToY(avg, trend.min, trend.max, 140, plotBounds),
+    ticks,
+    tickLines: ticks.map((tick) => ({ ...tick, x1: plotBounds.x1, x2: plotBounds.x2 })),
+    plotBounds,
     statusLabel: metricStatus(metric),
     statusClass: `metric-${metricStatus(metric).toLowerCase()}`
   }
@@ -664,39 +850,65 @@ function multiMetricChart(label, definitions, caption) {
   const allSeriesValues = definitions.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
   const min = label === 'CPU' ? 0 : Math.min(...allSeriesValues, 0)
   const max = label === 'CPU' ? Math.max(100, ...allSeriesValues, 1) : Math.max(...allSeriesValues, 1)
+  const plotBounds = { x1: 38, x2: 316, y1: 10, y2: 132 }
+  const leftAxisFormatter = label === 'CPU' ? formatAxisPercent : (definitions[0]?.formatter || formatCompactNumber)
+  const leftTicks = buildAxisTicks(min, max, leftAxisFormatter, 140, plotBounds, label === 'CPU' ? 5 : 4)
   return {
     label,
-    summary: definitions.map((item, index) => `${item.label} ${item.formatter(values[index])}`).join(' · '),
+    summaryRows: [definitions.map((item, index) => `${item.label} ${item.formatter(values[index])}`)],
     caption,
-    gridLines: [20, 62, 104],
+    plotBounds,
+    leftTicks,
     lines: definitions.map((item) => ({
       label: item.label,
       color: item.color,
-      points: buildTrend(item.metric?.series || [], 320, 124, { min, max })
+      points: buildTrend(item.metric?.series || [], 320, 140, { min, max }, plotBounds)
     }))
   }
 }
 
 function diskMetricChart(metrics = {}) {
+  const bandwidthDefs = [
+    { label: 'READ', metric: metrics.disk_read_bps, color: '#60a5fa', formatter: formatBytes, axis: 'left' },
+    { label: 'WRITE', metric: metrics.disk_write_bps, color: '#f59e0b', formatter: formatBytes, axis: 'left' }
+  ]
+  const latencyDefs = [
+    { label: 'R_LAT', metric: metrics.disk_read_latency_ms, color: '#22c55e', formatter: formatLatency, axis: 'right', dasharray: '7 4' },
+    { label: 'W_LAT', metric: metrics.disk_write_latency_ms, color: '#f472b6', formatter: formatLatency, axis: 'right', dasharray: '7 4' }
+  ]
+  const allDefs = [...bandwidthDefs, ...latencyDefs]
+  const leftValues = bandwidthDefs.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
+  const rightValues = latencyDefs.flatMap((item) => (item.metric?.series || []).map((point) => Number(point.value || 0)))
+  const leftBounds = { min: 0, max: Math.max(...leftValues, 1) }
+  const rightBounds = { min: 0, max: Math.max(...rightValues, 1) }
+  const plotBounds = { x1: 38, x2: 282, y1: 10, y2: 132 }
   return {
-    ...multiMetricChart('Disk IO', [
-      { label: 'read', metric: metrics.disk_read_bps, color: '#60a5fa', formatter: formatBytes },
-      { label: 'write', metric: metrics.disk_write_bps, color: '#34d399', formatter: formatBytes }
-    ], 'Read and write throughput over the current rolling window.'),
-    summary: [
+    label: 'Disk IO',
+    summaryRows: [[
       `read ${formatBytes(metrics.disk_read_bps?.current)}`,
       `write ${formatBytes(metrics.disk_write_bps?.current)}`,
       `r_lat ${formatLatency(metrics.disk_read_latency_ms?.current)}`,
       `w_lat ${formatLatency(metrics.disk_write_latency_ms?.current)}`
-    ].join(' · ')
+    ]],
+    caption: 'Read/write and latency share one chart with dual axes for bandwidth and milliseconds.',
+    plotBounds,
+    leftTicks: buildAxisTicks(leftBounds.min, leftBounds.max, formatAxisBytes, 140, plotBounds, 4),
+    rightTicks: buildAxisTicks(rightBounds.min, rightBounds.max, formatAxisLatency, 140, plotBounds, 4),
+    lines: allDefs.map((item) => ({
+      label: item.label,
+      color: item.color,
+      dasharray: item.dasharray,
+      points: buildTrend(item.metric?.series || [], 320, 140, item.axis === 'left' ? leftBounds : rightBounds, plotBounds)
+    }))
   }
 }
 
-function buildTrend(series = [], width, height, bounds = null) {
-  return buildTrendData(series, width, height, bounds).points
+function buildTrend(series = [], width, height, bounds = null, plotBounds = null) {
+  return buildTrendData(series, width, height, bounds, plotBounds).points
 }
 
-function buildTrendData(series = [], width, height, bounds = null) {
+function buildTrendData(series = [], width, height, bounds = null, plotBounds = null) {
+  const areaBounds = plotBounds || { x1: 0, x2: width, y1: 5, y2: height - 5 }
   if (!series?.length) {
     return { points: '', areaPath: '', min: bounds?.min ?? 0, max: bounds?.max ?? 1 }
   }
@@ -704,17 +916,18 @@ function buildTrendData(series = [], width, height, bounds = null) {
   const max = bounds?.max ?? Math.max(...values, 1)
   const min = bounds?.min ?? Math.min(...values, 0)
   const points = values.map((value, index) => {
-    const x = series.length === 1 ? 0 : (index / (series.length - 1)) * width
-    const y = mapSeriesValueToY(value, min, max, height)
+    const x = series.length === 1 ? areaBounds.x1 : areaBounds.x1 + (index / (series.length - 1)) * (areaBounds.x2 - areaBounds.x1)
+    const y = mapSeriesValueToY(value, min, max, height, areaBounds)
     return `${x},${y}`
   }).join(' ')
-  const areaPath = `M 0,${height - 2} L ${points.split(' ').join(' L ')} L ${width},${height - 2} Z`
+  const areaPath = `M ${areaBounds.x1},${areaBounds.y2} L ${points.split(' ').join(' L ')} L ${areaBounds.x2},${areaBounds.y2} Z`
   return { points, areaPath, min, max }
 }
 
-function mapSeriesValueToY(value, min, max, height) {
+function mapSeriesValueToY(value, min, max, height, plotBounds = null) {
+  const bounds = plotBounds || { y1: 5, y2: height - 5 }
   const range = Math.max(max - min, 1)
-  return height - ((value - min) / range) * (height - 10) - 5
+  return bounds.y2 - ((value - min) / range) * (bounds.y2 - bounds.y1)
 }
 
 function metricStatus(metric = {}) {
@@ -763,8 +976,26 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 1 })
 }
 
+function formatCompactNumber(value) {
+  const abs = Math.abs(Number(value || 0))
+  if (abs >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+  if (abs >= 1000) return `${(value / 1000).toFixed(1)}K`
+  return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })
+}
+
 function formatBytes(value) {
   const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let current = value || 0
+  let index = 0
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024
+    index += 1
+  }
+  return `${current.toFixed(1)} ${units[index]}`
+}
+
+function formatStorage(value) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let current = value || 0
   let index = 0
   while (current >= 1024 && index < units.length - 1) {
@@ -778,8 +1009,102 @@ function formatPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`
 }
 
+function formatAxisPercent(value) {
+  return `${Math.round(Number(value || 0))}%`
+}
+
 function formatLatency(value) {
   return `${Number(value || 0).toFixed(1)} ms`
+}
+
+function formatAxisLatency(value) {
+  return `${Number(value || 0).toFixed(1)}`
+}
+
+function formatAxisBytes(value) {
+  const units = ['B', 'KB', 'MB', 'GB']
+  let current = Number(value || 0)
+  let index = 0
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024
+    index += 1
+  }
+  return `${current.toFixed(current >= 10 ? 0 : 1)}${units[index]}`
+}
+
+function capacityBarWidth(item = {}) {
+  return Math.max(8, Math.min(100, Number(item.use_percent || item.usePercent || 0)))
+}
+
+function capacityPercentLabel(item = {}) {
+  if (item.status !== 'ok') return capacityStateLabel(item.status)
+  return `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}%`
+}
+
+function capacityValueLabel(item = {}) {
+  const used = formatStorage(item.used_bytes || item.UsedBytes || item.usedBytes || 0)
+  const total = formatStorage(item.total_bytes || item.TotalBytes || item.totalBytes || 0)
+  return `${used} / ${total}`
+}
+
+function capacityMetaLabel(item = {}) {
+  const free = formatStorage(item.free_bytes || item.FreeBytes || item.freeBytes || 0)
+  const mountPoint = item.mount_point || item.mountPoint || 'unknown mount'
+  return `free ${free} · ${mountPoint}`
+}
+
+function capacityStateLabel(status) {
+  const labels = {
+    ok: 'ok',
+    unavailable: 'unavailable',
+    not_detected: 'not detected',
+    not_applicable: 'n/a'
+  }
+  return labels[status] || status || 'unavailable'
+}
+
+function capacityDedupeKey(item = {}) {
+  return item.mount_point || item.mountPoint || item.path || item.label
+}
+
+function withAlpha(hexColor, alpha) {
+  if (!hexColor?.startsWith('#') || (hexColor.length !== 7 && hexColor.length !== 4)) {
+    return hexColor
+  }
+  let normalized = hexColor
+  if (hexColor.length === 4) {
+    normalized = `#${hexColor[1]}${hexColor[1]}${hexColor[2]}${hexColor[2]}${hexColor[3]}${hexColor[3]}`
+  }
+  const r = parseInt(normalized.slice(1, 3), 16)
+  const g = parseInt(normalized.slice(3, 5), 16)
+  const b = parseInt(normalized.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function buildAxisTicks(min, max, formatter, height = 116, plotBounds = null, tickCount = 4) {
+  const bounds = plotBounds || { y1: 5, y2: height - 5 }
+  const safeTickCount = Math.max(2, tickCount)
+  const range = Math.max(max - min, 1)
+  const rawValues = Array.from({ length: safeTickCount }, (_, index) => {
+    const ratio = index / (safeTickCount - 1)
+    return max - ratio * range
+  })
+  const seen = new Set()
+  return rawValues.filter((value) => {
+    const label = formatter(value)
+    if (seen.has(label)) return false
+    seen.add(label)
+    return true
+  }).map((value) => {
+    const y = mapSeriesValueToY(value, min, max, height, bounds)
+    const top = ((y - bounds.y1) / Math.max(bounds.y2 - bounds.y1, 1)) * 100
+    return {
+      value,
+      y,
+      top,
+      label: formatter(value)
+    }
+  })
 }
 
 function formatDate(value) {
@@ -1307,6 +1632,22 @@ select,
   background: #0f151d;
 }
 
+.monitor-board {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.monitor-board-grid {
+  display: grid;
+  grid-template-rows: minmax(260px, 0.9fr) minmax(300px, 1.1fr) auto;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .text-action {
   background: transparent;
   border: 0;
@@ -1324,17 +1665,17 @@ select,
 }
 
 .metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-rows: 24px minmax(0, 1fr);
+  gap: 6px;
   min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at top right, rgba(255, 255, 255, 0.04), transparent 38%),
     linear-gradient(180deg, rgba(17, 24, 33, 0.98), rgba(9, 14, 20, 0.98));
 }
 
 .metric-card-head,
-.metric-main,
 .metric-stats,
 .system-card-head,
 .chart-legend {
@@ -1344,21 +1685,36 @@ select,
   gap: 12px;
 }
 
-.metric-card-head > span:first-child,
-.system-card-head span {
+.metric-title,
+.system-title-block > span,
+.capacity-group-head span {
   font-size: var(--tm-font-label);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: #8ea0b5;
 }
 
+.metric-card-head {
+  min-height: 24px;
+  gap: 8px;
+}
+
+.metric-inline-bar {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
 .metric-status {
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: var(--tm-font-meta);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .metric-stable {
@@ -1379,34 +1735,21 @@ select,
   background: rgba(248, 113, 113, 0.12);
 }
 
-.metric-main {
-  align-items: baseline;
-  justify-content: flex-start;
-}
-
-.metric-main strong {
-  font-size: clamp(28px, 3vw, 42px);
-  line-height: 1;
-  color: #f7fafc;
-  letter-spacing: -0.03em;
-}
-
-.metric-main span {
-  font-size: 12px;
-  color: #90a4ba;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
 .metric-stats {
   justify-content: flex-start;
-  gap: 14px;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 0;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .metric-stats div {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  align-items: baseline;
   gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .metric-stats span {
@@ -1418,7 +1761,8 @@ select,
 
 .metric-stats strong {
   color: #dce4ef;
-  font-size: var(--tm-font-strong);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .metric-history,
@@ -1429,6 +1773,85 @@ select,
   border: 1px solid rgba(74, 90, 109, 0.55);
   background: linear-gradient(180deg, rgba(13, 19, 27, 0.92), rgba(8, 12, 18, 0.98));
   padding: 8px;
+  overflow: hidden;
+}
+
+.chart-shell {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.metric-chart-shell {
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.system-chart-shell {
+  min-height: 0;
+}
+
+.chart-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.metric-chart-canvas {
+  padding: 32px 0 6px;
+}
+
+.metric-chart-current {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  pointer-events: none;
+}
+
+.metric-chart-current strong {
+  font-size: clamp(16px, 1.6vw, 22px);
+  line-height: 1;
+  color: #f8fbff;
+  letter-spacing: -0.02em;
+}
+
+.metric-chart-current span {
+  font-size: 9px;
+  color: #8ea0b5;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.chart-axis {
+  position: relative;
+  min-height: 0;
+}
+
+.chart-axis span {
+  position: absolute;
+  transform: translateY(-50%);
+  font-size: 9px;
+  line-height: 1;
+  color: #8ea0b5;
+  white-space: nowrap;
+}
+
+.chart-axis-left span {
+  right: 0;
+}
+
+.chart-axis-right span {
+  left: 0;
 }
 
 .history-chart,
@@ -1438,43 +1861,100 @@ select,
   display: block;
 }
 
-.history-baseline,
-.chart-gridline {
-  stroke: rgba(148, 163, 184, 0.18);
-  stroke-width: 1;
-  stroke-dasharray: 3 5;
+.history-glow {
+  opacity: 0.12;
 }
 
-.system-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.history-baseline,
+.chart-gridline {
+  stroke: rgba(148, 163, 184, 0.13);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 5;
+}
+
+.system-grid .system-card {
+  display: grid;
+  grid-template-rows: 56px minmax(188px, 1fr) 24px;
+  gap: 6px;
   min-height: 0;
+}
+
+.system-card.disabled {
+  opacity: 0.62;
 }
 
 .system-card-head {
   align-items: flex-start;
+  min-height: 56px;
+  gap: 10px;
 }
 
 .system-card-head strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: #e5edf7;
-  font-size: var(--tm-font-body);
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.system-title-block {
+  min-height: 56px;
+  display: grid;
+  grid-template-rows: 14px minmax(0, 1fr);
+  align-content: start;
+  min-width: 0;
+}
+
+.system-summary-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.summary-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: visible;
+  min-width: 0;
+}
+
+.summary-chip {
+  display: inline-flex;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.summary-chip + .summary-chip::before {
+  content: '·';
+  margin-right: 6px;
+  color: #5f7288;
 }
 
 .chart-legend {
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
+  align-content: flex-start;
+  gap: 6px;
+  max-width: 128px;
+}
+
+.chart-legend-single {
+  flex-wrap: nowrap;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: var(--tm-font-meta);
+  gap: 4px;
+  font-size: 9px;
   color: #9fb0c4;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1491,10 +1971,173 @@ select,
   margin: 0;
   color: #70839a;
   font-size: var(--tm-font-meta);
+  min-height: 24px;
+  display: flex;
+  align-items: flex-start;
 }
 
-.system-panel.disabled {
-  opacity: 0.62;
+.disk-chart-combined {
+  position: relative;
+  padding-top: 18px;
+}
+
+.disk-axis-tag {
+  position: absolute;
+  top: 4px;
+  font-size: var(--tm-font-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7f90a7;
+}
+
+.axis-left {
+  left: 8px;
+}
+
+.axis-right {
+  right: 8px;
+}
+
+.capacity-panel {
+  gap: 8px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background:
+    radial-gradient(circle at top right, rgba(100, 116, 139, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(16, 22, 31, 0.98), rgba(9, 13, 19, 0.98));
+}
+
+.capacity-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.capacity-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.capacity-group-head span {
+  font-size: var(--tm-font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8ea0b5;
+}
+
+.capacity-list {
+  display: grid;
+  gap: 6px;
+}
+
+.capacity-row,
+.capacity-row-label,
+.capacity-row-stats,
+.capacity-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.capacity-row {
+  border: 1px solid #243446;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #0c131b, #0a1017);
+  padding: 6px 8px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(110px, 1fr) auto;
+  display: grid;
+  min-width: 0;
+}
+
+.capacity-row-label,
+.capacity-row-stats {
+  min-width: 0;
+}
+
+.capacity-row-label {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.capacity-row-label strong,
+.capacity-row-stats strong,
+.capacity-row-stats span,
+.capacity-row-label span {
+  font-size: var(--tm-font-body);
+}
+
+.capacity-row-label span,
+.capacity-row-stats span {
+  color: #8fa1b6;
+  line-height: 1.2;
+}
+
+.capacity-row-bar {
+  display: flex;
+  align-items: center;
+}
+
+.capacity-row-stats {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.capacity-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(38, 50, 66, 0.95), rgba(20, 30, 42, 0.95));
+  border: 1px solid rgba(63, 81, 104, 0.55);
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.capacity-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.16);
+}
+
+.capacity-safe {
+  background: linear-gradient(90deg, #1f9d68, #34d399);
+}
+
+.capacity-warning {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+}
+
+.capacity-danger {
+  background: linear-gradient(90deg, #dc2626, #f87171);
+}
+
+.capacity-notes {
+  display: grid;
+  gap: 4px;
+}
+
+.capacity-note {
+  justify-content: flex-start;
+  font-size: var(--tm-font-body);
+  color: #7f90a7;
+  line-height: 1.25;
+}
+
+.capacity-note-label {
+  color: #a8b4c5;
+}
+
+.capacity-empty {
+  margin: 0;
+  color: #7f90a7;
+  font-size: var(--tm-font-body);
 }
 
 .terminal-viewer {
@@ -1602,33 +2245,26 @@ select,
   min-height: 0;
 }
 
-.metrics-panel {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .right-column {
-  display: grid;
-  grid-template-rows: minmax(0, 0.86fr) minmax(0, 1fr);
+  min-height: 0;
 }
 
 .metric-grid,
 .system-grid {
   height: 100%;
   min-height: 0;
+  align-items: stretch;
 }
 
 .metric-history {
-  min-height: 92px;
+  min-height: 0;
 }
 
 .system-chart-wrap {
-  min-height: 84px;
+  min-height: 188px;
 }
 
-.metrics-panel .card-head {
+.monitor-board .card-head {
   margin-bottom: 8px;
 }
 
@@ -1642,6 +2278,7 @@ select,
   .metric-grid,
   .preview-grid,
   .system-grid,
+  .capacity-groups,
   .override-grid {
     grid-template-columns: 1fr;
   }
@@ -1657,8 +2294,13 @@ select,
     overflow: auto;
   }
 
-  .right-column {
-    display: flex;
+  .monitor-board-grid {
+    grid-template-rows: auto;
+  }
+
+  .summary-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
   }
 }
 </style>

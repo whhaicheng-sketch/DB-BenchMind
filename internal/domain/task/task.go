@@ -95,6 +95,25 @@ type SystemMetricSummary struct {
 	Series  []MetricSeriesPoint `json:"series"`
 }
 
+type CapacityEntry struct {
+	Key        string  `json:"key"`
+	Label      string  `json:"label"`
+	UsedBytes  float64 `json:"used_bytes"`
+	TotalBytes float64 `json:"total_bytes"`
+	FreeBytes  float64 `json:"free_bytes"`
+	UsePercent float64 `json:"use_percent"`
+	Threshold  string  `json:"threshold"`
+	Status     string  `json:"status"`
+	Message    string  `json:"message,omitempty"`
+	Path       string  `json:"path,omitempty"`
+	MountPoint string  `json:"mount_point,omitempty"`
+}
+
+type CapacitySummary struct {
+	Filesystem    []CapacityEntry `json:"filesystem"`
+	OracleStorage []CapacityEntry `json:"oracle_storage"`
+}
+
 type UnifiedMetrics struct {
 	TPS                MetricSummary       `json:"tps"`
 	TPM                MetricSummary       `json:"tpm"`
@@ -105,6 +124,7 @@ type UnifiedMetrics struct {
 	DiskWriteBps       SystemMetricSummary `json:"disk_write_bps"`
 	DiskReadLatencyMs  SystemMetricSummary `json:"disk_read_latency_ms"`
 	DiskWriteLatencyMs SystemMetricSummary `json:"disk_write_latency_ms"`
+	Capacity           CapacitySummary     `json:"capacity"`
 	SystemEnabled      bool                `json:"system_enabled"`
 	SystemMessage      string              `json:"system_message,omitempty"`
 }

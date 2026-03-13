@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
-	"golang.org/x/crypto/ssh"
 )
 
 type SSHMetricPoint struct {
@@ -166,40 +165,7 @@ func (c *SSHMetricsCollector) collect() {
 }
 
 func (c *SSHMetricsCollector) exec(cmd string) (string, error) {
-	sshConfig, err := c.configToSSH()
-	if err != nil {
-		return "", err
-	}
-	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port), sshConfig)
-	if err != nil {
-		return "", err
-	}
-	defer client.Close()
-	session, err := client.NewSession()
-	if err != nil {
-		return "", err
-	}
-	defer session.Close()
-	out, err := session.Output(cmd)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-func (c *SSHMetricsCollector) configToSSH() (*ssh.ClientConfig, error) {
-	config := &ssh.ClientConfig{
-		User:            c.config.Username,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         10 * time.Second,
-	}
-	if c.config.Password != "" {
-		config.Auth = append(config.Auth, ssh.Password(c.config.Password))
-	}
-	if len(config.Auth) == 0 {
-		return nil, fmt.Errorf("ssh password is required")
-	}
-	return config, nil
+	return runSSHCommand(c.config, cmd)
 }
 
 func parseLinuxMetrics(output string) (cpuCounters, diskCounters, error) {

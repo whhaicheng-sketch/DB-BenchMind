@@ -34,10 +34,12 @@ type TaskBinding struct {
 }
 
 type taskExecutionContext struct {
-	currentRunID  string
-	logSeen       map[string]int
-	stopRequested bool
-	sshCollector  *collector.SSHMetricsCollector
+	currentRunID       string
+	logSeen            map[string]int
+	stopRequested      bool
+	sshCollector       *collector.SSHMetricsCollector
+	connection         connection.Connection
+	lastCapacityUpdate time.Time
 }
 
 type TaskDraftRequest struct {
@@ -369,6 +371,7 @@ func (b *TaskBinding) executeTask(taskID string) {
 	if task.Readiness.SSHAvailable {
 		conn, err := b.connUC.GetConnectionByID(context.Background(), task.ConnectionSnapshot.ID)
 		if err == nil {
+			execCtx.connection = conn
 			if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
 				execCtx.sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
 				if err := execCtx.sshCollector.Start(); err != nil {
@@ -376,6 +379,11 @@ func (b *TaskBinding) executeTask(taskID string) {
 					task.Readiness.SSHMessage = fmt.Sprintf("SSH unavailable: %v", err)
 				}
 			}
+		}
+	}
+	if execCtx.connection == nil {
+		if conn, err := b.connUC.GetConnectionByID(context.Background(), task.ConnectionSnapshot.ID); err == nil {
+			execCtx.connection = conn
 		}
 	}
 
@@ -523,6 +531,10 @@ func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phas
 	} else {
 		task.Metrics.SystemEnabled = false
 		task.Metrics.SystemMessage = task.Readiness.SSHMessage
+	}
+	if shouldRefreshCapacity(execCtx.lastCapacityUpdate) {
+		refreshCapacity(task, execCtx)
+		execCtx.lastCapacityUpdate = time.Now()
 	}
 
 	start := execCtx.logSeen[runID]
@@ -890,6 +902,7 @@ func cloneTask(task *domaintask.ExecutionTask) *domaintask.ExecutionTask {
 	cloned.PhaseHistory = append([]domaintask.PhaseRecord(nil), task.PhaseHistory...)
 	cloned.RunLogPaths = cloneParamsString(task.RunLogPaths)
 	cloned.SystemLogPaths = cloneParamsString(task.SystemLogPaths)
+	cloned.Metrics = cloneMetrics(task.Metrics)
 	return &cloned
 }
 
@@ -914,4 +927,27 @@ func cloneParamsString(params map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func cloneMetrics(metrics domaintask.UnifiedMetrics) domaintask.UnifiedMetrics {
+	metrics.TPS.Series = cloneSeries(metrics.TPS.Series)
+	metrics.TPM.Series = cloneSeries(metrics.TPM.Series)
+	metrics.CPUUser.Series = cloneSeries(metrics.CPUUser.Series)
+	metrics.CPUSys.Series = cloneSeries(metrics.CPUSys.Series)
+	metrics.CPUIOWait.Series = cloneSeries(metrics.CPUIOWait.Series)
+	metrics.DiskReadBps.Series = cloneSeries(metrics.DiskReadBps.Series)
+	metrics.DiskWriteBps.Series = cloneSeries(metrics.DiskWriteBps.Series)
+	metrics.DiskReadLatencyMs.Series = cloneSeries(metrics.DiskReadLatencyMs.Series)
+	metrics.DiskWriteLatencyMs.Series = cloneSeries(metrics.DiskWriteLatencyMs.Series)
+	metrics.Capacity.Filesystem = cloneCapacityEntries(metrics.Capacity.Filesystem)
+	metrics.Capacity.OracleStorage = cloneCapacityEntries(metrics.Capacity.OracleStorage)
+	return metrics
+}
+
+func cloneSeries(series []domaintask.MetricSeriesPoint) []domaintask.MetricSeriesPoint {
+	return append([]domaintask.MetricSeriesPoint(nil), series...)
+}
+
+func cloneCapacityEntries(entries []domaintask.CapacityEntry) []domaintask.CapacityEntry {
+	return append([]domaintask.CapacityEntry(nil), entries...)
 }
