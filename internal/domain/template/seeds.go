@@ -69,10 +69,10 @@ func DefaultSeedTemplates() []*Template {
 			CreatedAt:      now,
 			UpdatedAt:      now,
 			Phases: PhaseSet{
-				Build:    PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Generate: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Warmup:   PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:      PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
+				Warmup:  PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
+				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 			},
 			Runtime: Runtime{
 				Concurrency:           Concurrency{Mode: "users", Value: 64},

@@ -171,11 +171,10 @@ export const templateMocks = [
     tags: ['oracle', 'orderentry', 'baseline'],
     version: '1.0.0',
     phases: {
-      build: { enabled: true, required: false, params: {} },
-      generate: { enabled: true, required: false, params: {} },
+      prepare: { enabled: true, required: false, params: {} },
       warmup: { enabled: true, required: false, params: {} },
       run: { enabled: true, required: true, params: {} },
-      delete: { enabled: false, required: false, params: {} }
+      cleanup: { enabled: true, required: false, params: {} }
     },
     runtime: {
       concurrency: { mode: 'users', value: 64 },
@@ -252,8 +251,9 @@ export const templateMocks = [
     tags: ['test', 'smoke', 'oracle'],
     version: '0.1.0',
     phases: {
-      generate: { enabled: true, required: false, params: {} },
-      run: { enabled: true, required: true, params: {} }
+      prepare: { enabled: true, required: false, params: {} },
+      run: { enabled: true, required: true, params: {} },
+      cleanup: { enabled: true, required: false, params: {} }
     },
     runtime: {
       concurrency: { mode: 'users', value: 8 },
@@ -336,9 +336,10 @@ export const templateMocks = [
     tags: ['oracle', 'shared', 'orderentry'],
     version: '1.0.0',
     phases: {
-      generate: { enabled: true, required: false, params: {} },
+      prepare: { enabled: true, required: false, params: {} },
       warmup: { enabled: true, required: false, params: {} },
-      run: { enabled: true, required: true, params: {} }
+      run: { enabled: true, required: true, params: {} },
+      cleanup: { enabled: true, required: false, params: {} }
     },
     runtime: {
       concurrency: { mode: 'users', value: 24 },

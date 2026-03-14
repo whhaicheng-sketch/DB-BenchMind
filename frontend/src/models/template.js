@@ -72,6 +72,28 @@ export function createPhaseState(overrides = {}) {
   }
 }
 
+function normalizePhasesForTool(tool, phases = {}) {
+  const normalized = createPhaseState(phases)
+
+  if (tool === 'swingbench') {
+    const usesLegacySwingbenchPhases = normalized.build.enabled ||
+      normalized.generate.enabled ||
+      normalized.delete.enabled ||
+      (normalized.run.enabled && !normalized.prepare.enabled && !normalized.cleanup.enabled)
+
+    if (usesLegacySwingbenchPhases) {
+      normalized.prepare.enabled = true
+      normalized.cleanup.enabled = true
+    }
+  }
+
+  if (normalized.run.required) {
+    normalized.run.enabled = true
+  }
+
+  return normalized
+}
+
 export function cloneTemplate(template) {
   return JSON.parse(JSON.stringify(template))
 }
@@ -97,7 +119,7 @@ export function createDefaultTemplate(partial = {}) {
       requiresPrivileges: partial.compatibility?.requiresPrivileges ?? [],
       constraints: partial.compatibility?.constraints ?? []
     },
-    phases: createPhaseState(partial.phases || {}),
+    phases: normalizePhasesForTool(partial.tool ?? 'sysbench', partial.phases || {}),
     runtime: {
       concurrency: {
         mode: partial.runtime?.concurrency?.mode ?? 'threads',
@@ -155,6 +177,7 @@ export function createDefaultTemplate(partial = {}) {
 
 export function normalizeTemplateRecord(template = {}) {
   const normalized = createDefaultTemplate(template)
+  normalized.phases = normalizePhasesForTool(normalized.tool, normalized.phases)
   normalized.database_types = template.database_types ?? [normalized.dbFamily]
   return normalized
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
+	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/collector"
 )
 
@@ -70,6 +71,48 @@ func TestValidateReadiness(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("validateReadiness() expected action support error")
+	}
+}
+
+func TestTemplateSnapshot_SwingbenchPhasesDriveTaskActions(t *testing.T) {
+	tmpl := &domaintemplate.Template{
+		ID:             "tpl_swing",
+		Name:           "Swingbench Oracle",
+		Tool:           domaintemplate.ToolSwingbench,
+		DBFamily:       "oracle",
+		WorkloadFamily: "order-entry",
+		Phases: domaintemplate.PhaseSet{
+			Build:    domaintemplate.PhaseConfig{Enabled: true},
+			Generate: domaintemplate.PhaseConfig{Enabled: true},
+			Run:      domaintemplate.PhaseConfig{Enabled: true, Required: true},
+		},
+		Runtime: domaintemplate.Runtime{
+			Concurrency:     domaintemplate.Concurrency{Mode: "users", Value: 8},
+			DurationSeconds: 60,
+		},
+		ToolConfig: domaintemplate.ToolConfig{
+			Swingbench: domaintemplate.SwingbenchConfig{
+				Benchmark:      "orderEntry",
+				UserCount:      8,
+				RunTimeSeconds: 60,
+			},
+		},
+	}
+	tmpl.Normalize()
+
+	snapshot := templateSnapshot(tmpl, map[string]interface{}{"time": 60})
+
+	if !snapshot.Phases["prepare"] {
+		t.Fatal("templateSnapshot() should expose prepare action for legacy swingbench phases")
+	}
+	if !snapshot.Phases["run"] {
+		t.Fatal("templateSnapshot() should expose run action for swingbench")
+	}
+	if !snapshot.Phases["cleanup"] {
+		t.Fatal("templateSnapshot() should expose cleanup action for legacy swingbench phases")
+	}
+	if !actionSupported(domaintask.ActionFullPipeline, snapshot.Phases) {
+		t.Fatal("full pipeline should be supported when prepare/run/cleanup are enabled")
 	}
 }
 

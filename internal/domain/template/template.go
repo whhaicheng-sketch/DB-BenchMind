@@ -321,12 +321,12 @@ func (t *Template) Normalize() {
 	if len(t.Compatibility.SupportedDatabases) == 0 && t.DBFamily != "" {
 		t.Compatibility.SupportedDatabases = []string{t.DBFamily}
 	}
-	t.Phases.normalize()
+	t.Phases.normalize(t.Tool)
 	t.Runtime.normalize()
 	t.ToolConfig.normalize(t.Tool, t.DBFamily, t.WorkloadFamily, t.Runtime.Concurrency.Value)
 }
 
-func (p *PhaseSet) normalize() {
+func (p *PhaseSet) normalize(tool string) {
 	defaults := NewPhaseSet()
 	mergePhase := func(target *PhaseConfig, fallback PhaseConfig) {
 		if target.Params == nil {
@@ -348,6 +348,17 @@ func (p *PhaseSet) normalize() {
 	mergePhase(&p.Verify, defaults.Verify)
 	mergePhase(&p.Cleanup, defaults.Cleanup)
 	mergePhase(&p.Delete, defaults.Delete)
+	if tool == ToolSwingbench {
+		legacySwingbenchPhases := p.Build.Enabled || p.Generate.Enabled || p.Delete.Enabled || (p.Run.Enabled && !p.Prepare.Enabled && !p.Cleanup.Enabled)
+		if legacySwingbenchPhases {
+			if !p.Prepare.Enabled {
+				p.Prepare.Enabled = true
+			}
+			if !p.Cleanup.Enabled {
+				p.Cleanup.Enabled = true
+			}
+		}
+	}
 	if !p.Run.Enabled {
 		p.Run.Enabled = true
 	}

@@ -149,6 +149,31 @@ func TestTemplateUseCase_LoadBuiltinTemplates(t *testing.T) {
 	}
 }
 
+func TestTemplateUseCase_LoadBuiltinTemplates_SwingbenchSupportsPrepareRunCleanup(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockTemplateRepository()
+	uc := NewTemplateUseCase(repo, "")
+
+	if err := uc.LoadBuiltinTemplates(ctx); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	tmpl, err := uc.GetTemplate(ctx, "tpl_swing_oe")
+	if err != nil {
+		t.Fatalf("GetTemplate() failed: %v", err)
+	}
+
+	if !tmpl.Phases.Prepare.Enabled {
+		t.Fatal("swingbench builtin should enable prepare phase")
+	}
+	if !tmpl.Phases.Run.Enabled {
+		t.Fatal("swingbench builtin should enable run phase")
+	}
+	if !tmpl.Phases.Cleanup.Enabled {
+		t.Fatal("swingbench builtin should enable cleanup phase")
+	}
+}
+
 func newCanonicalTemplate(id, scope string) *domaintemplate.Template {
 	tmpl := &domaintemplate.Template{
 		ID:             id,

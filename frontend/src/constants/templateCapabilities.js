@@ -38,9 +38,9 @@ export const TEMPLATE_CAPABILITIES = {
     dbFamilies: ['oracle'],
     workloads: ['order-entry', 'sales-history', 'stress-test'],
     concurrencyModes: ['users'],
-    allowedPhases: ['build', 'generate', 'warmup', 'run', 'delete'],
+    allowedPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     requiredPhases: ['run'],
-    defaultEnabledPhases: ['build', 'generate', 'warmup', 'run'],
+    defaultEnabledPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     workloadFieldMap: {
       'order-entry': { benchmark: 'orderEntry' },
       'sales-history': { benchmark: 'salesHistory' },
