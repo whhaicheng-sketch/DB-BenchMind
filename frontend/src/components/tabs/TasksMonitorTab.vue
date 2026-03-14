@@ -175,7 +175,6 @@
                 <div class="system-chart-wrap" data-system-chart-wrap="CPU">
                   <div class="chart-shell system-chart-shell" data-system-chart-shell="CPU">
                     <div class="chart-axis chart-axis-left chart-axis-cpu">
-                      <span class="axis-unit axis-unit-left" data-axis-unit="cpu-left">%</span>
                       <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
@@ -218,7 +217,6 @@
                 <div class="system-chart-wrap disk-chart-combined" data-system-chart-wrap="Disk IO">
                   <div class="chart-shell system-chart-shell disk-chart-shell" data-system-chart-shell="Disk IO">
                     <div class="chart-axis chart-axis-left chart-axis-bandwidth">
-                      <span class="axis-unit axis-unit-left" data-axis-unit="disk-left">B/S</span>
                       <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
@@ -238,7 +236,6 @@
                       </svg>
                     </div>
                     <div class="chart-axis chart-axis-right chart-axis-latency">
-                      <span class="axis-unit axis-unit-right" data-axis-unit="disk-right">MS</span>
                       <span v-for="tick in diskChart.rightTicks" :key="`disk-right-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                   </div>
@@ -1096,18 +1093,18 @@ function formatLatency(value) {
 }
 
 function formatAxisLatency(value) {
-  return `${Number(value || 0).toFixed(1)}`
+  return `${Number(value || 0).toFixed(1)} ms`
 }
 
 function formatAxisBytes(value) {
-  const units = ['B', 'KB', 'MB', 'GB']
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
   let current = Number(value || 0)
   let index = 0
   while (current >= 1024 && index < units.length - 1) {
     current /= 1024
     index += 1
   }
-  return `${current.toFixed(current >= 10 ? 0 : 1)}${units[index]}`
+  return `${current.toFixed(current >= 10 ? 0 : 1)} ${units[index]}`
 }
 
 function pickCapacityEntry(items = [], fallback = {}) {
@@ -2035,7 +2032,7 @@ select,
 
 .axis-unit {
   position: absolute;
-  top: 0;
+  top: 6px;
   transform: none;
   font-size: 9px;
   line-height: 1;
@@ -2043,6 +2040,8 @@ select,
   letter-spacing: 0.1em;
   color: #93a4b8;
   white-space: nowrap;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .axis-unit-left {
