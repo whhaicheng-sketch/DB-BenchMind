@@ -49,7 +49,7 @@
 
     <div class="workspace-grid">
       <div class="left-column">
-        <section class="panel card">
+        <section class="panel card" data-layout-section="create-task">
           <div class="card-head">
             <h3>Create Task</h3>
             <span v-if="pendingTaskTemplate" class="handoff-badge">Template handoff</span>
@@ -70,7 +70,7 @@
             <select v-model="draft.connection_id" class="select-dark" :disabled="!draft.database_type">
               <option value="">{{ draft.database_type ? 'Select connection' : 'Select database type first' }}</option>
               <option v-for="connection in filteredConnections" :key="connection.id" :value="connection.id">
-                {{ connection.name }} · {{ connection.type }}
+                {{ connection.name }}
               </option>
             </select>
           </label>
@@ -172,8 +172,8 @@
                     </span>
                   </div>
                 </div>
-                <div class="system-chart-wrap">
-                  <div class="chart-shell system-chart-shell">
+                <div class="system-chart-wrap" data-system-chart-wrap="CPU">
+                  <div class="chart-shell system-chart-shell" data-system-chart-shell="CPU">
                     <div class="chart-axis chart-axis-left chart-axis-cpu">
                       <span class="axis-unit axis-unit-left" data-axis-unit="cpu-left">%</span>
                       <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
@@ -215,8 +215,8 @@
                     </span>
                   </div>
                 </div>
-                <div class="system-chart-wrap disk-chart-combined">
-                  <div class="chart-shell system-chart-shell disk-chart-shell">
+                <div class="system-chart-wrap disk-chart-combined" data-system-chart-wrap="Disk IO">
+                  <div class="chart-shell system-chart-shell disk-chart-shell" data-system-chart-shell="Disk IO">
                     <div class="chart-axis chart-axis-left chart-axis-bandwidth">
                       <span class="axis-unit axis-unit-left" data-axis-unit="disk-left">B/S</span>
                       <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
@@ -247,44 +247,98 @@
               </div>
             </div>
 
-            <div class="system-card capacity-panel">
+            <div class="system-card capacity-panel" data-capacity-panel>
               <div class="system-card-head">
                 <div>
                   <span>Capacity</span>
                   <strong>Compact risk summary for current storage bottlenecks.</strong>
                 </div>
               </div>
-              <div class="capacity-groups">
-                <div v-for="group in capacityPanel.groups" :key="group.label" class="capacity-group">
-                  <div class="capacity-group-head">
-                    <span>{{ group.label }}</span>
+              <div class="capacity-grid">
+                <article
+                  v-for="card in capacityCards"
+                  :key="card.key"
+                  class="capacity-card"
+                  :data-capacity-card="card.key"
+                >
+                  <div class="capacity-card-head">
+                    <span data-capacity-title>{{ card.title }}</span>
+                    <strong>{{ card.caption }}</strong>
                   </div>
-                  <div v-if="group.items.length" class="capacity-list">
-                    <div v-for="item in group.items" :key="item.key" class="capacity-row" :data-capacity-row="item.label">
-                      <div class="capacity-row-label">
-                        <strong>{{ item.label }}</strong>
-                        <span>{{ capacityMetaLabel(item) }}</span>
+
+                  <template v-if="card.kind === 'summary'">
+                    <div class="capacity-summary-row" :data-capacity-row="card.title">
+                      <div class="capacity-summary-topline">
+                        <strong>{{ capacitySummaryPercent(card.entry) }}</strong>
+                        <span>{{ capacitySummaryValue(card.entry) }}</span>
                       </div>
-                      <div class="capacity-row-bar">
-                        <div class="capacity-bar">
-                          <span class="capacity-fill" :class="`capacity-${item.threshold}`" :style="{ width: `${capacityBarWidth(item)}%` }"></span>
+                      <div class="capacity-bar">
+                        <span
+                          class="capacity-fill"
+                          :class="`capacity-${card.entry.threshold}`"
+                          :style="{ width: `${capacityBarWidth(card.entry)}%` }"
+                        ></span>
+                      </div>
+                      <div class="capacity-summary-meta">
+                        <span>{{ card.mountLabel }}</span>
+                        <span>{{ capacitySummaryStatus(card.entry, card.placeholderLabel) }}</span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else-if="card.kind === 'log'">
+                    <div class="capacity-log-list">
+                      <div
+                        v-for="item in card.items"
+                        :key="item.key"
+                        class="capacity-log-row"
+                        :data-capacity-row="item.name"
+                      >
+                        <div class="capacity-log-copy">
+                          <strong>{{ item.name }}</strong>
+                          <span>{{ capacityLogDetail(item.entry) }}</span>
+                        </div>
+                        <div class="capacity-log-progress">
+                          <div class="capacity-bar">
+                            <span
+                              class="capacity-fill"
+                              :class="`capacity-${item.entry.threshold}`"
+                              :style="{ width: `${capacityBarWidth(item.entry)}%` }"
+                            ></span>
+                          </div>
+                          <div class="capacity-log-meta">
+                            <span>{{ capacityLogUsage(item.entry) }}</span>
+                            <span>{{ capacityLogDirectory(item.entry) }}</span>
+                          </div>
                         </div>
                       </div>
-                      <div class="capacity-row-stats">
-                        <strong>{{ capacityPercentLabel(item) }}</strong>
-                        <span>{{ capacityValueLabel(item) }}</span>
-                      </div>
                     </div>
-                  </div>
-                  <div v-if="group.notes.length" class="capacity-notes">
-                    <div v-for="note in group.notes" :key="note.key" class="capacity-note">
-                      <span class="capacity-note-label">{{ note.label }}</span>
-                      <span>{{ note.message }}</span>
-                    </div>
-                  </div>
-                </div>
+                  </template>
+
+                  <template v-else-if="card.kind === 'table'">
+                    <table class="capacity-table" data-capacity-table="undo-temp">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Used</th>
+                          <th>Total</th>
+                          <th>Usage</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="row in card.rows" :key="row.name" :data-capacity-row="row.name">
+                          <td>{{ row.name }}</td>
+                          <td>{{ row.used }}</td>
+                          <td>{{ row.total }}</td>
+                          <td>{{ row.usage }}</td>
+                          <td>{{ row.status }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </template>
+                </article>
               </div>
-              <p v-if="capacityPanel.emptyMessage" class="capacity-empty">{{ capacityPanel.emptyMessage }}</p>
             </div>
           </div>
         </section>
@@ -377,8 +431,8 @@ const TASKS_DRAFT_STORAGE_KEY = 'db-benchmind.tasks-monitor.draft.v1'
 const CHART_LINE_WIDTH = 1.4
 const CHART_GLOW_WIDTH = 2.2
 const METRIC_PLOT_BOUNDS = { x1: 38, x2: 316, y1: 16, y2: 130 }
-const SYSTEM_PLOT_BOUNDS = { x1: 38, x2: 316, y1: 16, y2: 130 }
-const DISK_PLOT_BOUNDS = { x1: 38, x2: 282, y1: 16, y2: 130 }
+const SYSTEM_PLOT_BOUNDS = { x1: 38, x2: 316, y1: 20, y2: 126 }
+const DISK_PLOT_BOUNDS = { x1: 38, x2: 282, y1: 20, y2: 126 }
 
 const draft = reactive({
   database_type: '',
@@ -545,76 +599,94 @@ const cpuChart = computed(() => {
 })
 
 const diskChart = computed(() => diskMetricChart(currentTask.value?.metrics || {}))
-const capacityPanel = computed(() => {
+const capacityCards = computed(() => {
   const metrics = currentTask.value?.metrics || {}
-  const filesystemEntries = normalizeCapacityEntries(metrics.capacity?.filesystem, [
-    { key: 'data_disk', label: 'Data Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' },
-    { key: 'binlog_disk', label: 'Binlog Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' },
-    { key: 'archive_log_disk', label: 'Archive Log Disk', status: systemEnabled.value ? 'not_detected' : 'unavailable', message: systemEnabled.value ? 'not detected' : systemMessage.value, threshold: 'safe' }
-  ])
-  const oracleEntries = normalizeCapacityEntries(metrics.capacity?.oracle_storage, isOracleConnection.value
-    ? [
-        { key: 'soe', label: 'SOE', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' },
-        { key: 'temp', label: 'TEMP', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' },
-        { key: 'undo', label: 'UNDO', status: 'unavailable', message: 'oracle storage unavailable', threshold: 'safe' }
-      ]
-    : [])
+  const filesystemEntries = metrics.capacity?.filesystem || []
+  const oracleEntries = metrics.capacity?.oracle_storage || []
+  const dataDisk = pickCapacityEntry(filesystemEntries, {
+    key: 'data_disk',
+    label: 'Data Disk',
+    status: systemEnabled.value ? 'not_detected' : 'unavailable',
+    message: systemEnabled.value ? 'not detected' : systemMessage.value,
+    threshold: 'safe'
+  })
+  const binlogDisk = pickCapacityEntry(filesystemEntries, {
+    key: 'binlog_disk',
+    label: 'Binlog Disk',
+    status: systemEnabled.value ? 'not_detected' : 'unavailable',
+    message: systemEnabled.value ? 'not detected' : systemMessage.value,
+    threshold: 'safe'
+  })
+  const archiveLogDisk = pickCapacityEntry(filesystemEntries, {
+    key: 'archive_log_disk',
+    label: 'Archive Log Disk',
+    status: systemEnabled.value ? 'not_detected' : 'unavailable',
+    message: systemEnabled.value ? 'not detected' : systemMessage.value,
+    threshold: 'safe'
+  })
+  const soeTablespace = pickCapacityEntry(oracleEntries, {
+    key: 'soe',
+    label: 'SOE',
+    status: isOracleConnection.value ? 'unavailable' : 'not_detected',
+    message: isOracleConnection.value ? 'SOE tablespace unavailable' : 'SOE tablespace not detected',
+    threshold: 'safe'
+  })
+  const undoTablespace = pickCapacityEntry(oracleEntries, {
+    key: 'undo',
+    label: 'UNDO',
+    status: isOracleConnection.value ? 'unavailable' : 'not_detected',
+    message: isOracleConnection.value ? 'UNDO unavailable' : 'UNDO not detected',
+    threshold: 'safe'
+  })
+  const tempTablespace = pickCapacityEntry(oracleEntries, {
+    key: 'temp',
+    label: 'TEMP',
+    status: isOracleConnection.value ? 'unavailable' : 'not_detected',
+    message: isOracleConnection.value ? 'TEMP unavailable' : 'TEMP not detected',
+    threshold: 'safe'
+  })
 
-  const groups = isOracleConnection.value
-    ? [
-        buildCapacityGroup('Filesystem', filesystemEntries, ['data_disk', 'archive_log_disk']),
-        buildCapacityGroup('Oracle Storage', oracleEntries, ['soe', 'temp', 'undo'])
+  return [
+    {
+      key: 'data-disk',
+      kind: 'summary',
+      title: 'Data Disk',
+      caption: 'Usage, mount path, and headroom.',
+      placeholderLabel: 'Data Disk',
+      mountLabel: capacityMountLabel(dataDisk),
+      entry: dataDisk
+    },
+    {
+      key: 'log-disk',
+      kind: 'log',
+      title: 'Log Disk',
+      caption: 'binlog + archive log in one card.',
+      items: [
+        { key: 'binlog', name: 'binlog', entry: binlogDisk },
+        { key: 'archive-log', name: 'archive log', entry: archiveLogDisk }
       ]
-    : [
-        buildCapacityGroup('Filesystem', filesystemEntries, ['data_disk', 'binlog_disk'])
+    },
+    {
+      key: 'soe-tablespace',
+      kind: 'summary',
+      title: 'SOE Tablespace',
+      caption: 'SOE tablespace pressure.',
+      placeholderLabel: 'SOE tablespace',
+      mountLabel: capacityMountLabel(soeTablespace, 'tablespace'),
+      entry: soeTablespace
+    },
+    {
+      key: 'undo-temp',
+      kind: 'table',
+      title: 'UNDO / TEMP',
+      caption: 'Compact table with explicit fallback states.',
+      rows: [
+        capacityTableRow('UNDO', undoTablespace),
+        capacityTableRow('TEMP', tempTablespace)
       ]
-
-  const visibleGroups = groups.filter((group) => group.items.length || group.notes.length)
-  return {
-    groups: visibleGroups,
-    emptyMessage: visibleGroups.length ? '' : 'No relevant capacity risks are currently available.'
-  }
+    }
+  ]
 })
-
-function buildCapacityGroup(label, entries, keys) {
-  const entryMap = new Map((entries || []).map((item) => [item.key, item]))
-  const items = []
-  const notes = []
-  const seenLocations = new Map()
-  for (const key of keys) {
-    const entry = entryMap.get(key)
-    if (!entry) continue
-    if (entry.status === 'ok') {
-      const dedupeKey = capacityDedupeKey(entry)
-      const existing = seenLocations.get(dedupeKey)
-      if (existing) {
-        notes.push({
-          key: `${entry.key}-same-as-${existing.label}`,
-          label: entry.label,
-          message: `same mount as ${existing.label}`
-        })
-        continue
-      }
-      seenLocations.set(dedupeKey, { label: entry.label })
-      items.push(entry)
-      continue
-    }
-    if (entry.status === 'not_applicable') {
-      continue
-    }
-    notes.push({
-      key: entry.key,
-      label: entry.label,
-      message: entry.message || capacityStateLabel(entry.status)
-    })
-  }
-  return { label, items, notes }
-}
-
-function normalizeCapacityEntries(items = [], defaults = []) {
-  const map = new Map((items || []).map((item) => [item.key, item]))
-  return defaults.map((fallback) => ({ ...fallback, ...(map.get(fallback.key) || {}) }))
-}
 
 const elapsedLabel = computed(() => formatElapsed(currentTask.value?.started_at, currentTask.value?.completed_at, nowTick.value))
 const logPathSummary = computed(() => {
@@ -1038,25 +1110,101 @@ function formatAxisBytes(value) {
   return `${current.toFixed(current >= 10 ? 0 : 1)}${units[index]}`
 }
 
+function pickCapacityEntry(items = [], fallback = {}) {
+  const found = (items || []).find((item) => item.key === fallback.key)
+  return normalizeCapacityEntry({ ...fallback, ...(found || {}) })
+}
+
+function normalizeCapacityEntry(item = {}) {
+  const normalizedStatus = normalizeCapacityStatus(item.status)
+  return {
+    ...item,
+    threshold: item.threshold || 'safe',
+    status: normalizedStatus,
+    message: normalizedStatus === 'ok' ? '' : normalizeCapacityMessage(normalizedStatus, item.message)
+  }
+}
+
+function normalizeCapacityStatus(status) {
+  if (status === 'ok') return 'ok'
+  if (status === 'not_detected') return 'not_detected'
+  if (status === 'unavailable') return 'unavailable'
+  if (status === 'not_applicable') return 'not_detected'
+  return status || 'unavailable'
+}
+
+function normalizeCapacityMessage(status, message) {
+  const trimmed = String(message || '').trim()
+  if (trimmed && !/^not applicable$/i.test(trimmed)) return trimmed
+  if (status === 'not_detected') return 'not detected'
+  return 'unavailable'
+}
+
 function capacityBarWidth(item = {}) {
+  if (item.status !== 'ok') return 0
   return Math.max(8, Math.min(100, Number(item.use_percent || item.usePercent || 0)))
 }
 
-function capacityPercentLabel(item = {}) {
+function capacitySummaryPercent(item = {}) {
   if (item.status !== 'ok') return capacityStateLabel(item.status)
   return `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}%`
 }
 
-function capacityValueLabel(item = {}) {
+function capacitySummaryValue(item = {}) {
+  if (item.status !== 'ok') return capacityStateLabel(item.status)
   const used = formatStorage(item.used_bytes || item.UsedBytes || item.usedBytes || 0)
   const total = formatStorage(item.total_bytes || item.TotalBytes || item.totalBytes || 0)
   return `${used} / ${total}`
 }
 
-function capacityMetaLabel(item = {}) {
-  const free = formatStorage(item.free_bytes || item.FreeBytes || item.freeBytes || 0)
-  const mountPoint = item.mount_point || item.mountPoint || 'unknown mount'
-  return `free ${free} · ${mountPoint}`
+function capacityMountLabel(item = {}, fallback = 'mount') {
+  if (item.status !== 'ok') return `${fallback}: ${capacityStateLabel(item.status)}`
+  const mountPoint = item.mount_point || item.mountPoint || item.path || 'unknown'
+  return `mount: ${mountPoint}`
+}
+
+function capacitySummaryStatus(item = {}, label = 'capacity') {
+  if (item.status === 'ok') {
+    const free = formatStorage(item.free_bytes || item.FreeBytes || item.freeBytes || 0)
+    return `free ${free}`
+  }
+  return `${label}: ${item.message || capacityStateLabel(item.status)}`
+}
+
+function capacityLogDetail(item = {}) {
+  if (item.status !== 'ok') return normalizeCapacityMessage(item.status, item.message)
+  return capacitySummaryValue(item)
+}
+
+function capacityLogUsage(item = {}) {
+  if (item.status !== 'ok') return `status: ${normalizeCapacityMessage(item.status, item.message)}`
+  return `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}% used`
+}
+
+function capacityLogDirectory(item = {}) {
+  if (item.status !== 'ok') return 'directory: not detected'
+  const mountPoint = item.mount_point || item.mountPoint || item.path || 'unknown'
+  return `directory: ${mountPoint}`
+}
+
+function capacityTableRow(name, item = {}) {
+  if (item.status !== 'ok') {
+    const status = item.message || capacityStateLabel(item.status)
+    return {
+      name,
+      used: 'not detected',
+      total: 'not detected',
+      usage: capacityStateLabel(item.status),
+      status
+    }
+  }
+  return {
+    name,
+    used: formatStorage(item.used_bytes || item.UsedBytes || item.usedBytes || 0),
+    total: formatStorage(item.total_bytes || item.TotalBytes || item.totalBytes || 0),
+    usage: `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}%`,
+    status: 'ok'
+  }
 }
 
 function capacityStateLabel(status) {
@@ -1064,13 +1212,9 @@ function capacityStateLabel(status) {
     ok: 'ok',
     unavailable: 'unavailable',
     not_detected: 'not detected',
-    not_applicable: 'n/a'
+    not_applicable: 'not detected'
   }
   return labels[status] || status || 'unavailable'
-}
-
-function capacityDedupeKey(item = {}) {
-  return item.mount_point || item.mountPoint || item.path || item.label
 }
 
 function withAlpha(hexColor, alpha) {
@@ -1277,7 +1421,7 @@ function closeLogViewer() {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: 312px minmax(0, 1fr);
+  grid-template-columns: 250px minmax(0, 1fr);
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -1647,7 +1791,7 @@ select,
 
 .monitor-board-grid {
   display: grid;
-  grid-template-rows: minmax(260px, 0.9fr) minmax(300px, 1.1fr) auto;
+  grid-template-rows: minmax(208px, 0.78fr) minmax(226px, 0.9fr) auto;
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -1693,7 +1837,7 @@ select,
 
 .metric-title,
 .system-title-block > span,
-.capacity-group-head span {
+.capacity-card-head span {
   font-size: var(--tm-font-label);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1797,6 +1941,16 @@ select,
 
 .system-chart-shell {
   min-height: 0;
+}
+
+.system-card[data-system-card="CPU"] .system-chart-shell {
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.system-card[data-system-card="Disk IO"] .system-chart-shell {
+  grid-template-columns: 62px minmax(0, 1fr) 62px;
+  gap: 8px;
 }
 
 .chart-canvas {
@@ -1931,6 +2085,11 @@ select,
   background: linear-gradient(180deg, rgba(134, 239, 172, 0.24), rgba(134, 239, 172, 0.08));
 }
 
+.system-card[data-system-card="CPU"] .chart-axis,
+.system-card[data-system-card="Disk IO"] .chart-axis {
+  padding: 18px 0 8px;
+}
+
 .history-chart,
 .system-chart {
   width: 100%;
@@ -1951,8 +2110,22 @@ select,
 
 .system-grid .system-card {
   display: grid;
-  grid-template-rows: 56px minmax(188px, 1fr) 24px;
-  gap: 6px;
+  grid-template-rows: 52px minmax(0, 1fr) auto;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.system-card[data-system-card="CPU"] .system-chart-wrap,
+.system-card[data-system-card="Disk IO"] .system-chart-wrap {
+  align-self: start;
+  padding: 6px 7px;
+  height: 120px;
+}
+
+.system-card[data-system-card="CPU"] .system-chart-shell,
+.system-card[data-system-card="Disk IO"] .system-chart-shell {
+  height: 100%;
   min-height: 0;
 }
 
@@ -1964,7 +2137,7 @@ select,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
-  min-height: 56px;
+  min-height: 52px;
   gap: 10px;
 }
 
@@ -1977,7 +2150,7 @@ select,
 }
 
 .system-title-block {
-  min-height: 56px;
+  min-height: 52px;
   display: grid;
   grid-template-rows: 14px minmax(0, 1fr);
   align-content: start;
@@ -2058,7 +2231,8 @@ select,
   margin: 0;
   color: #70839a;
   font-size: var(--tm-font-meta);
-  min-height: 24px;
+  min-height: 0;
+  line-height: 1.25;
   display: flex;
   align-items: flex-start;
 }
@@ -2068,94 +2242,197 @@ select,
 }
 
 .capacity-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   padding-top: 10px;
   padding-bottom: 10px;
+  min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at top right, rgba(100, 116, 139, 0.08), transparent 34%),
     linear-gradient(180deg, rgba(16, 22, 31, 0.98), rgba(9, 13, 19, 0.98));
 }
 
-.capacity-groups {
+.capacity-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
 }
 
-.capacity-group {
-  display: flex;
-  flex-direction: column;
+.capacity-card {
+  border: 1px solid #243446;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(12, 18, 25, 0.98), rgba(9, 13, 19, 0.98));
+  padding: 8px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.capacity-group-head span {
+.capacity-card-head {
+  display: grid;
+  gap: 1px;
+  min-height: 20px;
+}
+
+.capacity-card-head span {
   font-size: var(--tm-font-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #8ea0b5;
 }
 
-.capacity-list {
-  display: grid;
-  gap: 6px;
+.capacity-card-head strong {
+  font-size: 9px;
+  line-height: 1.2;
+  color: #d8e1ec;
 }
 
-.capacity-row,
-.capacity-row-label,
-.capacity-row-stats,
-.capacity-note {
+.capacity-summary-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 0;
+}
+
+.capacity-log-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 5px;
+  min-height: 0;
+}
+
+.capacity-summary-topline,
+.capacity-summary-meta,
+.capacity-log-row,
+.capacity-log-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
 }
 
-.capacity-row {
-  border: 1px solid #243446;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #0c131b, #0a1017);
-  padding: 6px 8px;
-  grid-template-columns: minmax(0, 1.2fr) minmax(110px, 1fr) auto;
-  display: grid;
-  min-width: 0;
+.capacity-summary-topline {
+  align-items: baseline;
 }
 
-.capacity-row-label,
-.capacity-row-stats {
-  min-width: 0;
+.capacity-summary-topline strong {
+  font-size: 18px;
+  line-height: 1;
+  color: #f4f8fb;
 }
 
-.capacity-row-label {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-.capacity-row-label strong,
-.capacity-row-stats strong,
-.capacity-row-stats span,
-.capacity-row-label span {
+.capacity-summary-topline span,
+.capacity-summary-meta span,
+.capacity-log-copy span,
+.capacity-log-meta span,
+.capacity-table td,
+.capacity-table th {
   font-size: var(--tm-font-body);
 }
 
-.capacity-row-label span,
-.capacity-row-stats span {
+.capacity-summary-topline span,
+.capacity-summary-meta span,
+.capacity-log-copy span,
+.capacity-log-meta span,
+.capacity-table td {
   color: #8fa1b6;
   line-height: 1.2;
 }
 
-.capacity-row-bar {
-  display: flex;
-  align-items: center;
+.capacity-summary-meta {
+  align-items: flex-start;
 }
 
-.capacity-row-stats {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+.capacity-log-row {
+  border: 1px solid #223344;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(10, 15, 21, 0.98), rgba(8, 12, 18, 0.98));
+  padding: 6px 7px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+}
+
+.capacity-log-copy,
+.capacity-log-progress {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.capacity-log-copy strong {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #edf2f7;
+}
+
+.capacity-log-progress {
+  min-width: 0;
+}
+
+.capacity-card[data-capacity-card="log-disk"] {
+  padding: 7px 8px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-card-head {
+  gap: 0;
+  min-height: 18px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-card-head strong {
+  font-size: 8.5px;
+  line-height: 1.1;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-row {
+  padding: 6px 7px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy,
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-progress {
+  gap: 3px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy strong {
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy span {
+  font-size: 9px;
+  line-height: 1.18;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 4px 8px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-meta span {
+  font-size: 9px;
+  line-height: 1.18;
+  white-space: normal;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-meta span:last-child {
   text-align: right;
-  white-space: nowrap;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-bar {
+  height: 7px;
 }
 
 .capacity-bar {
@@ -2187,26 +2464,33 @@ select,
   background: linear-gradient(90deg, #dc2626, #f87171);
 }
 
-.capacity-notes {
-  display: grid;
-  gap: 4px;
+.capacity-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  border: 1px solid #223344;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.capacity-note {
-  justify-content: flex-start;
-  font-size: var(--tm-font-body);
-  color: #7f90a7;
-  line-height: 1.25;
+.capacity-table th,
+.capacity-table td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid rgba(48, 67, 88, 0.85);
+  word-break: break-word;
+  font-size: 10px;
 }
 
-.capacity-note-label {
-  color: #a8b4c5;
+.capacity-table th {
+  color: #9fb0c4;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(19, 27, 36, 0.92);
 }
 
-.capacity-empty {
-  margin: 0;
-  color: #7f90a7;
-  font-size: var(--tm-font-body);
+.capacity-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .terminal-viewer {
@@ -2330,7 +2614,7 @@ select,
 }
 
 .system-chart-wrap {
-  min-height: 188px;
+  min-height: 0;
 }
 
 .monitor-board .card-head {
@@ -2347,7 +2631,7 @@ select,
   .metric-grid,
   .preview-grid,
   .system-grid,
-  .capacity-groups,
+  .capacity-grid,
   .override-grid {
     grid-template-columns: 1fr;
   }
