@@ -6,7 +6,7 @@ import {
   ListTemplates as ListTemplatesApi,
   UpdateTemplate as UpdateTemplateApi
 } from '../../wailsjs/go/bindings/TemplateBinding'
-import { getCapabilityForTool } from '../constants/templateCapabilities'
+import { getCapabilityForTool, getDefaultToolForDbFamily, getToolsForDbFamily } from '../constants/templateCapabilities'
 import {
   cloneTemplate,
   createDefaultTemplate,
@@ -89,14 +89,16 @@ function applyPhaseRules(template, capability, changeLabels) {
 }
 
 function normalizeDraftForCapability(template) {
-  const capability = getCapabilityForTool(template.tool)
   const normalized = cloneTemplate(template)
   const changeLabels = []
+  const allowedTools = getToolsForDbFamily(normalized.dbFamily)
 
-  if (!capability.dbFamilies.includes(normalized.dbFamily)) {
-    normalized.dbFamily = capability.dbFamilies[0]
-    changeLabels.push('Database Type')
+  if (!allowedTools.includes(normalized.tool)) {
+    normalized.tool = getDefaultToolForDbFamily(normalized.dbFamily, normalized.tool)
+    changeLabels.push('Benchmark Tool')
   }
+
+  const capability = getCapabilityForTool(normalized.tool)
 
   if (!capability.workloads.includes(normalized.workloadFamily)) {
     normalized.workloadFamily = capability.workloads[0]
@@ -109,6 +111,7 @@ function normalizeDraftForCapability(template) {
   }
 
   normalized.compatibility.supportedDatabases = [normalized.dbFamily]
+  normalized.database_types = [normalized.dbFamily]
   normalized.phases = applyPhaseRules(normalized, capability, changeLabels)
 
   const workloadDefaults = capability.workloadFieldMap?.[normalized.workloadFamily] || {}
@@ -128,10 +131,6 @@ function normalizeDraftForCapability(template) {
   }
 
   if (normalized.tool === 'swingbench') {
-    if (normalized.dbFamily !== 'oracle') {
-      changeLabels.push('Database Type')
-    }
-    normalized.dbFamily = 'oracle'
     if (normalized.toolConfig.swingbench.userCount !== normalized.runtime.concurrency.value) {
       changeLabels.push('userCount')
     }
@@ -449,8 +448,9 @@ export const useTemplateStore = defineStore('template', {
         errors.workloadFamily = 'Workload family is required.'
       }
 
-      if (capability && !capability.dbFamilies.includes(targetTemplate.dbFamily)) {
-        errors.dbFamily = `${TEMPLATE_TOOL_LABELS[targetTemplate.tool]} templates can only use ${capability.dbFamilies.map((db) => DB_FAMILY_LABELS[db]).join(', ')}.`
+      const allowedTools = getToolsForDbFamily(targetTemplate.dbFamily)
+      if (targetTemplate.dbFamily && targetTemplate.tool && !allowedTools.includes(targetTemplate.tool)) {
+        errors.tool = `${DB_FAMILY_LABELS[targetTemplate.dbFamily] || targetTemplate.dbFamily} templates can only use ${allowedTools.map((tool) => TEMPLATE_TOOL_LABELS[tool] || tool).join(', ')}.`
       }
 
       if (capability && !capability.workloads.includes(targetTemplate.workloadFamily)) {
@@ -491,7 +491,7 @@ export const useTemplateStore = defineStore('template', {
       }
 
       if (targetTemplate.tool === 'swingbench' && targetTemplate.dbFamily !== 'oracle') {
-        errors.dbFamily = 'Swingbench is limited to Oracle templates.'
+        errors.tool = 'Selected database type does not support Swingbench.'
       }
 
       if (targetTemplate.tool === 'swingbench') {
@@ -551,7 +551,8 @@ export const useTemplateStore = defineStore('template', {
 
     updateDraftForTool(tool) {
       if (!this.editingTemplateDraft) return
-      this.editingTemplateDraft.tool = tool
+      const nextTool = getDefaultToolForDbFamily(this.editingTemplateDraft.dbFamily, tool)
+      this.editingTemplateDraft.tool = nextTool
       this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing tool')
       this.markDirty()
       this.validateTemplate(this.editingTemplateDraft)

@@ -43,7 +43,7 @@
           :value="templateModel.tool"
           @change="handleToolChange($event.target.value)"
         >
-          <option v-for="(label, value) in templateStore.toolLabels" :key="value" :value="value">{{ label }}</option>
+          <option v-for="tool in availableToolOptions" :key="tool" :value="tool">{{ templateStore.toolLabels[tool] || tool }}</option>
         </select>
         <span v-if="errors.tool" class="field-error">{{ errors.tool }}</span>
       </label>
@@ -109,7 +109,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { TEMPLATE_CAPABILITIES } from '../../constants/templateCapabilities'
+import { DB_OPTIONS, TEMPLATE_CAPABILITIES, getToolsForDbFamily } from '../../constants/templateCapabilities'
 import { formatTemplateDate } from '../../models/template'
 import { useTemplateStore } from '../../stores/template'
 
@@ -127,7 +127,8 @@ const props = defineProps({
 const templateStore = useTemplateStore()
 const errors = computed(() => templateStore.validationErrors)
 
-const availableDbOptions = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool]?.dbFamilies || [])
+const availableDbOptions = computed(() => DB_OPTIONS.map((option) => option.value))
+const availableToolOptions = computed(() => getToolsForDbFamily(props.templateModel.dbFamily))
 const availableWorkloads = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool]?.workloads || [])
 
 const handleToolChange = (value) => {
@@ -135,7 +136,6 @@ const handleToolChange = (value) => {
 }
 
 const handleDbChange = (value) => {
-  props.templateModel.dbFamily = value
   templateStore.updateDraftDbFamily(value)
 }
 

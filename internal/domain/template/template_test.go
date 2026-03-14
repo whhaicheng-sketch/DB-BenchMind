@@ -254,6 +254,35 @@ func TestTemplate_SupportsDatabase(t *testing.T) {
 	}
 }
 
+func TestTemplate_ValidateCanonical_AllowsAnyToolCompatibleWithDatabase(t *testing.T) {
+	tmpl := canonicalTemplateForTest()
+	tmpl.DBFamily = "oracle"
+	tmpl.Tool = ToolHammerDB
+	tmpl.WorkloadFamily = "tproc-c"
+	tmpl.Runtime.Concurrency.Mode = "virtualUsers"
+	tmpl.ToolConfig.HammerDB.Benchmark = "tproc-c"
+	tmpl.ToolConfig.HammerDB.VirtualUsers = 32
+	tmpl.ToolConfig.HammerDB.Warehouses = 10
+
+	if err := tmpl.Validate(); err != nil {
+		t.Fatalf("Validate() returned error for oracle + hammerdb: %v", err)
+	}
+}
+
+func TestTemplate_ValidateCanonical_RejectsToolDatabaseMismatch(t *testing.T) {
+	tmpl := canonicalTemplateForTest()
+	tmpl.DBFamily = "sqlserver"
+	tmpl.Tool = ToolSwingbench
+	tmpl.WorkloadFamily = "order-entry"
+	tmpl.Runtime.Concurrency.Mode = "users"
+	tmpl.ToolConfig.Swingbench.Benchmark = "orderEntry"
+	tmpl.ToolConfig.Swingbench.UserCount = 32
+
+	if err := tmpl.Validate(); err == nil {
+		t.Fatal("Validate() should reject swingbench with non-oracle database")
+	}
+}
+
 // TestTemplate_GetParameter tests retrieving parameters by name.
 func TestTemplate_GetParameter(t *testing.T) {
 	tmpl := &Template{
@@ -569,4 +598,45 @@ func TestTemplate_Clone(t *testing.T) {
 // Helper function
 func intPtr(i int) *int {
 	return &i
+}
+
+func canonicalTemplateForTest() *Template {
+	return &Template{
+		ID:             "canonical-template",
+		Name:           "Canonical Template",
+		Tool:           ToolSysbench,
+		DBFamily:       "mysql",
+		WorkloadFamily: "oltp-read-write",
+		Scope:          "user",
+		Status:         "draft",
+		Compatibility: Compatibility{
+			SupportedDatabases: []string{"mysql"},
+			SupportedVersions:  []string{"test"},
+		},
+		Phases: PhaseSet{
+			Run: PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+		},
+		Runtime: Runtime{
+			Concurrency:           Concurrency{Mode: "threads", Value: 16},
+			DurationSeconds:       60,
+			ReportIntervalSeconds: 1,
+		},
+		ToolConfig: ToolConfig{
+			Sysbench: SysbenchConfig{
+				ScriptType: "oltp_read_write",
+				Tables:     1,
+				TableSize:  1000,
+			},
+			Swingbench: SwingbenchConfig{
+				Benchmark: "orderEntry",
+				UserCount: 16,
+			},
+			HammerDB: HammerDBConfig{
+				Benchmark:    "tproc-c",
+				VirtualUsers: 16,
+				Warehouses:   10,
+				ScaleFactor:  10,
+			},
+		},
+	}
 }

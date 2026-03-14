@@ -17,6 +17,7 @@ type SSHMetricPoint struct {
 	CPUUser            float64 `json:"cpu_user"`
 	CPUSys             float64 `json:"cpu_sys"`
 	CPUIOWait          float64 `json:"cpu_iowait"`
+	CPUSteal           float64 `json:"cpu_steal"`
 	DiskReadBps        float64 `json:"disk_read_bps"`
 	DiskWriteBps       float64 `json:"disk_write_bps"`
 	DiskReadLatencyMs  float64 `json:"disk_read_latency_ms"`
@@ -133,7 +134,7 @@ func (c *SSHMetricsCollector) collect() {
 	now := time.Now().UnixMilli()
 	point := SSHMetricPoint{Timestamp: now}
 	if c.lastCPU != nil {
-		point.CPUUser, point.CPUSys, point.CPUIOWait = calcCPUPercentages(*c.lastCPU, cpuNext)
+		point.CPUUser, point.CPUSys, point.CPUIOWait, point.CPUSteal = calcCPUPercentages(*c.lastCPU, cpuNext)
 	}
 	if c.lastDisk != nil {
 		seconds := c.interval.Seconds()
@@ -188,9 +189,13 @@ func parseCPUCounters(raw string) (cpuCounters, error) {
 	lines := strings.Split(strings.TrimSpace(raw), "\n")
 	for _, line := range lines {
 		fields := strings.Fields(line)
-		if len(fields) >= 8 && fields[0] == "cpu" {
+		if len(fields) >= 5 && fields[0] == "cpu" {
 			values := make([]uint64, 8)
-			for i := 0; i < 8; i++ {
+			limit := len(fields) - 1
+			if limit > len(values) {
+				limit = len(values)
+			}
+			for i := 0; i < limit; i++ {
 				v, err := strconv.ParseUint(fields[i+1], 10, 64)
 				if err != nil {
 					return cpuCounters{}, err
@@ -248,7 +253,7 @@ func parseDiskCounters(raw string) (diskCounters, error) {
 	return counters, nil
 }
 
-func calcCPUPercentages(prev, next cpuCounters) (float64, float64, float64) {
+func calcCPUPercentages(prev, next cpuCounters) (float64, float64, float64, float64) {
 	prevIdle := prev.idle + prev.iowait
 	nextIdle := next.idle + next.iowait
 	prevNonIdle := prev.user + prev.nice + prev.system + prev.irq + prev.softirq + prev.steal
@@ -257,12 +262,13 @@ func calcCPUPercentages(prev, next cpuCounters) (float64, float64, float64) {
 	nextTotal := nextIdle + nextNonIdle
 	totald := float64(delta(nextTotal, prevTotal))
 	if totald <= 0 {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 	user := float64(delta(next.user+next.nice, prev.user+prev.nice)) / totald * 100
 	sys := float64(delta(next.system+next.irq+next.softirq, prev.system+prev.irq+prev.softirq)) / totald * 100
 	iowait := float64(delta(next.iowait, prev.iowait)) / totald * 100
-	return user, sys, iowait
+	steal := float64(delta(next.steal, prev.steal)) / totald * 100
+	return user, sys, iowait, steal
 }
 
 func delta(next, prev uint64) uint64 {

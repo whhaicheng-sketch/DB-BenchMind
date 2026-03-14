@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
+	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/collector"
 )
 
 func TestBuildPhaseExecutionConfig(t *testing.T) {
@@ -69,5 +70,25 @@ func TestValidateReadiness(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("validateReadiness() expected action support error")
+	}
+}
+
+func TestUpdateSystemMetricsIncludesCPUSteal(t *testing.T) {
+	task := &domaintask.ExecutionTask{}
+	points := []collector.SSHMetricPoint{
+		{Timestamp: 1000, CPUUser: 10, CPUSys: 4, CPUIOWait: 1, CPUSteal: 0.5},
+		{Timestamp: 2000, CPUUser: 12, CPUSys: 5, CPUIOWait: 2, CPUSteal: 1.25},
+	}
+
+	updateSystemMetrics(task, points)
+
+	if got := task.Metrics.CPUSteal.Current; got != 1.25 {
+		t.Fatalf("CPUSteal.Current = %v, want 1.25", got)
+	}
+	if len(task.Metrics.CPUSteal.Series) != len(points) {
+		t.Fatalf("CPUSteal.Series length = %d, want %d", len(task.Metrics.CPUSteal.Series), len(points))
+	}
+	if got := task.Metrics.CPUSteal.Series[0].Value; got != 0.5 {
+		t.Fatalf("CPUSteal.Series[0].Value = %v, want 0.5", got)
 	}
 }

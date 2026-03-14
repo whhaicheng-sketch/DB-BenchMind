@@ -1,4 +1,4 @@
-import { DB_FAMILY_LABELS, TEMPLATE_TOOL_LABELS, WORKLOAD_LABELS } from '../models/template'
+import { DB_FAMILY_LABELS, TEMPLATE_TOOL_LABELS, TEMPLATE_TOOLS, WORKLOAD_LABELS } from '../models/template'
 
 export const TEMPLATE_CAPABILITIES = {
   sysbench: {
@@ -124,4 +124,16 @@ export const WORKLOAD_OPTIONS = Object.entries(WORKLOAD_LABELS).map(([value, lab
 
 export function getCapabilityForTool(tool) {
   return TEMPLATE_CAPABILITIES[tool] || TEMPLATE_CAPABILITIES.sysbench
+}
+
+export function getToolsForDbFamily(dbFamily) {
+  if (!dbFamily) return TEMPLATE_TOOLS
+  return TEMPLATE_TOOLS.filter((tool) => TEMPLATE_CAPABILITIES[tool]?.dbFamilies.includes(dbFamily))
+}
+
+export function getDefaultToolForDbFamily(dbFamily, currentTool = '') {
+  const tools = getToolsForDbFamily(dbFamily)
+  if (currentTool && tools.includes(currentTool)) return currentTool
+  if (tools.length > 0) return tools[0]
+  return currentTool || TEMPLATE_TOOLS[0]
 }

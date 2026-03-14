@@ -15,3 +15,27 @@ func TestParseLinuxMetrics(t *testing.T) {
 		t.Fatalf("unexpected disk counters: %+v", disk)
 	}
 }
+
+func TestCalcCPUPercentagesIncludesSteal(t *testing.T) {
+	prev := cpuCounters{
+		user: 100, system: 40, idle: 200, iowait: 20, irq: 0, softirq: 0, steal: 10,
+	}
+	next := cpuCounters{
+		user: 130, system: 55, idle: 230, iowait: 30, irq: 0, softirq: 0, steal: 25,
+	}
+
+	user, sys, iowait, steal := calcCPUPercentages(prev, next)
+
+	if user <= 0 {
+		t.Fatalf("expected user percentage > 0, got %.2f", user)
+	}
+	if sys <= 0 {
+		t.Fatalf("expected sys percentage > 0, got %.2f", sys)
+	}
+	if iowait <= 0 {
+		t.Fatalf("expected iowait percentage > 0, got %.2f", iowait)
+	}
+	if steal <= 0 {
+		t.Fatalf("expected steal percentage > 0, got %.2f", steal)
+	}
+}

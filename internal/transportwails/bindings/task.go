@@ -34,12 +34,11 @@ type TaskBinding struct {
 }
 
 type taskExecutionContext struct {
-	currentRunID       string
-	logSeen            map[string]int
-	stopRequested      bool
-	sshCollector       *collector.SSHMetricsCollector
-	connection         connection.Connection
-	lastCapacityUpdate time.Time
+	currentRunID  string
+	logSeen       map[string]int
+	stopRequested bool
+	sshCollector  *collector.SSHMetricsCollector
+	connection    connection.Connection
 }
 
 type TaskDraftRequest struct {
@@ -532,10 +531,6 @@ func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phas
 		task.Metrics.SystemEnabled = false
 		task.Metrics.SystemMessage = task.Readiness.SSHMessage
 	}
-	if shouldRefreshCapacity(execCtx.lastCapacityUpdate) {
-		refreshCapacity(task, execCtx)
-		execCtx.lastCapacityUpdate = time.Now()
-	}
 
 	start := execCtx.logSeen[runID]
 	if start < len(logs) {
@@ -843,6 +838,7 @@ func updateSystemMetrics(task *domaintask.ExecutionTask, points []collector.SSHM
 	task.Metrics.CPUUser.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.CPUUser })
 	task.Metrics.CPUSys.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.CPUSys })
 	task.Metrics.CPUIOWait.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.CPUIOWait })
+	task.Metrics.CPUSteal.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.CPUSteal })
 	task.Metrics.DiskReadBps.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskReadBps })
 	task.Metrics.DiskWriteBps.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskWriteBps })
 	task.Metrics.DiskReadLatencyMs.Series = shrinkSystemSeries(points, func(point collector.SSHMetricPoint) float64 { return point.DiskReadLatencyMs })
@@ -851,6 +847,7 @@ func updateSystemMetrics(task *domaintask.ExecutionTask, points []collector.SSHM
 	task.Metrics.CPUUser.Current = last.CPUUser
 	task.Metrics.CPUSys.Current = last.CPUSys
 	task.Metrics.CPUIOWait.Current = last.CPUIOWait
+	task.Metrics.CPUSteal.Current = last.CPUSteal
 	task.Metrics.DiskReadBps.Current = last.DiskReadBps
 	task.Metrics.DiskWriteBps.Current = last.DiskWriteBps
 	task.Metrics.DiskReadLatencyMs.Current = last.DiskReadLatencyMs
@@ -935,19 +932,14 @@ func cloneMetrics(metrics domaintask.UnifiedMetrics) domaintask.UnifiedMetrics {
 	metrics.CPUUser.Series = cloneSeries(metrics.CPUUser.Series)
 	metrics.CPUSys.Series = cloneSeries(metrics.CPUSys.Series)
 	metrics.CPUIOWait.Series = cloneSeries(metrics.CPUIOWait.Series)
+	metrics.CPUSteal.Series = cloneSeries(metrics.CPUSteal.Series)
 	metrics.DiskReadBps.Series = cloneSeries(metrics.DiskReadBps.Series)
 	metrics.DiskWriteBps.Series = cloneSeries(metrics.DiskWriteBps.Series)
 	metrics.DiskReadLatencyMs.Series = cloneSeries(metrics.DiskReadLatencyMs.Series)
 	metrics.DiskWriteLatencyMs.Series = cloneSeries(metrics.DiskWriteLatencyMs.Series)
-	metrics.Capacity.Filesystem = cloneCapacityEntries(metrics.Capacity.Filesystem)
-	metrics.Capacity.OracleStorage = cloneCapacityEntries(metrics.Capacity.OracleStorage)
 	return metrics
 }
 
 func cloneSeries(series []domaintask.MetricSeriesPoint) []domaintask.MetricSeriesPoint {
 	return append([]domaintask.MetricSeriesPoint(nil), series...)
-}
-
-func cloneCapacityEntries(entries []domaintask.CapacityEntry) []domaintask.CapacityEntry {
-	return append([]domaintask.CapacityEntry(nil), entries...)
 }
