@@ -1084,7 +1084,7 @@ function closeLogViewer() {
 .tasks-monitor-tab {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   color: #e8edf5;
   height: 100%;
   min-height: 0;
@@ -1339,7 +1339,7 @@ function closeLogViewer() {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: #101720;
 }
 
@@ -1495,12 +1495,14 @@ select,
   min-height: 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  height: 100%;
   overflow: hidden;
 }
 
 .monitor-board-grid {
   display: grid;
-  grid-template-rows: minmax(208px, 0.9fr) minmax(226px, 1fr);
+  grid-template-rows: minmax(244px, 0.82fr) minmax(286px, 1fr);
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -1670,7 +1672,7 @@ select,
 }
 
 .metric-chart-canvas {
-  padding: 32px 0 6px;
+  padding: 28px 0 6px;
 }
 
 .metric-chart-current {
@@ -1820,7 +1822,7 @@ select,
 
 .system-grid .system-card {
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(46px, auto) minmax(0, 1fr) auto;
   gap: 4px;
   min-height: 0;
   overflow: hidden;
@@ -1830,7 +1832,8 @@ select,
 .system-card[data-system-card="Disk IO"] .system-chart-wrap {
   align-self: start;
   padding: 6px 7px;
-  height: 120px;
+  min-height: 150px;
+  height: 100%;
 }
 
 .system-card[data-system-card="CPU"] .system-chart-shell,
@@ -1847,7 +1850,7 @@ select,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
-  min-height: 52px;
+  min-height: 46px;
   gap: 10px;
 }
 
@@ -1860,7 +1863,7 @@ select,
 }
 
 .system-title-block {
-  min-height: 52px;
+  min-height: 46px;
   display: grid;
   grid-template-rows: 14px minmax(0, 1fr);
   align-content: start;
@@ -1942,7 +1945,7 @@ select,
   color: #70839a;
   font-size: var(--tm-font-meta);
   min-height: 0;
-  line-height: 1.25;
+  line-height: 1.15;
   display: flex;
   align-items: flex-start;
 }
@@ -2076,7 +2079,7 @@ select,
 }
 
 .monitor-board .card-head {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .tab-header .page-subtitle {

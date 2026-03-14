@@ -103,7 +103,7 @@ func main() {
 	err = wails.Run(&options.App{
 		Title:  "DB-BenchMind",
 		Width:  1200,
-		Height: 1000,
+		Height: 800,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
