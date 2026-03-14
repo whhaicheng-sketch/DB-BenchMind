@@ -772,7 +772,7 @@ func (uc *BenchmarkUseCase) executeRun(
 				if len(stdoutStr) > 0 {
 					slog.Info("Benchmark: Sysbench output preview", "run_id", run.ID, "output_preview", stdoutStr[:min(500, len(stdoutStr))])
 				}
-				finalResult, err := adapt.ParseFinalResults(ctx, stdoutStr)
+				finalResult, err := adapt.ParseFinalResults(ctx, withSwingbenchResultFileHint(stdoutStr, tmpl, cmd))
 				slog.Info("Benchmark: ParseFinalResults returned", "run_id", run.ID, "err", err, "finalResult_nil", finalResult == nil)
 				if err != nil {
 					slog.Error("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
@@ -980,7 +980,7 @@ func (uc *BenchmarkUseCase) executeRun(
 			if len(stdoutStr) > 0 {
 				slog.Info("Benchmark: Sysbench output preview", "run_id", run.ID, "output_preview", stdoutStr[:min(500, len(stdoutStr))])
 			}
-			finalResult, err := adapt.ParseFinalResults(ctx, stdoutStr)
+			finalResult, err := adapt.ParseFinalResults(ctx, withSwingbenchResultFileHint(stdoutStr, tmpl, cmd))
 			slog.Info("Benchmark: ParseFinalResults returned", "run_id", run.ID, "err", err, "finalResult_nil", finalResult == nil)
 			if err != nil {
 				slog.Error("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
@@ -1107,8 +1107,7 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 
 	// Check if this is a Swingbench command (uses java with LauncherBootstrap)
 	// We detect Swingbench by looking for LauncherBootstrap class name
-	isSwingbench := strings.Contains(cmd.CmdLine, "LauncherBootstrap") ||
-		(strings.Contains(cmd.CmdLine, "oewizard") || strings.Contains(cmd.CmdLine, "charbench"))
+	isSwingbench := isSwingbenchCommandLine(cmd.CmdLine)
 
 	if isSwingbench {
 		// Use startCommand+Wait for Swingbench to properly track background processes
@@ -1563,8 +1562,7 @@ func (uc *BenchmarkUseCase) executeCommandSequence(ctx context.Context, run *exe
 
 		// Execute the step command
 		var err error
-		isSwingbench := strings.Contains(step.CmdLine, "LauncherBootstrap") ||
-			(strings.Contains(step.CmdLine, "oewizard") || strings.Contains(step.CmdLine, "charbench"))
+		isSwingbench := isSwingbenchCommandLine(step.CmdLine)
 
 		if isSwingbench {
 			err = uc.executeCommandSwingbench(ctx, run, step)
@@ -1685,7 +1683,7 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 
 	// For Swingbench, set working directory to swingbench bin directory
 	// This is needed because Swingbench expects to run from its bin directory
-	if strings.Contains(cmd.CmdLine, "swingbench") || strings.Contains(cmd.CmdLine, "LauncherBootstrap") {
+	if isSwingbenchCommandLine(cmd.CmdLine) {
 		execCmd.Dir = "/opt/benchtools/swingbench/bin"
 		slog.Info("Benchmark: Setting Swingbench working directory",
 			"work_dir", execCmd.Dir,
@@ -1741,6 +1739,29 @@ func (uc *BenchmarkUseCase) captureOutput(ctx context.Context, runID, stream str
 			Content:   line,
 		})
 	}
+}
+
+func isSwingbenchCommandLine(cmdLine string) bool {
+	lower := strings.ToLower(cmdLine)
+	return strings.Contains(lower, "launcherbootstrap") ||
+		strings.Contains(lower, "charbench") ||
+		strings.Contains(lower, "oewizard") ||
+		strings.Contains(lower, "minibench") ||
+		strings.Contains(lower, "swingbench")
+}
+
+func withSwingbenchResultFileHint(stdout string, tmpl *domaintemplate.Template, cmd *adapter.Command) string {
+	if tmpl == nil || tmpl.Tool != domaintemplate.ToolSwingbench || cmd == nil || strings.TrimSpace(cmd.ResultFile) == "" {
+		return stdout
+	}
+	const hintPrefix = "__DB_BENCHMIND_SWINGBENCH_RESULT_FILE__="
+	if strings.Contains(stdout, hintPrefix) {
+		return stdout
+	}
+	if stdout != "" && !strings.HasSuffix(stdout, "\n") {
+		stdout += "\n"
+	}
+	return stdout + hintPrefix + strings.TrimSpace(cmd.ResultFile) + "\n"
 }
 
 func (uc *BenchmarkUseCase) mirrorOutputStream(ctx context.Context, runID string, stream string, source io.ReadCloser) io.ReadCloser {

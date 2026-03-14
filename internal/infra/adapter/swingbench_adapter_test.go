@@ -3,12 +3,15 @@ package adapter
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 )
 
 // TestSwingbenchAdapter_Type tests the Type method.
@@ -48,9 +51,9 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
 
-	// Should return a command sequence with 4 steps
+	// Should return a command sequence with 5 steps
 	assert.Equal(t, "oracle_prepare_sequence", cmd.CmdLine)
-	assert.Len(t, cmd.Commands, 4, "Prepare should have 4 steps")
+	assert.Len(t, cmd.Commands, 5, "Prepare should have 5 steps")
 
 	// Step 1: Connection probe (using DBA user)
 	step1 := cmd.Commands[0]
@@ -68,7 +71,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	step3 := cmd.Commands[2]
 	assert.Equal(t, "Create Tablespaces", step3.StepName)
 	assert.Contains(t, step3.CmdLine, "sqlplus")
-	assert.Contains(t, step3.CmdLine, "create tablespace SOE")
+	assert.Contains(t, step3.CmdLine, "/tmp/db-benchmind-creatablespace-")
 
 	// Step 4: oewizard -create
 	step4 := cmd.Commands[3]
@@ -81,6 +84,11 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step4.CmdLine, "-scale 0.1")
 	assert.Contains(t, step4.CmdLine, "-tc")
 	assert.Contains(t, step4.CmdLine, "//localhost:1521/ORCL")
+
+	step5 := cmd.Commands[4]
+	assert.Equal(t, "Post-Schema Setup", step5.StepName)
+	assert.Contains(t, step5.CmdLine, "sqlplus")
+	assert.Contains(t, step5.CmdLine, "/tmp/db-benchmind-postschema-")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.
@@ -118,7 +126,7 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 				assert.Contains(t, cmd.CmdLine, "-c /opt/benchtools/swingbench/configs/SOE_CPU_Bound.xml")
 				assert.Contains(t, cmd.CmdLine, "-cs //localhost:1521/ORCL")
 				assert.Contains(t, cmd.CmdLine, "-uc 10")
-				assert.Contains(t, cmd.CmdLine, "-rt 10:00")
+				assert.Contains(t, cmd.CmdLine, "-rt 00:01")
 			},
 		},
 		{
@@ -179,6 +187,53 @@ func TestSwingbenchAdapter_BuildRunCommand(t *testing.T) {
 			tt.validate(t, cmd, err)
 		})
 	}
+}
+
+func TestSwingbenchAdapter_BuildRunCommand_ManagedConfigUsesOfficialDefaults(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "test-conn-4",
+			Name: "Test Oracle Managed",
+		},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+
+	config := &Config{
+		Connection: conn,
+		Template: &template.Template{
+			ID:   "tpl_swing_oe",
+			Name: "Swingbench-Oracle-OE-Medium-64u-30m",
+			ToolConfig: template.ToolConfig{
+				Swingbench: template.SwingbenchConfig{
+					Benchmark:      "orderEntry",
+					Frontend:       "charbench",
+					ConfigMode:     "managed",
+					RunTimeSeconds: 120,
+					UserCount:      8,
+				},
+			},
+		},
+		Parameters: map[string]interface{}{
+			"virtual_users": 8,
+			"time":          120,
+		},
+		WorkDir: "/tmp/db-benchmind-managed",
+	}
+
+	cmd, err := adapter.BuildRunCommand(ctx, config)
+	require.NoError(t, err)
+	assert.Contains(t, cmd.CmdLine, "./charbench")
+	assert.Contains(t, cmd.CmdLine, "-c ../configs/server_side_soe_v2.xml")
+	assert.Contains(t, cmd.CmdLine, "-a")
+	assert.Contains(t, cmd.CmdLine, "-r /tmp/db-benchmind-managed/results.xml")
+	assert.Equal(t, "/tmp/db-benchmind-managed/results.xml", cmd.ResultFile)
 }
 
 // TestSwingbenchAdapter_BuildRunCommand_NonOracle tests that non-Oracle databases fail.
@@ -290,6 +345,30 @@ Time     Users       TPM      TPS     Errors   NCR   UCD   BP    OP    PO    BO
 			tt.validate(t, result)
 		})
 	}
+}
+
+func TestSwingbenchAdapter_ParseFinalResults_UsesHintedResultFile(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	tempDir := t.TempDir()
+	resultFile := filepath.Join(tempDir, "results.xml")
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<Results>
+  <TotalCompletedTransactions>120</TotalCompletedTransactions>
+  <AverageTransactionsPerSecond>2.5</AverageTransactionsPerSecond>
+  <TotalRunTime>0:00:48</TotalRunTime>
+  <TotalFailedTransactions>3</TotalFailedTransactions>
+</Results>`
+	require.NoError(t, os.WriteFile(resultFile, []byte(xml), 0o644))
+
+	result, err := adapter.ParseFinalResults(ctx, swingbenchResultFileHintPrefix+resultFile)
+	require.NoError(t, err)
+	assert.Equal(t, int64(120), result.TotalTransactions)
+	assert.Equal(t, 2.5, result.TransactionsPerSec)
+	assert.Equal(t, 150.0, result.AvgTPM)
+	assert.Equal(t, 48.0, result.TotalTime)
+	assert.Equal(t, int64(3), result.IgnoredErrors)
 }
 
 // TestSwingbenchAdapter_ValidateConfig tests configuration validation.

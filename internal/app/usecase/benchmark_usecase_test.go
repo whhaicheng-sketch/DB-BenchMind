@@ -337,7 +337,7 @@ func TestParseCommandLine(t *testing.T) {
 			name:    "empty command",
 			cmdLine: "",
 			wantLen: 0,
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
@@ -350,6 +350,27 @@ func TestParseCommandLine(t *testing.T) {
 			}
 			if len(parts) != tt.wantLen {
 				t.Errorf("parseCommandLine() len = %d, want %d", len(parts), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestIsSwingbenchCommandLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmdLine string
+		want    bool
+	}{
+		{name: "charbench script", cmdLine: "./charbench -c ../configs/server_side_soe_v2.xml", want: true},
+		{name: "oewizard launcher", cmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard", want: true},
+		{name: "minibench", cmdLine: "./minibench -c config.xml", want: true},
+		{name: "sysbench", cmdLine: "sysbench oltp_read_write run", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSwingbenchCommandLine(tt.cmdLine); got != tt.want {
+				t.Fatalf("isSwingbenchCommandLine(%q) = %v, want %v", tt.cmdLine, got, tt.want)
 			}
 		})
 	}

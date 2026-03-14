@@ -19,6 +19,8 @@ import (
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 )
 
+const swingbenchResultFileHintPrefix = "__DB_BENCHMIND_SWINGBENCH_RESULT_FILE__="
+
 // SwingbenchAdapter implements BenchmarkAdapter for Swingbench tool.
 // Implements: REQ-EXEC-001, REQ-EXEC-002, REQ-EXEC-004
 type SwingbenchAdapter struct {
@@ -32,7 +34,7 @@ type SwingbenchAdapter struct {
 func NewSwingbenchAdapter() *SwingbenchAdapter {
 	return &SwingbenchAdapter{
 		SwingbenchPath: "/opt/benchtools/swingbench/bin/charbench", // Default to charbench
-		OewizardPath:   "/opt/benchtools/swingbench/bin/oewizard",   // oewizard for data generation
+		OewizardPath:   "/opt/benchtools/swingbench/bin/oewizard",  // oewizard for data generation
 	}
 }
 
@@ -204,12 +206,9 @@ func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config)
 		runtimeMinutes = 1 // Minimum 1 minute
 	}
 
-	configFile := "config.xml" // Default config
-	if cf, ok := config.Parameters["config_file"].(string); ok && cf != "" {
-		configFile = cf
-	} else {
-		// Generate basic config file path
-		return nil, fmt.Errorf("config_file parameter is required for charbench")
+	configFile, err := a.resolveRunConfigFile(config)
+	if err != nil {
+		return nil, err
 	}
 
 	// For running charbench, use the SOE user (created by prepare phase)
@@ -236,11 +235,11 @@ func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config)
 		"-uc", fmt.Sprintf("%d", users),
 		"-intermin", "0", // Inter-transaction min delay
 		"-intermax", "0", // Inter-transaction max delay
-		"-min", "0",      // Intra-transaction min delay (think time)
-		"-max", "0",      // Intra-transaction max delay
+		"-min", "0", // Intra-transaction min delay (think time)
+		"-max", "0", // Intra-transaction max delay
 		"-rt", fmt.Sprintf("00:%02d", runtimeMinutes), // Format: HH:MM, minimum 1 minute
 		"-v", "users,tpm,tps,errs,vresp", // Verbose output metrics
-		"-a",                // Run automatically (required for stdout output)
+		"-a", // Run automatically (required for stdout output)
 	}
 
 	// Use -a (auto mode) to ensure stdout is captured for real-time metrics
@@ -270,8 +269,7 @@ func (a *SwingbenchAdapter) BuildRunCommand(ctx context.Context, config *Config)
 		resultFile = rf
 		cmdArgs = append(cmdArgs, "-r", resultFile)
 	} else {
-		// Generate default result file path
-		resultFile = fmt.Sprintf("/tmp/soe_%du_%dm.xml", users, runtimeMinutes)
+		resultFile = filepath.Join(config.WorkDir, "results.xml")
 		cmdArgs = append(cmdArgs, "-r", resultFile)
 	}
 
@@ -395,7 +393,7 @@ func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, s
 			// This looks like a data line with timestamp
 			sample := Sample{
 				Timestamp: time.Now(),
-				RawLine:  line,
+				RawLine:   line,
 			}
 
 			// Parse timestamp (field 0) - format HH:MM:SS
@@ -445,15 +443,15 @@ func (a *SwingbenchAdapter) ParseRunOutput(ctx context.Context, stdout string, s
 				index int
 				field *int64
 			}{
-				{5, &sample.NCR},  // New Customer Order
-				{6, &sample.UCD},  // Update Customer Detail
-				{7, &sample.BP},   // Browse Products
-				{8, &sample.OP},   // Order Products
-				{9, &sample.PO},   // Process Payment
-				{10, &sample.BO},  // Browse Orders
-				{11, &sample.SQ},  // Search Products
-				{12, &sample.WQ},  // Warehouse Query
-				{13, &sample.WA},  // Warehouse Admin
+				{5, &sample.NCR}, // New Customer Order
+				{6, &sample.UCD}, // Update Customer Detail
+				{7, &sample.BP},  // Browse Products
+				{8, &sample.OP},  // Order Products
+				{9, &sample.PO},  // Process Payment
+				{10, &sample.BO}, // Browse Orders
+				{11, &sample.SQ}, // Search Products
+				{12, &sample.WQ}, // Warehouse Query
+				{13, &sample.WA}, // Warehouse Admin
 			}
 
 			for _, op := range opFields {
@@ -732,48 +730,23 @@ func (a *SwingbenchAdapter) StartRealtimeCollection(ctx context.Context, stdout 
 // ParseFinalResults parses final results from swingbench output.
 // Swingbench outputs results in comma-separated format with performance metrics.
 func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string) (*FinalResult, error) {
-	// Swingbench results are in XML format when using -a (auto mode)
-	// We parse the XML result file instead of stdout
-	// stdout parameter is kept for interface compatibility but not used
-
-	// Try to find and parse the most recent Swingbench result file
-	files, err := os.ReadDir("/tmp")
-	if err != nil {
-		return &FinalResult{}, fmt.Errorf("read temp dir: %w", err)
-	}
-
-	// Find the most recent soe_*.xml file
-	var latestFile string
-	var latestMod time.Time
-	for _, file := range files {
-		if strings.HasPrefix(file.Name(), "soe_") && strings.HasSuffix(file.Name(), ".xml") {
-			info, err := file.Info()
-			if err != nil {
-				continue
-			}
-			if info.ModTime().After(latestMod) && info.Size() > 0 {
-				latestFile = filepath.Join("/tmp", file.Name())
-				latestMod = info.ModTime()
-			}
-		}
-	}
-
-	if latestFile == "" {
+	resultFile := a.resolveResultFile(stdout)
+	if resultFile == "" {
 		return &FinalResult{
-			TotalTime:           0,
-			TotalTransactions:   0,
-			TransactionsPerSec:  0,
-			LatencyAvg:          0,
-			LatencyMin:          0,
-			LatencyMax:          0,
-			LatencyP95:          0,
+			TotalTime:          0,
+			TotalTransactions:  0,
+			TransactionsPerSec: 0,
+			LatencyAvg:         0,
+			LatencyMin:         0,
+			LatencyMax:         0,
+			LatencyP95:         0,
 		}, nil
 	}
 
 	// Read and parse the XML file
-	data, err := os.ReadFile(latestFile)
+	data, err := os.ReadFile(resultFile)
 	if err != nil {
-		return &FinalResult{}, fmt.Errorf("read result file %s: %w", latestFile, err)
+		return &FinalResult{}, fmt.Errorf("read result file %s: %w", resultFile, err)
 	}
 
 	// Parse XML to extract metrics
@@ -983,6 +956,41 @@ func (a *SwingbenchAdapter) ParseFinalResults(ctx context.Context, stdout string
 	}
 
 	return result, nil
+}
+
+func (a *SwingbenchAdapter) resolveRunConfigFile(config *Config) (string, error) {
+	if cf, ok := config.Parameters["config_file"].(string); ok && strings.TrimSpace(cf) != "" {
+		return strings.TrimSpace(cf), nil
+	}
+	if config.Template == nil {
+		return "", fmt.Errorf("config_file parameter is required for charbench")
+	}
+	if strings.EqualFold(config.Template.ToolConfig.Swingbench.ConfigMode, "managed") {
+		switch strings.ToLower(strings.TrimSpace(config.Template.ToolConfig.Swingbench.Benchmark)) {
+		case "", "orderentry", "order-entry":
+			return "../configs/server_side_soe_v2.xml", nil
+		}
+	}
+	return "", fmt.Errorf("config_file parameter is required for charbench")
+}
+
+func (a *SwingbenchAdapter) resolveResultFile(stdout string) string {
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, swingbenchResultFileHintPrefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, swingbenchResultFileHintPrefix))
+		}
+	}
+
+	re := regexp.MustCompile(`Results\s+will\s+be\s+written\s+to\s+(.+?)(?:\.\s*)?$`)
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+			return strings.TrimSpace(matches[1])
+		}
+	}
+
+	return ""
 }
 
 // ValidateConfig validates the configuration for swingbench.
@@ -1309,8 +1317,8 @@ exit
 	// Use DBA credentials for schema check
 	var username, password string
 	// Note: We'll use the connection credentials (DBA for prepare phase)
-	username = conn.Username;
-	password = conn.Password;
+	username = conn.Username
+	password = conn.Password
 
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s' <<'SQL'\n%s\nSQL",
 		username,
@@ -1334,7 +1342,7 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-executablename", "oewizard",
 		"oewizard",
 		"-c", "oewizard.xml", // Config file (in bin directory)
-		"-cl",                // Command line mode
+		"-cl", // Command line mode
 		"-create",
 		"-version", "2.0",
 		"-cs", connectionStr,
@@ -1344,11 +1352,11 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-u", "soe",
 		"-p", "soe",
 		"-ts", "SOE", // Use existing tablespace
-		"-nopart", // No partitioning
-		"-nocompress", // No compression
-		"-normalfile", // Normal file type
-		"-allindexes", // Create all indexes
-		"-scale", fmt.Sprintf("%.1f", scaleFloat),  // Support float scale like 0.1 for test templates
+		"-nopart",                                 // No partitioning
+		"-nocompress",                             // No compression
+		"-normalfile",                             // Normal file type
+		"-allindexes",                             // Create all indexes
+		"-scale", fmt.Sprintf("%.1f", scaleFloat), // Support float scale like 0.1 for test templates
 		"-tc", fmt.Sprintf("%d", threads),
 		"-v",
 		"-debug",
@@ -1549,7 +1557,7 @@ func (a *SwingbenchAdapter) buildOewizardDropCommand(conn *connection.OracleConn
 		"-executablename", "oewizard",
 		"oewizard",
 		"-c", "oewizard.xml", // Config file (in bin directory)
-		"-cl",                // Command line mode
+		"-cl", // Command line mode
 		"-drop",
 		"-version", "2.0",
 		"-cs", connectionStr,
