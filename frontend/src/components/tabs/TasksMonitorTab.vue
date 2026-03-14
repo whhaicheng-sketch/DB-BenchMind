@@ -290,23 +290,23 @@
                         :key="item.key"
                         class="capacity-log-row"
                         :data-capacity-row="item.name"
+                        :data-capacity-log-empty="capacityLogIsEmpty(item.entry) ? 'true' : 'false'"
                       >
-                        <div class="capacity-log-copy">
-                          <strong>{{ item.name }}</strong>
-                          <span>{{ capacityLogDetail(item.entry) }}</span>
+                        <div class="capacity-log-header">
+                          <strong data-capacity-log-label>{{ item.name }}</strong>
+                          <span data-capacity-log-percent>{{ capacityLogPercent(item.entry) }}</span>
                         </div>
-                        <div class="capacity-log-progress">
-                          <div class="capacity-bar">
-                            <span
-                              class="capacity-fill"
-                              :class="`capacity-${item.entry.threshold}`"
-                              :style="{ width: `${capacityBarWidth(item.entry)}%` }"
-                            ></span>
-                          </div>
-                          <div class="capacity-log-meta">
-                            <span>{{ capacityLogUsage(item.entry) }}</span>
-                            <span>{{ capacityLogDirectory(item.entry) }}</span>
-                          </div>
+                        <div class="capacity-log-value" data-capacity-log-value>{{ capacityLogValue(item.entry) }}</div>
+                        <div class="capacity-bar">
+                          <span
+                            class="capacity-fill"
+                            :class="`capacity-${item.entry.threshold}`"
+                            :style="{ width: `${capacityBarWidth(item.entry)}%` }"
+                          ></span>
+                        </div>
+                        <div class="capacity-log-meta">
+                          <span data-capacity-log-status>{{ capacityLogStatus(item.entry) }}</span>
+                          <span data-capacity-log-path>{{ capacityLogPath(item.entry) }}</span>
                         </div>
                       </div>
                     </div>
@@ -1168,18 +1168,28 @@ function capacitySummaryStatus(item = {}, label = 'capacity') {
   return `${label}: ${item.message || capacityStateLabel(item.status)}`
 }
 
-function capacityLogDetail(item = {}) {
-  if (item.status !== 'ok') return normalizeCapacityMessage(item.status, item.message)
+function capacityLogIsEmpty(item = {}) {
+  return item.status !== 'ok'
+}
+
+function capacityLogPercent(item = {}) {
+  if (item.status !== 'ok') return capacityStateLabel(item.status)
+  return `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}%`
+}
+
+function capacityLogValue(item = {}) {
+  if (item.status !== 'ok') return `${capacityStateLabel(item.status)} / ${capacityStateLabel(item.status)}`
   return capacitySummaryValue(item)
 }
 
-function capacityLogUsage(item = {}) {
+function capacityLogStatus(item = {}) {
   if (item.status !== 'ok') return `status: ${normalizeCapacityMessage(item.status, item.message)}`
-  return `${Number(item.use_percent || item.usePercent || 0).toFixed(1)}% used`
+  const free = formatStorage(item.free_bytes || item.FreeBytes || item.freeBytes || 0)
+  return `free ${free}`
 }
 
-function capacityLogDirectory(item = {}) {
-  if (item.status !== 'ok') return 'directory: not detected'
+function capacityLogPath(item = {}) {
+  if (item.status !== 'ok') return `directory: ${capacityStateLabel(item.status)}`
   const mountPoint = item.mount_point || item.mountPoint || item.path || 'unknown'
   return `directory: ${mountPoint}`
 }
@@ -2331,7 +2341,8 @@ select,
 
 .capacity-summary-topline span,
 .capacity-summary-meta span,
-.capacity-log-copy span,
+.capacity-log-header span,
+.capacity-log-value,
 .capacity-log-meta span,
 .capacity-table td,
 .capacity-table th {
@@ -2340,7 +2351,8 @@ select,
 
 .capacity-summary-topline span,
 .capacity-summary-meta span,
-.capacity-log-copy span,
+.capacity-log-header span,
+.capacity-log-value,
 .capacity-log-meta span,
 .capacity-table td {
   color: #8fa1b6;
@@ -2359,25 +2371,47 @@ select,
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
+  gap: 4px;
 }
 
-.capacity-log-copy,
-.capacity-log-progress {
-  display: grid;
-  gap: 4px;
+.capacity-log-header,
+.capacity-log-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.capacity-log-header,
+.capacity-log-value,
+.capacity-log-meta {
   min-width: 0;
 }
 
-.capacity-log-copy strong {
+.capacity-log-header strong {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #edf2f7;
 }
 
-.capacity-log-progress {
-  min-width: 0;
+.capacity-log-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.capacity-log-meta {
+  align-items: flex-start;
+}
+
+.capacity-log-meta span:last-child {
+  text-align: right;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-header,
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-value,
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-meta {
+  display: grid;
+  gap: 3px 8px;
 }
 
 .capacity-card[data-capacity-card="log-disk"] {
@@ -2398,23 +2432,23 @@ select,
   padding: 6px 7px;
 }
 
-.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy,
-.capacity-card[data-capacity-card="log-disk"] .capacity-log-progress {
-  gap: 3px;
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
 }
 
-.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy strong {
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-header strong {
   font-size: 10px;
   line-height: 1.1;
 }
 
-.capacity-card[data-capacity-card="log-disk"] .capacity-log-copy span {
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-header span,
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-value {
   font-size: 9px;
   line-height: 1.18;
 }
 
 .capacity-card[data-capacity-card="log-disk"] .capacity-log-meta {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: 4px 8px;
@@ -2432,6 +2466,16 @@ select,
 
 .capacity-card[data-capacity-card="log-disk"] .capacity-bar {
   height: 7px;
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-row[data-capacity-log-empty="true"] {
+  border-color: rgba(62, 78, 96, 0.85);
+  background: linear-gradient(180deg, rgba(11, 16, 22, 0.96), rgba(8, 11, 16, 0.96));
+}
+
+.capacity-card[data-capacity-card="log-disk"] .capacity-log-row[data-capacity-log-empty="true"] .capacity-bar {
+  background: linear-gradient(180deg, rgba(27, 36, 47, 0.92), rgba(15, 22, 31, 0.94));
+  border-color: rgba(80, 98, 118, 0.55);
 }
 
 .capacity-bar {
