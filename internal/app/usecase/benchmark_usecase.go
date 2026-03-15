@@ -39,6 +39,46 @@ var (
 
 	// ErrExecutionFailed is returned when benchmark execution fails.
 	ErrExecutionFailed = errors.New("execution failed")
+
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		result, err := conn.Test(ctx)
+		if err != nil {
+			return err
+		}
+		if result == nil {
+			return fmt.Errorf("oracle preflight returned no result")
+		}
+		if !result.Success {
+			if result.Error != "" {
+				return fmt.Errorf("%s", result.Error)
+			}
+			return fmt.Errorf("oracle preflight login failed")
+		}
+		return nil
+	}
+
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		db, err := sql.Open("oracle", conn.GetDSNWithPassword())
+		if err != nil {
+			return false, err
+		}
+		defer db.Close()
+
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		var objectCount int
+		err = db.QueryRowContext(checkCtx, `
+			SELECT COUNT(*)
+			FROM all_tables
+			WHERE owner = UPPER(:1)
+			  AND table_name IN ('CUSTOMERS', 'ORDERS', 'ORDER_ITEMS', 'WAREHOUSES')
+		`, workloadUser).Scan(&objectCount)
+		if err != nil {
+			return false, err
+		}
+		return objectCount >= 3, nil
+	}
 )
 
 // RealtimeSampleCallback is called for each realtime sample during benchmark execution.
@@ -577,6 +617,21 @@ func (uc *BenchmarkUseCase) executeRun(
 ) error {
 	slog.Info("Benchmark: executeRun ENTER", "run_id", run.ID)
 
+	// Load password from keyring for Oracle connections before any run preflight.
+	if oracleConn, ok := conn.(*connection.OracleConnection); ok {
+		if oracleConn.Password == "" {
+			password, err := uc.connUseCase.GetPassword(ctx, oracleConn.ID)
+			if err != nil {
+				return fmt.Errorf("get password from keyring: %w", err)
+			}
+			oracleConn.Password = password
+			slog.Info("Benchmark: Loaded password from keyring for Oracle",
+				"run_id", run.ID,
+				"conn_id", oracleConn.ID,
+				"username", oracleConn.Username)
+		}
+	}
+
 	// Check if tables exist and configuration matches before run
 	// This ensures run uses the data prepared by prepare phase
 	if adapt.Type() == adapter.AdapterTypeSysbench {
@@ -594,6 +649,11 @@ func (uc *BenchmarkUseCase) executeRun(
 		slog.Info("Benchmark: Tables configuration check passed", "run_id", run.ID)
 	}
 
+	if err := oracleSwingbenchRunPreflight(ctx, config); err != nil {
+		slog.Warn("Benchmark: Oracle Swingbench run preflight failed", "run_id", run.ID, "error", err)
+		return err
+	}
+
 	// Update state
 	uc.updateState(ctx, run.ID, execution.StateRunning)
 
@@ -601,22 +661,6 @@ func (uc *BenchmarkUseCase) executeRun(
 	now := time.Now()
 	run.StartedAt = &now
 	uc.runRepo.Save(ctx, run)
-
-	// Load password from keyring for Oracle connections
-	// This is needed because OracleConnection.Password is not stored in JSON (security)
-	if oracleConn, ok := conn.(*connection.OracleConnection); ok {
-		if oracleConn.Password == "" {
-			password, err := uc.connUseCase.GetPassword(ctx, oracleConn.ID)
-			if err != nil {
-				return fmt.Errorf("get password from keyring: %w", err)
-			}
-			oracleConn.Password = password
-			slog.Info("Benchmark: Loaded password from keyring for Oracle",
-				"run_id", run.ID,
-				"conn_id", oracleConn.ID,
-				"username", oracleConn.Username)
-		}
-	}
 
 	// Log connection type
 	slog.Info("Benchmark: Starting benchmark with connection",
@@ -2429,4 +2473,89 @@ func (uc *BenchmarkUseCase) checkTablesConfigForRun(ctx context.Context, run *ex
 	// TODO: Re-enable proper table validation using database/sql instead of command line
 	// For now, skip the check to allow testing the Save/OK dialog functionality
 	return nil
+}
+
+func oracleSwingbenchRunPreflight(ctx context.Context, config *adapter.Config) error {
+	if !isOracleSwingbenchConfig(config) {
+		return nil
+	}
+
+	baseConn, ok := config.Connection.(*connection.OracleConnection)
+	if !ok {
+		return nil
+	}
+
+	workloadUser, workloadPassword := resolveOracleSwingbenchRunCredentials(config)
+	workloadConn := cloneOracleConnectionWithCredentials(baseConn, workloadUser, workloadPassword)
+
+	if err := oracleSwingbenchPreflightPing(ctx, workloadConn); err != nil {
+		if schemaReady, schemaErr := oracleSwingbenchSchemaReadyForRun(ctx, baseConn, workloadConn, workloadUser); schemaErr == nil && !schemaReady {
+			return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first. Original error: %s", err)
+		}
+		if isOracleAuthenticationError(err.Error()) {
+			return fmt.Errorf("Oracle Swingbench run failed: invalid Oracle workload username/password. Check workload credentials. Original error: %s", err)
+		}
+		return fmt.Errorf("Oracle Swingbench run failed: Oracle connection/login failed while starting the workload. Original error: %s", err)
+	}
+
+	schemaReady, schemaErr := oracleSwingbenchSchemaReadyForRun(ctx, baseConn, workloadConn, workloadUser)
+	if schemaErr != nil {
+		return fmt.Errorf("Oracle Swingbench run failed: unable to verify required SOE workload objects before Run. Original error: %s", schemaErr)
+	}
+	if !schemaReady {
+		return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first.")
+	}
+	return nil
+}
+
+func isOracleSwingbenchConfig(config *adapter.Config) bool {
+	if config == nil || config.Template == nil || config.Connection == nil {
+		return false
+	}
+	return config.Template.Tool == domaintemplate.ToolSwingbench && config.Connection.GetType() == connection.DatabaseTypeOracle
+}
+
+func resolveOracleSwingbenchRunCredentials(config *adapter.Config) (string, string) {
+	user := "soe"
+	password := "soe"
+	if config == nil {
+		return user, password
+	}
+	if value, ok := config.Parameters["benchmark_user"].(string); ok && strings.TrimSpace(value) != "" {
+		user = strings.TrimSpace(value)
+	}
+	if value, ok := config.Parameters["benchmark_password"].(string); ok && strings.TrimSpace(value) != "" {
+		password = strings.TrimSpace(value)
+	}
+	return user, password
+}
+
+func cloneOracleConnectionWithCredentials(base *connection.OracleConnection, username, password string) *connection.OracleConnection {
+	if base == nil {
+		return nil
+	}
+	cloned := *base
+	cloned.Username = username
+	cloned.Password = password
+	return &cloned
+}
+
+func oracleSwingbenchSchemaReadyForRun(ctx context.Context, baseConn, workloadConn *connection.OracleConnection, workloadUser string) (bool, error) {
+	if workloadConn != nil {
+		if ready, err := oracleSwingbenchPreflightSchemaCheck(ctx, workloadConn, workloadUser); err == nil {
+			return ready, nil
+		}
+	}
+	if baseConn == nil {
+		return false, fmt.Errorf("no Oracle connection available for schema preflight")
+	}
+	return oracleSwingbenchPreflightSchemaCheck(ctx, baseConn, workloadUser)
+}
+
+func isOracleAuthenticationError(message string) bool {
+	upper := strings.ToUpper(message)
+	lower := strings.ToLower(message)
+	return strings.Contains(upper, "ORA-01017") ||
+		strings.Contains(lower, "invalid username/password") ||
+		strings.Contains(lower, "logon denied")
 }

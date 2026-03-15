@@ -4,6 +4,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,132 @@ import (
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 )
+
+func TestOracleSwingbenchRunPreflight_FailsForInvalidWorkloadCredentials(t *testing.T) {
+	restorePing := oracleSwingbenchPreflightPing
+	restoreSchema := oracleSwingbenchPreflightSchemaCheck
+	defer func() {
+		oracleSwingbenchPreflightPing = restorePing
+		oracleSwingbenchPreflightSchemaCheck = restoreSchema
+	}()
+
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		if conn.Username == "soe" {
+			return errors.New("ORA-01017: invalid username/password; logon denied")
+		}
+		return nil
+	}
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return true, nil
+	}
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+	config := &adapter.Config{
+		Connection: conn,
+		Template:   &domaintemplate.Template{Tool: domaintemplate.ToolSwingbench},
+		Parameters: map[string]interface{}{},
+	}
+
+	err := oracleSwingbenchRunPreflight(context.Background(), config)
+	if err == nil {
+		t.Fatal("oracleSwingbenchRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"invalid Oracle workload username/password", "credentials"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func TestOracleSwingbenchRunPreflight_FailsWhenSchemaWasCleanedUp(t *testing.T) {
+	restorePing := oracleSwingbenchPreflightPing
+	restoreSchema := oracleSwingbenchPreflightSchemaCheck
+	defer func() {
+		oracleSwingbenchPreflightPing = restorePing
+		oracleSwingbenchPreflightSchemaCheck = restoreSchema
+	}()
+
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		return errors.New("ORA-01017: invalid username/password; logon denied")
+	}
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return false, nil
+	}
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+	config := &adapter.Config{
+		Connection: conn,
+		Template:   &domaintemplate.Template{Tool: domaintemplate.ToolSwingbench},
+		Parameters: map[string]interface{}{},
+	}
+
+	err := oracleSwingbenchRunPreflight(context.Background(), config)
+	if err == nil {
+		t.Fatal("oracleSwingbenchRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"required SOE schema or workload objects are missing", "Run Prepare first"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func TestOracleSwingbenchRunPreflight_FailsWhenLoginSucceedsButObjectsAreMissing(t *testing.T) {
+	restorePing := oracleSwingbenchPreflightPing
+	restoreSchema := oracleSwingbenchPreflightSchemaCheck
+	defer func() {
+		oracleSwingbenchPreflightPing = restorePing
+		oracleSwingbenchPreflightSchemaCheck = restoreSchema
+	}()
+
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		return nil
+	}
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return false, nil
+	}
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+	config := &adapter.Config{
+		Connection: conn,
+		Template:   &domaintemplate.Template{Tool: domaintemplate.ToolSwingbench},
+		Parameters: map[string]interface{}{},
+	}
+
+	err := oracleSwingbenchRunPreflight(context.Background(), config)
+	if err == nil {
+		t.Fatal("oracleSwingbenchRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"required SOE schema or workload objects are missing", "Run Prepare first"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func containsBenchmarkUseCaseSubs(value string, subs []string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(value, sub) {
+			return false
+		}
+	}
+	return true
+}
 
 // mockRunRepository is a mock implementation of RunRepository for testing.
 type mockRunRepository struct {
