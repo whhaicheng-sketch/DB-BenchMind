@@ -380,8 +380,40 @@ func TestClassifyTaskExecutionError_OracleRunAuthenticationFailure(t *testing.T)
 	if err == nil {
 		t.Fatal("classifyTaskExecutionError() returned nil")
 	}
-	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "invalid Oracle workload username/password", "credentials"}) {
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "Invalid SOE workload username/password"}) {
 		t.Fatalf("unexpected authentication error: %s", got)
+	}
+}
+
+func TestClassifyTaskExecutionError_OracleRunMissingWorkloadUser(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "soe"},
+		BenchmarkTool:      "swingbench",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New("ORA-01918: user 'SOE' does not exist"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "SOE workload user does not exist"}) {
+		t.Fatalf("unexpected missing-user error: %s", got)
+	}
+}
+
+func TestClassifyTaskExecutionError_OracleRunLockedWorkloadUser(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "soe"},
+		BenchmarkTool:      "swingbench",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New("ORA-28000: the account is locked"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "SOE workload user is locked"}) {
+		t.Fatalf("unexpected locked-user error: %s", got)
 	}
 }
 
@@ -396,7 +428,7 @@ func TestClassifyTaskExecutionError_OracleRunMissingPreparedSchema(t *testing.T)
 	if err == nil {
 		t.Fatal("classifyTaskExecutionError() returned nil")
 	}
-	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "SOE schema", "run Prepare first"}) {
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "Run requires prepared SOE schema. Please run Prepare first."}) {
 		t.Fatalf("unexpected schema error: %s", got)
 	}
 }

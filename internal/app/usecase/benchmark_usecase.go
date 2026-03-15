@@ -57,6 +57,28 @@ var (
 		return nil
 	}
 
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		db, err := sql.Open("oracle", conn.GetDSNWithPassword())
+		if err != nil {
+			return false, err
+		}
+		defer db.Close()
+
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		var userCount sql.NullInt64
+		err = db.QueryRowContext(checkCtx, `
+			SELECT COUNT(*)
+			FROM all_users
+			WHERE username = UPPER(:1)
+		`, workloadUser).Scan(&userCount)
+		if err != nil {
+			return false, err
+		}
+		return oracleSwingbenchSchemaCountValue(userCount) > 0, nil
+	}
+
 	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
 		db, err := sql.Open("oracle", conn.GetDSNWithPassword())
 		if err != nil {
@@ -67,9 +89,9 @@ var (
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		var requiredTableCount int
-		var orderEntryPackageCount int
-		var sequenceCount int
+		var requiredTableCount sql.NullInt64
+		var orderEntryPackageCount sql.NullInt64
+		var sequenceCount sql.NullInt64
 		err = db.QueryRowContext(checkCtx, `
 			SELECT
 				SUM(CASE
@@ -83,12 +105,26 @@ var (
 					THEN 1 ELSE 0 END) AS sequences
 			FROM all_objects
 			WHERE owner = UPPER(:1)
-		`, workloadUser).Scan(&requiredTableCount, &orderEntryPackageCount, &sequenceCount)
+			`, workloadUser).Scan(&requiredTableCount, &orderEntryPackageCount, &sequenceCount)
 		if err != nil {
 			return false, err
 		}
-		return oracleSwingbenchSchemaReady(requiredTableCount, orderEntryPackageCount, sequenceCount), nil
+		return oracleSwingbenchSchemaReady(
+			oracleSwingbenchSchemaCountValue(requiredTableCount),
+			oracleSwingbenchSchemaCountValue(orderEntryPackageCount),
+			oracleSwingbenchSchemaCountValue(sequenceCount),
+		), nil
 	}
+)
+
+type oracleSwingbenchRunPreflightStatus string
+
+const (
+	oracleSwingbenchRunPreflightOK                 oracleSwingbenchRunPreflightStatus = "ok"
+	oracleSwingbenchRunPreflightUserMissing        oracleSwingbenchRunPreflightStatus = "user_missing"
+	oracleSwingbenchRunPreflightUserLocked         oracleSwingbenchRunPreflightStatus = "user_locked"
+	oracleSwingbenchRunPreflightInvalidCredentials oracleSwingbenchRunPreflightStatus = "invalid_credentials"
+	oracleSwingbenchRunPreflightSchemaIncomplete   oracleSwingbenchRunPreflightStatus = "schema_incomplete"
 )
 
 // RealtimeSampleCallback is called for each realtime sample during benchmark execution.
@@ -2510,12 +2546,20 @@ func oracleSwingbenchRunPreflight(ctx context.Context, config *adapter.Config) e
 	workloadUser, workloadPassword := resolveOracleSwingbenchRunCredentials(config)
 	workloadConn := cloneOracleConnectionWithCredentials(baseConn, workloadUser, workloadPassword)
 
+	userExists, userExistsErr := oracleSwingbenchPreflightUserExists(ctx, baseConn, workloadUser)
+	if userExistsErr != nil {
+		return fmt.Errorf("Oracle Swingbench run failed: unable to verify SOE workload user before Run. Original error: %s", userExistsErr)
+	}
+	if !userExists {
+		return oracleSwingbenchRunPreflightError(oracleSwingbenchRunPreflightUserMissing, nil)
+	}
+
 	if err := oracleSwingbenchPreflightPing(ctx, workloadConn); err != nil {
-		if schemaReady, schemaErr := oracleSwingbenchSchemaReadyForRun(ctx, baseConn, workloadConn, workloadUser); schemaErr == nil && !schemaReady {
-			return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first. Original error: %s", err)
+		if isOracleAccountLockedError(err.Error()) {
+			return oracleSwingbenchRunPreflightError(oracleSwingbenchRunPreflightUserLocked, err)
 		}
 		if isOracleAuthenticationError(err.Error()) {
-			return fmt.Errorf("Oracle Swingbench run failed: invalid Oracle workload username/password. Check workload credentials. Original error: %s", err)
+			return oracleSwingbenchRunPreflightError(oracleSwingbenchRunPreflightInvalidCredentials, err)
 		}
 		return fmt.Errorf("Oracle Swingbench run failed: Oracle connection/login failed while starting the workload. Original error: %s", err)
 	}
@@ -2525,7 +2569,7 @@ func oracleSwingbenchRunPreflight(ctx context.Context, config *adapter.Config) e
 		return fmt.Errorf("Oracle Swingbench run failed: unable to verify required SOE workload objects before Run. Original error: %s", schemaErr)
 	}
 	if !schemaReady {
-		return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first.")
+		return oracleSwingbenchRunPreflightError(oracleSwingbenchRunPreflightSchemaIncomplete, nil)
 	}
 	return nil
 }
@@ -2578,12 +2622,51 @@ func oracleSwingbenchSchemaReady(requiredTableCount, orderEntryPackageCount, seq
 	return requiredTableCount == 4 && orderEntryPackageCount == 2 && sequenceCount > 0
 }
 
+func oracleSwingbenchSchemaCountValue(value sql.NullInt64) int {
+	if !value.Valid {
+		return 0
+	}
+	return int(value.Int64)
+}
+
 func isOracleAuthenticationError(message string) bool {
 	upper := strings.ToUpper(message)
 	lower := strings.ToLower(message)
 	return strings.Contains(upper, "ORA-01017") ||
 		strings.Contains(lower, "invalid username/password") ||
 		strings.Contains(lower, "logon denied")
+}
+
+func isOracleAccountLockedError(message string) bool {
+	upper := strings.ToUpper(message)
+	lower := strings.ToLower(message)
+	return strings.Contains(upper, "ORA-28000") || strings.Contains(lower, "account is locked")
+}
+
+func oracleSwingbenchRunPreflightError(status oracleSwingbenchRunPreflightStatus, cause error) error {
+	switch status {
+	case oracleSwingbenchRunPreflightUserMissing:
+		return fmt.Errorf("Oracle Swingbench run failed: SOE workload user does not exist.\nRun Prepare first or recreate Swingbench schema.")
+	case oracleSwingbenchRunPreflightUserLocked:
+		if cause == nil {
+			return fmt.Errorf("Oracle Swingbench run failed: SOE workload user is locked.")
+		}
+		return fmt.Errorf("Oracle Swingbench run failed: SOE workload user is locked. Original error: %s", cause)
+	case oracleSwingbenchRunPreflightInvalidCredentials:
+		if cause == nil {
+			return fmt.Errorf("Oracle Swingbench run failed: Invalid SOE workload username/password.")
+		}
+		return fmt.Errorf("Oracle Swingbench run failed: Invalid SOE workload username/password. Original error: %s", cause)
+	case oracleSwingbenchRunPreflightSchemaIncomplete:
+		return fmt.Errorf("Oracle Swingbench run failed: Run requires prepared SOE schema. Please run Prepare first.")
+	case oracleSwingbenchRunPreflightOK:
+		return nil
+	default:
+		if cause != nil {
+			return cause
+		}
+		return fmt.Errorf("Oracle Swingbench run failed")
+	}
 }
 
 func oracleSwingbenchZeroThroughputFailure(stdout string, finalResult *adapter.FinalResult) error {

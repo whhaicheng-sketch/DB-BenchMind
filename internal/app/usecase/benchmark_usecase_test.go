@@ -15,13 +15,18 @@ import (
 )
 
 func TestOracleSwingbenchRunPreflight_FailsForInvalidWorkloadCredentials(t *testing.T) {
+	restoreUserExists := oracleSwingbenchPreflightUserExists
 	restorePing := oracleSwingbenchPreflightPing
 	restoreSchema := oracleSwingbenchPreflightSchemaCheck
 	defer func() {
+		oracleSwingbenchPreflightUserExists = restoreUserExists
 		oracleSwingbenchPreflightPing = restorePing
 		oracleSwingbenchPreflightSchemaCheck = restoreSchema
 	}()
 
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return true, nil
+	}
 	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
 		if conn.Username == "soe" {
 			return errors.New("ORA-01017: invalid username/password; logon denied")
@@ -34,11 +39,11 @@ func TestOracleSwingbenchRunPreflight_FailsForInvalidWorkloadCredentials(t *test
 
 	conn := &connection.OracleConnection{
 		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
-		Host:        "localhost",
-		Port:        1521,
-		ServiceName: "ORCL",
-		Username:    "system",
-		Password:    "manager",
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
 	}
 	config := &adapter.Config{
 		Connection: conn,
@@ -50,33 +55,141 @@ func TestOracleSwingbenchRunPreflight_FailsForInvalidWorkloadCredentials(t *test
 	if err == nil {
 		t.Fatal("oracleSwingbenchRunPreflight() expected error")
 	}
-	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"invalid Oracle workload username/password", "credentials"}) {
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"Invalid SOE workload username/password"}) {
 		t.Fatalf("unexpected error: %s", got)
 	}
 }
 
-func TestOracleSwingbenchRunPreflight_FailsWhenSchemaWasCleanedUp(t *testing.T) {
+func TestOracleSwingbenchRunPreflight_FailsWhenWorkloadUserDoesNotExist(t *testing.T) {
+	restoreUserExists := oracleSwingbenchPreflightUserExists
 	restorePing := oracleSwingbenchPreflightPing
 	restoreSchema := oracleSwingbenchPreflightSchemaCheck
 	defer func() {
+		oracleSwingbenchPreflightUserExists = restoreUserExists
 		oracleSwingbenchPreflightPing = restorePing
 		oracleSwingbenchPreflightSchemaCheck = restoreSchema
 	}()
 
+	loginCalled := false
+	schemaCalled := false
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return false, nil
+	}
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		loginCalled = true
+		return nil
+	}
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		schemaCalled = true
+		return true, nil
+	}
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
+	}
+	config := &adapter.Config{
+		Connection: conn,
+		Template:   &domaintemplate.Template{Tool: domaintemplate.ToolSwingbench},
+		Parameters: map[string]interface{}{},
+	}
+
+	err := oracleSwingbenchRunPreflight(context.Background(), config)
+	if err == nil {
+		t.Fatal("oracleSwingbenchRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"SOE workload user does not exist", "Run Prepare first or recreate Swingbench schema"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+	if loginCalled {
+		t.Fatal("login check should not run when workload user is missing")
+	}
+	if schemaCalled {
+		t.Fatal("schema check should not run when workload user is missing")
+	}
+}
+
+func TestOracleSwingbenchRunPreflight_FailsWhenWorkloadUserIsLocked(t *testing.T) {
+	restoreUserExists := oracleSwingbenchPreflightUserExists
+	restorePing := oracleSwingbenchPreflightPing
+	restoreSchema := oracleSwingbenchPreflightSchemaCheck
+	defer func() {
+		oracleSwingbenchPreflightUserExists = restoreUserExists
+		oracleSwingbenchPreflightPing = restorePing
+		oracleSwingbenchPreflightSchemaCheck = restoreSchema
+	}()
+
+	schemaCalled := false
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return true, nil
+	}
+	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
+		return errors.New("ORA-28000: the account is locked")
+	}
+	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		schemaCalled = true
+		return true, nil
+	}
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
+	}
+	config := &adapter.Config{
+		Connection: conn,
+		Template:   &domaintemplate.Template{Tool: domaintemplate.ToolSwingbench},
+		Parameters: map[string]interface{}{},
+	}
+
+	err := oracleSwingbenchRunPreflight(context.Background(), config)
+	if err == nil {
+		t.Fatal("oracleSwingbenchRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"SOE workload user is locked"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+	if schemaCalled {
+		t.Fatal("schema check should not run when workload user is locked")
+	}
+}
+
+func TestOracleSwingbenchRunPreflight_InvalidCredentialsDoNotFallThroughToSchemaCheck(t *testing.T) {
+	restoreUserExists := oracleSwingbenchPreflightUserExists
+	restorePing := oracleSwingbenchPreflightPing
+	restoreSchema := oracleSwingbenchPreflightSchemaCheck
+	defer func() {
+		oracleSwingbenchPreflightUserExists = restoreUserExists
+		oracleSwingbenchPreflightPing = restorePing
+		oracleSwingbenchPreflightSchemaCheck = restoreSchema
+	}()
+
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return true, nil
+	}
+	schemaCalled := false
 	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
 		return errors.New("ORA-01017: invalid username/password; logon denied")
 	}
 	oracleSwingbenchPreflightSchemaCheck = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		schemaCalled = true
 		return false, nil
 	}
 
 	conn := &connection.OracleConnection{
 		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
-		Host:        "localhost",
-		Port:        1521,
-		ServiceName: "ORCL",
-		Username:    "system",
-		Password:    "manager",
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
 	}
 	config := &adapter.Config{
 		Connection: conn,
@@ -88,19 +201,27 @@ func TestOracleSwingbenchRunPreflight_FailsWhenSchemaWasCleanedUp(t *testing.T) 
 	if err == nil {
 		t.Fatal("oracleSwingbenchRunPreflight() expected error")
 	}
-	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"required SOE schema or workload objects are missing", "Run Prepare first"}) {
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"Invalid SOE workload username/password"}) {
 		t.Fatalf("unexpected error: %s", got)
+	}
+	if schemaCalled {
+		t.Fatal("schema check should not run when workload credentials are invalid")
 	}
 }
 
 func TestOracleSwingbenchRunPreflight_FailsWhenLoginSucceedsButObjectsAreMissing(t *testing.T) {
+	restoreUserExists := oracleSwingbenchPreflightUserExists
 	restorePing := oracleSwingbenchPreflightPing
 	restoreSchema := oracleSwingbenchPreflightSchemaCheck
 	defer func() {
+		oracleSwingbenchPreflightUserExists = restoreUserExists
 		oracleSwingbenchPreflightPing = restorePing
 		oracleSwingbenchPreflightSchemaCheck = restoreSchema
 	}()
 
+	oracleSwingbenchPreflightUserExists = func(ctx context.Context, conn *connection.OracleConnection, workloadUser string) (bool, error) {
+		return true, nil
+	}
 	oracleSwingbenchPreflightPing = func(ctx context.Context, conn *connection.OracleConnection) error {
 		return nil
 	}
@@ -110,11 +231,11 @@ func TestOracleSwingbenchRunPreflight_FailsWhenLoginSucceedsButObjectsAreMissing
 
 	conn := &connection.OracleConnection{
 		BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
-		Host:        "localhost",
-		Port:        1521,
-		ServiceName: "ORCL",
-		Username:    "system",
-		Password:    "manager",
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
 	}
 	config := &adapter.Config{
 		Connection: conn,
@@ -126,7 +247,7 @@ func TestOracleSwingbenchRunPreflight_FailsWhenLoginSucceedsButObjectsAreMissing
 	if err == nil {
 		t.Fatal("oracleSwingbenchRunPreflight() expected error")
 	}
-	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"required SOE schema or workload objects are missing", "Run Prepare first"}) {
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"Run requires prepared SOE schema. Please run Prepare first."}) {
 		t.Fatalf("unexpected error: %s", got)
 	}
 }

@@ -1010,20 +1010,31 @@ func classifyOracleSwingbenchRunError(task *domaintask.ExecutionTask, phase doma
 	upper := strings.ToUpper(message)
 	lower := strings.ToLower(message)
 	switch {
+	case strings.Contains(upper, "ORA-01918") ||
+		strings.Contains(upper, "ORA-01435") ||
+		strings.Contains(lower, "workload user does not exist") ||
+		(strings.Contains(lower, "user") && strings.Contains(lower, "does not exist")):
+		return fmt.Errorf("Oracle Swingbench run failed: SOE workload user does not exist. Run Prepare first or recreate Swingbench schema. Original error: %s", message)
+	case strings.Contains(upper, "ORA-28000") ||
+		strings.Contains(lower, "workload user is locked") ||
+		strings.Contains(lower, "account is locked"):
+		return fmt.Errorf("Oracle Swingbench run failed: SOE workload user is locked. Original error: %s", message)
 	case strings.Contains(upper, "ORA-01017") || strings.Contains(lower, "invalid username/password"):
-		return fmt.Errorf("Oracle Swingbench run failed: invalid Oracle workload username/password. Check the workload credentials and Oracle connection settings. Original error: %s", message)
+		return fmt.Errorf("Oracle Swingbench run failed: Invalid SOE workload username/password. Original error: %s", message)
 	case strings.Contains(lower, "could not establish/maintain connection") ||
 		strings.Contains(upper, "ORA-12154") ||
 		strings.Contains(upper, "ORA-125") ||
 		strings.Contains(lower, "tns:") ||
 		strings.Contains(lower, "logon denied"):
 		return fmt.Errorf("Oracle Swingbench run failed: Oracle connection/login failed while starting the workload. Check the workload credentials and Oracle connection configuration. Original error: %s", message)
+	case strings.Contains(lower, "run requires prepared soe schema"):
+		return fmt.Errorf("Oracle Swingbench run failed: Run requires prepared SOE schema. Please run Prepare first. Original error: %s", message)
 	case strings.Contains(upper, "ORA-00942") ||
 		strings.Contains(lower, "table or view does not exist") ||
 		strings.Contains(lower, "schema missing") ||
 		(strings.Contains(lower, "soe") && strings.Contains(lower, "does not exist")) ||
 		(strings.Contains(lower, "object") && strings.Contains(lower, "does not exist")):
-		return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. This run depends on prepared Oracle workload objects; run Prepare first. Original error: %s", message)
+		return fmt.Errorf("Oracle Swingbench run failed: Run requires prepared SOE schema. Please run Prepare first. Original error: %s", message)
 	case strings.Contains(lower, "child process failed") || strings.Contains(lower, "process exited"):
 		return fmt.Errorf("Oracle Swingbench run failed: Swingbench child process exited before the first TPS/TPM sample. Check the run log for the failing command output. Original error: %s", message)
 	default:
