@@ -67,17 +67,27 @@ var (
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		var objectCount int
+		var requiredTableCount int
+		var orderEntryPackageCount int
+		var sequenceCount int
 		err = db.QueryRowContext(checkCtx, `
-			SELECT COUNT(*)
-			FROM all_tables
+			SELECT
+				SUM(CASE
+					WHEN object_type = 'TABLE' AND object_name IN ('CUSTOMERS', 'ORDERS', 'ORDER_ITEMS', 'WAREHOUSES')
+					THEN 1 ELSE 0 END) AS required_tables,
+				SUM(CASE
+					WHEN object_name = 'ORDERENTRY' AND object_type IN ('PACKAGE', 'PACKAGE BODY') AND status = 'VALID'
+					THEN 1 ELSE 0 END) AS orderentry_packages,
+				SUM(CASE
+					WHEN object_type = 'SEQUENCE'
+					THEN 1 ELSE 0 END) AS sequences
+			FROM all_objects
 			WHERE owner = UPPER(:1)
-			  AND table_name IN ('CUSTOMERS', 'ORDERS', 'ORDER_ITEMS', 'WAREHOUSES')
-		`, workloadUser).Scan(&objectCount)
+		`, workloadUser).Scan(&requiredTableCount, &orderEntryPackageCount, &sequenceCount)
 		if err != nil {
 			return false, err
 		}
-		return objectCount >= 3, nil
+		return oracleSwingbenchSchemaReady(requiredTableCount, orderEntryPackageCount, sequenceCount), nil
 	}
 )
 
@@ -820,6 +830,12 @@ func (uc *BenchmarkUseCase) executeRun(
 				slog.Info("Benchmark: ParseFinalResults returned", "run_id", run.ID, "err", err, "finalResult_nil", finalResult == nil)
 				if err != nil {
 					slog.Error("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
+				} else if swingbenchGuardErr := oracleSwingbenchZeroThroughputFailure(stdoutStr, finalResult); swingbenchGuardErr != nil {
+					run.Message = swingbenchGuardErr.Error()
+					run.ErrorMessage = swingbenchGuardErr.Error()
+					uc.runRepo.Save(ctx, run)
+					uc.markAsFailed(ctx, run.ID, swingbenchGuardErr.Error())
+					return swingbenchGuardErr
 				} else {
 					slog.Info("Benchmark: Final result parsed",
 						"run_id", run.ID,
@@ -1028,6 +1044,12 @@ func (uc *BenchmarkUseCase) executeRun(
 			slog.Info("Benchmark: ParseFinalResults returned", "run_id", run.ID, "err", err, "finalResult_nil", finalResult == nil)
 			if err != nil {
 				slog.Error("Benchmark: Failed to parse final results", "run_id", run.ID, "error", err)
+			} else if swingbenchGuardErr := oracleSwingbenchZeroThroughputFailure(stdoutStr, finalResult); swingbenchGuardErr != nil {
+				run.Message = swingbenchGuardErr.Error()
+				run.ErrorMessage = swingbenchGuardErr.Error()
+				uc.runRepo.Save(ctx, run)
+				uc.markAsFailed(ctx, run.ID, swingbenchGuardErr.Error())
+				return swingbenchGuardErr
 			} else {
 				slog.Info("Benchmark: Final result parsed",
 					"run_id", run.ID,
@@ -2552,10 +2574,36 @@ func oracleSwingbenchSchemaReadyForRun(ctx context.Context, baseConn, workloadCo
 	return oracleSwingbenchPreflightSchemaCheck(ctx, baseConn, workloadUser)
 }
 
+func oracleSwingbenchSchemaReady(requiredTableCount, orderEntryPackageCount, sequenceCount int) bool {
+	return requiredTableCount == 4 && orderEntryPackageCount == 2 && sequenceCount > 0
+}
+
 func isOracleAuthenticationError(message string) bool {
 	upper := strings.ToUpper(message)
 	lower := strings.ToLower(message)
 	return strings.Contains(upper, "ORA-01017") ||
 		strings.Contains(lower, "invalid username/password") ||
 		strings.Contains(lower, "logon denied")
+}
+
+func oracleSwingbenchZeroThroughputFailure(stdout string, finalResult *adapter.FinalResult) error {
+	if finalResult == nil {
+		return nil
+	}
+	if finalResult.TotalTransactions > 0 || finalResult.TransactionsPerSec > 0 || finalResult.AvgTPS > 0 || finalResult.AvgTPM > 0 {
+		return nil
+	}
+
+	zeroUserSamples := 0
+	for _, line := range strings.Split(stdout, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "[0/") && strings.Contains(trimmed, " 0") {
+			zeroUserSamples++
+		}
+	}
+	if zeroUserSamples < 3 {
+		return nil
+	}
+
+	return fmt.Errorf("Oracle Swingbench run failed: workload never advanced beyond zero active users and zero TPS/TPM (%d stalled samples, e.g. [0/N]). Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first.", zeroUserSamples)
 }

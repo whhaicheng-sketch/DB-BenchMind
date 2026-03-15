@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { createTask, getTaskLogs, listTasks, stopTask, validateDraft } from '../lib/taskBinding'
-
-const ACTIVE_STATUSES = ['starting', 'preparing', 'running', 'cleaning', 'stopping']
+import { getActiveTask, getCurrentTask } from '../components/tabs/tasksMonitorTaskState.mjs'
 
 export const useTaskStore = defineStore('task', {
   state: () => ({
@@ -15,9 +14,9 @@ export const useTaskStore = defineStore('task', {
   }),
 
   getters: {
-    currentTask: (state) => state.tasks.find((task) => ACTIVE_STATUSES.includes(task.status)) || state.tasks[0] || null,
-    activeTask: (state) => state.tasks.find((task) => ACTIVE_STATUSES.includes(task.status)) || null,
-    hasActiveTask: (state) => state.tasks.some((task) => ACTIVE_STATUSES.includes(task.status))
+    currentTask: (state) => getCurrentTask(state.tasks),
+    activeTask: (state) => getActiveTask(state.tasks),
+    hasActiveTask: (state) => Boolean(getActiveTask(state.tasks))
   },
 
   actions: {
