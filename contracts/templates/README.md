@@ -37,6 +37,12 @@ This directory contains built-in benchmark templates for DB-BenchMind.
 | `swingbench-soe` | Swingbench Order Entry | Simulates order processing system | Oracle |
 | `swingbench-calling` | Swingbench Calling Circle | Simulates telecom calling system | Oracle |
 
+Swingbench Oracle notes:
+
+- Template/runtime `duration` maps to run-phase duration only.
+- Prepare and cleanup are separate phases and should not be mixed into run duration semantics.
+- Oracle prepare requires a privileged account for schema build and post-schema grants such as `EXECUTE ON SYS.DBMS_LOCK`.
+
 ### HammerDB Templates
 
 | ID | Name | Description | Supported Databases |

@@ -1,7 +1,10 @@
 package bindings
 
 import (
+	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
@@ -134,4 +137,243 @@ func TestUpdateSystemMetricsIncludesCPUSteal(t *testing.T) {
 	if got := task.Metrics.CPUSteal.Series[0].Value; got != 0.5 {
 		t.Fatalf("CPUSteal.Series[0].Value = %v, want 0.5", got)
 	}
+}
+
+func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
+	t.Run("sysbench uses runtime and tool config defaults", func(t *testing.T) {
+		tmpl := &domaintemplate.Template{
+			ID:             "tpl-test-sysbench",
+			Name:           "MySQL - Sysbench Test",
+			Tool:           domaintemplate.ToolSysbench,
+			DBFamily:       "mysql",
+			WorkloadFamily: "oltp-read-write",
+			Scope:          domaintemplate.ScopeTest,
+			Status:         domaintemplate.StatusReady,
+			Tags:           []string{"test"},
+			Phases: domaintemplate.PhaseSet{
+				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
+			},
+			Runtime: domaintemplate.Runtime{
+				Concurrency:     domaintemplate.Concurrency{Mode: "threads", Value: 1},
+				DurationSeconds: 30,
+				RampUpSeconds:   3,
+			},
+			ToolConfig: domaintemplate.ToolConfig{
+				Sysbench: domaintemplate.SysbenchConfig{
+					DBDriver:   "mysql",
+					ScriptType: "oltp_read_write",
+					Tables:     1,
+					TableSize:  1000,
+				},
+			},
+		}
+		tmpl.Normalize()
+
+		params, err := resolveParams(tmpl, nil)
+		if err != nil {
+			t.Fatalf("resolveParams() failed: %v", err)
+		}
+		if got := params["tables"]; got != 1 {
+			t.Fatalf("tables = %v, want 1", got)
+		}
+		if got := params["table_size"]; got != 1000 {
+			t.Fatalf("table_size = %v, want 1000", got)
+		}
+		if got := params["threads"]; got != 1 {
+			t.Fatalf("threads = %v, want 1", got)
+		}
+		if got := params["time"]; got != 30 {
+			t.Fatalf("time = %v, want 30", got)
+		}
+	})
+
+	t.Run("swingbench keeps scale and minimal run defaults", func(t *testing.T) {
+		tmpl := &domaintemplate.Template{
+			ID:             "tpl-test-swingbench",
+			Name:           "Oracle - Swingbench Test",
+			Tool:           domaintemplate.ToolSwingbench,
+			DBFamily:       "oracle",
+			WorkloadFamily: "order-entry",
+			Scope:          domaintemplate.ScopeTest,
+			Status:         domaintemplate.StatusReady,
+			Tags:           []string{"test"},
+			Parameters: map[string]domaintemplate.Parameter{
+				"scale": {
+					Type:    domaintemplate.ParameterTypeInteger,
+					Label:   "Scale",
+					Default: 1,
+				},
+			},
+			Phases: domaintemplate.PhaseSet{
+				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
+			},
+			Runtime: domaintemplate.Runtime{
+				Concurrency:     domaintemplate.Concurrency{Mode: "users", Value: 1},
+				DurationSeconds: 60,
+			},
+			ToolConfig: domaintemplate.ToolConfig{
+				Swingbench: domaintemplate.SwingbenchConfig{
+					Benchmark:      "orderEntry",
+					UserCount:      1,
+					RunTimeSeconds: 60,
+				},
+			},
+		}
+		tmpl.Normalize()
+
+		params, err := resolveParams(tmpl, nil)
+		if err != nil {
+			t.Fatalf("resolveParams() failed: %v", err)
+		}
+		if got := params["scale"]; got != 1 {
+			t.Fatalf("scale = %v, want 1", got)
+		}
+		if got := params["virtual_users"]; got != 1 {
+			t.Fatalf("virtual_users = %v, want 1", got)
+		}
+		if got := params["time"]; got != 60 {
+			t.Fatalf("time = %v, want 60", got)
+		}
+	})
+
+	t.Run("hammerdb maps runtime to duration and rampup keys", func(t *testing.T) {
+		tmpl := &domaintemplate.Template{
+			ID:             "tpl-test-hammerdb",
+			Name:           "SQL Server - HammerDB Test",
+			Tool:           domaintemplate.ToolHammerDB,
+			DBFamily:       "sqlserver",
+			WorkloadFamily: "tproc-c",
+			Scope:          domaintemplate.ScopeTest,
+			Status:         domaintemplate.StatusReady,
+			Tags:           []string{"test"},
+			Phases: domaintemplate.PhaseSet{
+				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
+			},
+			Runtime: domaintemplate.Runtime{
+				Concurrency:     domaintemplate.Concurrency{Mode: "virtualUsers", Value: 1},
+				DurationSeconds: 60,
+				RampUpSeconds:   0,
+				Iterations:      1,
+			},
+			ToolConfig: domaintemplate.ToolConfig{
+				HammerDB: domaintemplate.HammerDBConfig{
+					Benchmark:    "tproc-c",
+					VirtualUsers: 1,
+					Warehouses:   1,
+					ScaleFactor:  1,
+				},
+			},
+		}
+		tmpl.Normalize()
+
+		params, err := resolveParams(tmpl, nil)
+		if err != nil {
+			t.Fatalf("resolveParams() failed: %v", err)
+		}
+		if got := params["virtual_users"]; got != 1 {
+			t.Fatalf("virtual_users = %v, want 1", got)
+		}
+		if got := params["warehouses"]; got != 1 {
+			t.Fatalf("warehouses = %v, want 1", got)
+		}
+		if got := params["duration"]; got != 60 {
+			t.Fatalf("duration = %v, want 60", got)
+		}
+		if got := params["rampup"]; got != 0 {
+			t.Fatalf("rampup = %v, want 0", got)
+		}
+		if got := params["iterations"]; got != 1 {
+			t.Fatalf("iterations = %v, want 1", got)
+		}
+	})
+}
+
+func TestSyncTaskTimingFromPhaseHistory(t *testing.T) {
+	base := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	prepareEnd := base.Add(33 * time.Second)
+	runStart := prepareEnd
+	runEnd := runStart.Add(60 * time.Second)
+	cleanupEnd := runEnd.Add(5 * time.Second)
+	completed := cleanupEnd
+
+	task := &domaintask.ExecutionTask{
+		CreatedAt:   base.Add(-2 * time.Second),
+		StartedAt:   &base,
+		CompletedAt: &completed,
+		ResolvedParams: map[string]interface{}{
+			"time": 60,
+		},
+		PhaseHistory: []domaintask.PhaseRecord{
+			{Phase: domaintask.PhasePrepare, Status: "prepared", StartedAt: base, EndedAt: &prepareEnd},
+			{Phase: domaintask.PhaseRun, Status: "success", StartedAt: runStart, EndedAt: &runEnd},
+			{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: runEnd, EndedAt: &cleanupEnd},
+		},
+	}
+
+	syncTaskTiming(task, completed)
+
+	if got := task.Timing.PrepareMs; got != 33_000 {
+		t.Fatalf("PrepareMs = %d, want 33000", got)
+	}
+	if got := task.Timing.RunMs; got != 60_000 {
+		t.Fatalf("RunMs = %d, want 60000", got)
+	}
+	if got := task.Timing.CleanupMs; got != 5_000 {
+		t.Fatalf("CleanupMs = %d, want 5000", got)
+	}
+	if got := task.Timing.TotalMs; got != 98_000 {
+		t.Fatalf("TotalMs = %d, want 98000", got)
+	}
+	if got := task.Timing.RunDurationInputMs; got != 60_000 {
+		t.Fatalf("RunDurationInputMs = %d, want 60000", got)
+	}
+}
+
+func TestSyncTaskTimingUsesRequestedRunDurationFromResolvedParams(t *testing.T) {
+	now := time.Date(2026, 3, 15, 13, 0, 0, 0, time.UTC)
+	task := &domaintask.ExecutionTask{
+		ResolvedParams: map[string]interface{}{
+			"time": 120,
+		},
+	}
+
+	syncTaskTiming(task, now)
+
+	if got := task.Timing.RunDurationInputMs; got != 120_000 {
+		t.Fatalf("RunDurationInputMs = %d, want 120000", got)
+	}
+}
+
+func TestClassifyTaskExecutionError_OraclePreparePermission(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "app_user"},
+		BenchmarkTool:      "swingbench",
+		CurrentPhase:       domaintask.PhasePrepare,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhasePrepare, errors.New("GRANT EXECUTE ON dbms_lock TO soe : ORA-01031: insufficient privileges"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); got == "GRANT EXECUTE ON dbms_lock TO soe : ORA-01031: insufficient privileges" {
+		t.Fatalf("error was not enriched: %s", got)
+	}
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench prepare requires a higher-privilege account", "dbms_lock", "prepare", "Run can use a lower-privilege SOE workload account"}) {
+		t.Fatalf("unexpected enriched error: %s", got)
+	}
+}
+
+func containsAll(value string, subs []string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(value, sub) {
+			return false
+		}
+	}
+	return true
 }

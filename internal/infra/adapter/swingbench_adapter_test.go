@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,6 +90,36 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Equal(t, "Post-Schema Setup", step5.StepName)
 	assert.Contains(t, step5.CmdLine, "sqlplus")
 	assert.Contains(t, step5.CmdLine, "/tmp/db-benchmind-postschema-")
+	assert.Contains(t, step5.CmdLine, "sysdba")
+}
+
+func TestSwingbenchAdapter_PostSchemaSetupContainsDBMSLockGrant(t *testing.T) {
+	adapter := NewSwingbenchAdapter()
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "test-conn-priv",
+			Name: "Oracle Privilege Test",
+		},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+
+	cmd := adapter.buildPostSchemaSetupCommand(conn, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"sysdba_username": "sys",
+			"sysdba_password": "manager",
+		},
+	})
+
+	assert.Contains(t, cmd, "@/tmp/db-benchmind-postschema-")
+	tempFile := strings.TrimSpace(cmd[strings.LastIndex(cmd, "@")+1:])
+	content, err := os.ReadFile(tempFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "grant execute on sys.dbms_lock to soe;")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.

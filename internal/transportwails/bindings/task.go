@@ -116,6 +116,9 @@ func (b *TaskBinding) ValidateDraft(req TaskDraftRequest) TaskResult {
 	} else if readiness.SSHMessage != "" {
 		appendTaskEvent(task, domaintask.PhaseNone, readiness.SSHMessage)
 	}
+	if hint := preparePrivilegeHint(task); hint != "" {
+		appendTaskEvent(task, domaintask.PhaseNone, hint)
+	}
 	b.mu.Lock()
 	b.previews[task.PreviewToken] = cloneTask(task)
 	b.mu.Unlock()
@@ -157,8 +160,11 @@ func (b *TaskBinding) ListTasks() TaskListResult {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	tasks := make([]domaintask.ExecutionTask, 0, len(b.tasks))
+	now := time.Now()
 	for _, task := range b.tasks {
-		tasks = append(tasks, *cloneTask(task))
+		cloned := cloneTask(task)
+		syncTaskTiming(cloned, now)
+		tasks = append(tasks, *cloned)
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
@@ -295,6 +301,7 @@ func (b *TaskBinding) buildTask(req TaskDraftRequest) (*domaintask.ExecutionTask
 		RunLogPaths:        make(map[string]string),
 		SystemLogPaths:     make(map[string]string),
 	}
+	syncTaskTiming(task, task.CreatedAt)
 	return task, nil
 }
 
@@ -346,6 +353,7 @@ func (b *TaskBinding) executeTask(taskID string) {
 	}
 	now := time.Now()
 	task.StartedAt = &now
+	syncTaskTiming(task, now)
 	task.Status = domaintask.StatusStarting
 	task.Readiness = b.evaluateReadiness(task)
 	appendTaskEvent(task, domaintask.PhaseNone, "Task execution started")
@@ -364,6 +372,9 @@ func (b *TaskBinding) executeTask(taskID string) {
 		appendTaskEvent(task, domaintask.PhaseNone, task.Readiness.SSHMessage)
 	} else if task.Readiness.SSHMessage != "" {
 		appendTaskEvent(task, domaintask.PhaseNone, task.Readiness.SSHMessage)
+	}
+	if hint := preparePrivilegeHint(task); hint != "" {
+		appendTaskEvent(task, domaintask.PhaseNone, hint)
 	}
 	b.mu.Unlock()
 
@@ -424,6 +435,7 @@ func (b *TaskBinding) executeTask(taskID string) {
 	task.CurrentPhase = domaintask.PhaseNone
 	done := time.Now()
 	task.CompletedAt = &done
+	syncTaskTiming(task, done)
 	b.activeTaskID = ""
 }
 
@@ -445,6 +457,7 @@ func (b *TaskBinding) runPhase(taskID string, phase domaintask.Phase) error {
 	}
 	task.CurrentPhase = phase
 	appendTaskEvent(task, phase, fmt.Sprintf("Phase started: %s", phase))
+	syncTaskTiming(task, time.Now())
 	run, err := b.startPhaseRun(task, phase)
 	if err != nil {
 		b.mu.Unlock()
@@ -506,7 +519,10 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 				msg = run.Message
 			}
 			b.finishPhase(taskID, phase, runID, "failed")
-			return fmt.Errorf("%s", msg)
+			b.mu.RLock()
+			task := cloneTask(b.tasks[taskID])
+			b.mu.RUnlock()
+			return classifyTaskExecutionError(task, phase, fmt.Errorf("%s", msg))
 		}
 	}
 }
@@ -523,6 +539,7 @@ func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phas
 		return
 	}
 	updateMetrics(task, samples)
+	syncTaskTiming(task, time.Now())
 	if execCtx.sshCollector != nil {
 		updateSystemMetrics(task, execCtx.sshCollector.Snapshot())
 		task.Metrics.SystemEnabled = true
@@ -566,6 +583,7 @@ func (b *TaskBinding) finishPhase(taskID string, phase domaintask.Phase, runID s
 		}
 	}
 	appendTaskEvent(task, phase, fmt.Sprintf("Phase finished: %s (%s)", phase, status))
+	syncTaskTiming(task, time.Now())
 	execCtx.currentRunID = ""
 }
 
@@ -584,6 +602,7 @@ func (b *TaskBinding) completeTask(taskID string, status domaintask.Status, phas
 	}
 	done := time.Now()
 	task.CompletedAt = &done
+	syncTaskTiming(task, done)
 	b.activeTaskID = ""
 	delete(b.executions, taskID)
 }
@@ -754,6 +773,13 @@ func resolveParams(tmpl *domaintemplate.Template, overrides map[string]interface
 		if tmpl.ToolConfig.HammerDB.ScaleFactor > 0 {
 			params["scale"] = tmpl.ToolConfig.HammerDB.ScaleFactor
 		}
+		if tmpl.Runtime.DurationSeconds > 0 {
+			params["duration"] = tmpl.Runtime.DurationSeconds
+		}
+		params["rampup"] = tmpl.Runtime.RampUpSeconds
+		if tmpl.Runtime.Iterations > 0 {
+			params["iterations"] = tmpl.Runtime.Iterations
+		}
 	}
 	for key, value := range overrides {
 		params[key] = value
@@ -770,9 +796,11 @@ func resolveParams(tmpl *domaintemplate.Template, overrides map[string]interface
 			params[key] = intValue
 		}
 	}
-	if duration, ok := params["duration"]; ok {
-		params["time"] = duration
-		delete(params, "duration")
+	if tmpl.Tool != domaintemplate.ToolHammerDB {
+		if duration, ok := params["duration"]; ok {
+			params["time"] = duration
+			delete(params, "duration")
+		}
 	}
 	return params, nil
 }
@@ -879,6 +907,106 @@ func filterLogLines(lines []domaintask.LogLine, query string, phase string) []do
 		filtered = append(filtered, line)
 	}
 	return filtered
+}
+
+func syncTaskTiming(task *domaintask.ExecutionTask, now time.Time) {
+	if task == nil {
+		return
+	}
+
+	var prepareMs int64
+	var runMs int64
+	var cleanupMs int64
+	for _, record := range task.PhaseHistory {
+		end := now
+		if record.EndedAt != nil {
+			end = *record.EndedAt
+		}
+		if end.Before(record.StartedAt) {
+			continue
+		}
+		durationMs := end.Sub(record.StartedAt).Milliseconds()
+		switch record.Phase {
+		case domaintask.PhasePrepare:
+			prepareMs += durationMs
+		case domaintask.PhaseRun:
+			runMs += durationMs
+		case domaintask.PhaseCleanup:
+			cleanupMs += durationMs
+		}
+	}
+
+	totalMs := int64(0)
+	if task.StartedAt != nil {
+		end := now
+		if task.CompletedAt != nil {
+			end = *task.CompletedAt
+		}
+		if end.After(*task.StartedAt) || end.Equal(*task.StartedAt) {
+			totalMs = end.Sub(*task.StartedAt).Milliseconds()
+		}
+	}
+
+	task.Timing = domaintask.TaskTiming{
+		PrepareMs:          prepareMs,
+		RunMs:              runMs,
+		CleanupMs:          cleanupMs,
+		TotalMs:            totalMs,
+		RunDurationInputMs: resolveRequestedRunDuration(task.ResolvedParams),
+	}
+}
+
+func resolveRequestedRunDuration(params map[string]interface{}) int64 {
+	if len(params) == 0 {
+		return 0
+	}
+	for _, key := range []string{"time", "duration"} {
+		value, ok := params[key]
+		if !ok {
+			continue
+		}
+		seconds, ok := toInt(value)
+		if !ok || seconds <= 0 {
+			continue
+		}
+		return int64(seconds) * 1000
+	}
+	return 0
+}
+
+func classifyTaskExecutionError(task *domaintask.ExecutionTask, phase domaintask.Phase, err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if task == nil {
+		return err
+	}
+	if strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") &&
+		strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) &&
+		phase == domaintask.PhasePrepare &&
+		strings.Contains(strings.ToUpper(message), "ORA-01031") &&
+		strings.Contains(strings.ToLower(message), "dbms_lock") {
+		username := strings.TrimSpace(task.ConnectionSnapshot.Username)
+		if username == "" {
+			username = "current connection account"
+		}
+		return fmt.Errorf("Oracle Swingbench prepare requires a higher-privilege account. The prepare flow ran post-schema setup as %s and failed to grant EXECUTE on sys.dbms_lock to SOE (ORA-01031). Use a DBA/SYSDBA-style account for prepare, or grant the required privilege before prepare. Run can use a lower-privilege SOE workload account after schema build. Original error: %s", username, message)
+	}
+	return err
+}
+
+func preparePrivilegeHint(task *domaintask.ExecutionTask) string {
+	if task == nil {
+		return ""
+	}
+	if !strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") || !strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) {
+		return ""
+	}
+	if task.Action != domaintask.ActionPrepare && task.Action != domaintask.ActionFullPipeline {
+		return ""
+	}
+	return "Oracle Swingbench prepare uses the configured connection account for schema setup. Prepare requires DBA/SYSDBA-style privileges for schema build and DBMS_LOCK grant; run can use the lower-privilege SOE workload account after prepare succeeds."
 }
 
 func cloneParams(params map[string]interface{}) map[string]interface{} {

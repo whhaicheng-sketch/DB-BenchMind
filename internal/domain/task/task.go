@@ -110,6 +110,14 @@ type UnifiedMetrics struct {
 	SystemMessage      string              `json:"system_message,omitempty"`
 }
 
+type TaskTiming struct {
+	PrepareMs          int64 `json:"prepare_ms"`
+	RunMs              int64 `json:"run_ms"`
+	CleanupMs          int64 `json:"cleanup_ms"`
+	TotalMs            int64 `json:"total_ms"`
+	RunDurationInputMs int64 `json:"run_duration_input_ms"`
+}
+
 type LogLine struct {
 	Timestamp string `json:"timestamp"`
 	Phase     Phase  `json:"phase"`
@@ -129,6 +137,7 @@ type ExecutionTask struct {
 	ResolvedParams     map[string]interface{} `json:"resolved_params"`
 	Readiness          Readiness              `json:"readiness"`
 	PhaseHistory       []PhaseRecord          `json:"phase_history"`
+	Timing             TaskTiming             `json:"timing"`
 	Metrics            UnifiedMetrics         `json:"metrics"`
 	LogTail            []LogLine              `json:"log_tail"`
 	BenchmarkTool      string                 `json:"benchmark_tool"`

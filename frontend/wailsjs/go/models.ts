@@ -1431,6 +1431,26 @@ export namespace task {
 		    return a;
 		}
 	}
+	export class TaskTiming {
+	    prepare_ms: number;
+	    run_ms: number;
+	    cleanup_ms: number;
+	    total_ms: number;
+	    run_duration_input_ms: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskTiming(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.prepare_ms = source["prepare_ms"];
+	        this.run_ms = source["run_ms"];
+	        this.cleanup_ms = source["cleanup_ms"];
+	        this.total_ms = source["total_ms"];
+	        this.run_duration_input_ms = source["run_duration_input_ms"];
+	    }
+	}
 	export class PhaseRecord {
 	    phase: string;
 	    status: string;
@@ -1537,6 +1557,7 @@ export namespace task {
 	    resolved_params: Record<string, any>;
 	    readiness: Readiness;
 	    phase_history: PhaseRecord[];
+	    timing: TaskTiming;
 	    metrics: UnifiedMetrics;
 	    log_tail: LogLine[];
 	    benchmark_tool: string;
@@ -1567,6 +1588,7 @@ export namespace task {
 	        this.resolved_params = source["resolved_params"];
 	        this.readiness = this.convertValues(source["readiness"], Readiness);
 	        this.phase_history = this.convertValues(source["phase_history"], PhaseRecord);
+	        this.timing = this.convertValues(source["timing"], TaskTiming);
 	        this.metrics = this.convertValues(source["metrics"], UnifiedMetrics);
 	        this.log_tail = this.convertValues(source["log_tail"], LogLine);
 	        this.benchmark_tool = source["benchmark_tool"];
@@ -1596,6 +1618,7 @@ export namespace task {
 		    return a;
 		}
 	}
+	
 	
 	
 	

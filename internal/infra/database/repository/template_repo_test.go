@@ -50,6 +50,7 @@ func TestTemplateRepository_FindFiltersAndBuiltinProtection(t *testing.T) {
 	builtin := newTemplate("repo-builtin-1", domaintemplate.ScopeBuiltin)
 	shared := newTemplate("repo-shared-1", domaintemplate.ScopeReadonlyShared)
 	user := newTemplate("repo-user-2", domaintemplate.ScopeUser)
+	testTemplate := newTemplate("repo-test-1", domaintemplate.ScopeTest)
 
 	if err := repo.LoadBuiltinTemplates(ctx, []*domaintemplate.Template{builtin, shared}); err != nil {
 		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
@@ -57,9 +58,12 @@ func TestTemplateRepository_FindFiltersAndBuiltinProtection(t *testing.T) {
 	if err := repo.Save(ctx, user); err != nil {
 		t.Fatalf("Save() failed: %v", err)
 	}
+	if err := repo.Save(ctx, testTemplate); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
 
 	all, err := repo.FindAll(ctx)
-	if err != nil || len(all) != 3 {
+	if err != nil || len(all) != 4 {
 		t.Fatalf("FindAll() err=%v len=%d", err, len(all))
 	}
 
@@ -69,7 +73,7 @@ func TestTemplateRepository_FindFiltersAndBuiltinProtection(t *testing.T) {
 	}
 
 	custom, err := repo.FindCustom(ctx)
-	if err != nil || len(custom) != 1 {
+	if err != nil || len(custom) != 2 {
 		t.Fatalf("FindCustom() err=%v len=%d", err, len(custom))
 	}
 

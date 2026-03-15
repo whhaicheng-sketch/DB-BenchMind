@@ -364,6 +364,12 @@ Found 2 connection(s):
 | `hammerdb-tpcc` | HammerDB TPCC | HammerDB | MySQL, Oracle, SQL Server, PostgreSQL | tpcc | TPCC 基准 |
 | `hammerdb-tpc-h` | HammerDB TPC-H | HammerDB | MySQL, Oracle, SQL Server, PostgreSQL | tpch | 决策支持查询 |
 
+Swingbench Oracle 任务补充说明：
+
+- Tasks & Monitor 中填写的 `duration` 语义是 `Run duration`，只对应 workload run 阶段，不包含 prepare/cleanup。
+- Oracle Swingbench `prepare` 会单独建 schema / 造数，所以 prepare 阶段看到 TPS/TPM 为 0 属于正常现象，吞吐指标会在 run 阶段开始显示。
+- Oracle Swingbench `prepare` 需要更高权限账号完成建表空间、建 schema 和 `grant execute on sys.dbms_lock to soe`。普通业务账号通常只能承担 run 阶段的 SOE workload 连接。
+
 ### 查看可用模板（通过 API）
 
 ```go

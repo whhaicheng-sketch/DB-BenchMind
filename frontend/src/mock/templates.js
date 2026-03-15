@@ -160,6 +160,43 @@ export const templateMocks = [
     }
   }),
   createDefaultTemplate({
+    id: 'tpl_test_postgresql_sysbench',
+    name: 'PostgreSQL - Sysbench Test',
+    description: 'Minimal PostgreSQL sysbench smoke template for prepare, run, cleanup, and result verification.',
+    tool: 'sysbench',
+    dbFamily: 'postgresql',
+    workloadFamily: 'oltp-read-write',
+    scope: 'test',
+    status: 'ready',
+    tags: ['test', 'postgresql', 'sysbench', 'smoke'],
+    version: '1.0.0',
+    phases: {
+      prepare: { enabled: true, required: false, params: {} },
+      run: { enabled: true, required: true, params: {} },
+      cleanup: { enabled: true, required: false, params: {} }
+    },
+    runtime: {
+      concurrency: { mode: 'threads', value: 1 },
+      durationSeconds: 30,
+      warmupSeconds: 0,
+      rampUpSeconds: 3,
+      reportIntervalSeconds: 1,
+      percentile: 95,
+      validationEnabled: true,
+      notes: 'Lowest-volume PostgreSQL sysbench workflow intended to finish quickly and exercise the full chain.'
+    },
+    toolConfig: {
+      sysbench: {
+        dbDriver: 'pgsql',
+        scriptType: 'oltp_read_write',
+        tables: 1,
+        tableSize: 1000,
+        reportChecks: true,
+        extraCliArgs: ''
+      }
+    }
+  }),
+  createDefaultTemplate({
     id: 'tpl_swing_oe',
     name: 'Swingbench-Oracle-OE-Medium-64u-30m',
     description: 'Built-in OrderEntry scenario aligned to Oracle 11g compatible target.',
@@ -199,6 +236,46 @@ export const templateMocks = [
         minThinkTime: 0,
         maxThinkTime: 2,
         xmlOverrides: '<override key=\"soe.do_not_exit\">true</override>'
+      }
+    }
+  }),
+  createDefaultTemplate({
+    id: 'tpl_test_oracle_swingbench',
+    name: 'Oracle - Swingbench Test',
+    description: 'Minimal Oracle Swingbench smoke template for schema prepare, short run, cleanup, and result verification.',
+    tool: 'swingbench',
+    dbFamily: 'oracle',
+    workloadFamily: 'order-entry',
+    scope: 'test',
+    status: 'ready',
+    tags: ['test', 'oracle', 'swingbench', 'smoke'],
+    version: '1.0.0',
+    phases: {
+      prepare: { enabled: true, required: false, params: {} },
+      run: { enabled: true, required: true, params: {} },
+      cleanup: { enabled: true, required: false, params: {} }
+    },
+    runtime: {
+      concurrency: { mode: 'users', value: 1 },
+      durationSeconds: 60,
+      warmupSeconds: 0,
+      rampUpSeconds: 0,
+      reportIntervalSeconds: 5,
+      percentile: 95,
+      validationEnabled: true,
+      notes: 'One-user Oracle smoke profile to validate schema build and charbench execution.'
+    },
+    toolConfig: {
+      swingbench: {
+        benchmark: 'orderEntry',
+        frontend: 'charbench',
+        configMode: 'managed',
+        wizardOperation: 'generate',
+        userCount: 1,
+        runTimeSeconds: 60,
+        minThinkTime: 0,
+        maxThinkTime: 0,
+        xmlOverrides: ''
       }
     }
   }),
@@ -321,6 +398,46 @@ export const templateMocks = [
         stepTesting: true,
         xmlConnectPool: false,
         advancedNotes: 'Use for Oracle driver path validation only in this phase.'
+      }
+    }
+  }),
+  createDefaultTemplate({
+    id: 'tpl_test_sqlserver_hammerdb',
+    name: 'SQL Server - HammerDB Test',
+    description: 'Minimal SQL Server HammerDB smoke template for prepare, timed run, cleanup, and result verification.',
+    tool: 'hammerdb',
+    dbFamily: 'sqlserver',
+    workloadFamily: 'tproc-c',
+    scope: 'test',
+    status: 'ready',
+    tags: ['test', 'sqlserver', 'hammerdb', 'smoke'],
+    version: '1.0.0',
+    phases: {
+      prepare: { enabled: true, required: false, params: {} },
+      run: { enabled: true, required: true, params: {} },
+      cleanup: { enabled: true, required: false, params: {} }
+    },
+    runtime: {
+      concurrency: { mode: 'virtualUsers', value: 1 },
+      durationSeconds: 60,
+      warmupSeconds: 0,
+      rampUpSeconds: 0,
+      reportIntervalSeconds: 1,
+      percentile: 95,
+      iterations: 1,
+      validationEnabled: true,
+      notes: 'Timed single-user SQL Server smoke run intended to verify HammerDB task flow quickly.'
+    },
+    toolConfig: {
+      hammerdb: {
+        benchmark: 'tproc-c',
+        virtualUsers: 1,
+        warehouses: 1,
+        scaleFactor: 1,
+        timeProfile: true,
+        stepTesting: false,
+        xmlConnectPool: false,
+        advancedNotes: ''
       }
     }
   }),

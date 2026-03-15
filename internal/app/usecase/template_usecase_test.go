@@ -174,6 +174,64 @@ func TestTemplateUseCase_LoadBuiltinTemplates_SwingbenchSupportsPrepareRunCleanu
 	}
 }
 
+func TestTemplateUseCase_LoadBuiltinTemplates_IncludesDatabaseTestCoverage(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockTemplateRepository()
+	uc := NewTemplateUseCase(repo, "")
+
+	if err := uc.LoadBuiltinTemplates(ctx); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	all, err := uc.ListTemplates(ctx)
+	if err != nil {
+		t.Fatalf("ListTemplates() failed: %v", err)
+	}
+
+	want := map[string]string{
+		"mysql":      domaintemplate.ToolSysbench,
+		"postgresql": domaintemplate.ToolSysbench,
+		"oracle":     domaintemplate.ToolSwingbench,
+		"sqlserver":  domaintemplate.ToolHammerDB,
+	}
+
+	found := map[string]*domaintemplate.Template{}
+	for _, tmpl := range all {
+		if tmpl.Scope != domaintemplate.ScopeTest {
+			continue
+		}
+		found[tmpl.DBFamily] = tmpl
+	}
+
+	for dbFamily, tool := range want {
+		tmpl := found[dbFamily]
+		if tmpl == nil {
+			t.Fatalf("missing test template for %s", dbFamily)
+		}
+		if tmpl.Tool != tool {
+			t.Fatalf("test template for %s uses tool %s, want %s", dbFamily, tmpl.Tool, tool)
+		}
+		if tmpl.Scope != domaintemplate.ScopeTest {
+			t.Fatalf("test template for %s scope = %s, want %s", dbFamily, tmpl.Scope, domaintemplate.ScopeTest)
+		}
+		if !containsString(tmpl.Tags, "test") {
+			t.Fatalf("test template for %s must include tag 'test': %v", dbFamily, tmpl.Tags)
+		}
+		if !tmpl.SupportsDatabase(dbFamily) {
+			t.Fatalf("test template for %s does not support its own database family", dbFamily)
+		}
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func newCanonicalTemplate(id, scope string) *domaintemplate.Template {
 	tmpl := &domaintemplate.Template{
 		ID:             id,

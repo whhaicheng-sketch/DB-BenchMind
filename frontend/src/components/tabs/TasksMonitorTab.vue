@@ -38,13 +38,30 @@
 
     <section class="panel status-strip" :class="statusStrip.stateClass">
       <div class="status-strip-main">
-        <span class="status-pill" :class="statusStrip.badgeClass">{{ statusStrip.status }}</span>
-        <span class="status-strip-phase">{{ statusStrip.phase }}</span>
-        <span class="status-strip-time">{{ statusStrip.time }}</span>
+        <div class="status-strip-phase-block">
+          <span class="status-pill" :class="statusStrip.badgeClass">{{ statusStrip.status }}</span>
+          <div class="status-strip-phase-copy">
+            <span class="status-strip-label">Phase</span>
+            <strong class="status-strip-phase">{{ statusStrip.phase }}</strong>
+          </div>
+        </div>
+        <div class="status-strip-timings">
+          <div v-for="item in statusStrip.timings" :key="item.label" class="status-strip-time-chip">
+            <span class="status-strip-label">{{ item.label }}</span>
+            <strong class="status-strip-time">{{ item.value }}</strong>
+          </div>
+        </div>
       </div>
-      <div class="status-strip-meta" v-if="statusStrip.meta">
-        {{ statusStrip.meta }}
+      <div class="status-strip-meta" v-if="statusStrip.metaItems.length">
+        <div v-for="item in statusStrip.metaItems" :key="item.label" class="status-strip-meta-chip">
+          <span class="status-strip-label">{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
       </div>
+    </section>
+
+    <section v-if="logActionNotice" class="panel action-notice" :class="logActionNotice.tone">
+      {{ logActionNotice.message }}
     </section>
 
     <div class="workspace-grid">
@@ -77,8 +94,8 @@
 
           <label class="field">
             <span>Template</span>
-            <select v-model="draft.template_id" class="select-dark" :disabled="!draft.database_type || !draft.connection_id">
-              <option value="">{{ draft.connection_id ? 'Select template' : 'Select connection first' }}</option>
+            <select v-model="draft.template_id" class="select-dark" :disabled="!draft.database_type">
+              <option value="">{{ draft.database_type ? 'Select template' : 'Select database type first' }}</option>
               <option v-for="template in filteredTemplates" :key="template.id" :value="template.id">
                 {{ template.name }} · {{ template.tool }}
               </option>
@@ -100,7 +117,7 @@
               <input v-model.number="draft.overrides[concurrencyKey]" type="number" min="1">
             </label>
             <label class="field">
-              <span>Duration (s)</span>
+              <span>Run Duration (s)</span>
               <input v-model.number="draft.overrides.duration" type="number" min="1">
             </label>
           </div>
@@ -137,6 +154,10 @@
                       <span v-for="tick in metric.ticks" :key="`${metric.label}-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas metric-chart-canvas" data-testid="metric-chart-canvas">
+                      <div v-if="metric.overlay.kind !== 'none'" class="metric-overlay" :class="`metric-overlay-${metric.overlay.kind}`">
+                        <strong>{{ metric.overlay.title }}</strong>
+                        <span>{{ metric.overlay.body }}</span>
+                      </div>
                       <div class="metric-chart-current" data-testid="metric-current-value">
                         <strong>{{ metric.current }}</strong>
                         <span>{{ metric.unit }}</span>
@@ -255,29 +276,33 @@
           <h3>Task Preview</h3>
           <button class="text-action" @click="closePreview">Close</button>
         </div>
-        <div class="preview-grid" v-if="previewTask">
-          <div>
+        <div class="preview-meta-grid" v-if="previewTask">
+          <div class="preview-meta-card">
             <span class="eyebrow">Template</span>
             <strong>{{ previewTask.template_snapshot.name }}</strong>
             <p>{{ previewTask.template_snapshot.tool }} · {{ previewTask.template_snapshot.db_family }}</p>
           </div>
-          <div>
+          <div class="preview-meta-card">
             <span class="eyebrow">Connection</span>
             <strong>{{ previewTask.connection_snapshot.name }}</strong>
             <p>{{ previewTask.connection_snapshot.type }} · {{ previewTask.connection_snapshot.host }}</p>
           </div>
-          <div>
+          <div class="preview-meta-card">
             <span class="eyebrow">Action</span>
             <strong>{{ actionLabel(previewTask.action) }}</strong>
+            <p>{{ previewTask.name }}</p>
           </div>
-          <div>
+          <div class="preview-meta-card">
             <span class="eyebrow">Monitoring</span>
             <strong>{{ previewTask.readiness?.ssh_available ? 'SSH metrics enabled' : 'SSH unavailable' }}</strong>
             <p>{{ previewTask.readiness?.ssh_message }}</p>
           </div>
         </div>
-        <pre class="params-preview">{{ JSON.stringify(previewTask?.resolved_params || {}, null, 2) }}</pre>
-        <div class="actions">
+        <section class="preview-params-section">
+          <span class="eyebrow">Resolved Parameters</span>
+          <pre class="params-preview">{{ JSON.stringify(previewTask?.resolved_params || {}, null, 2) }}</pre>
+        </section>
+        <div class="actions modal-actions">
           <button class="btn btn-secondary" @click="closePreview">Back</button>
           <button v-if="previewConfirmable" class="btn btn-primary" :disabled="!previewTask?.readiness?.db_valid" @click="confirmCreateTask">Confirm</button>
         </div>
@@ -305,9 +330,11 @@
         <p class="log-meta" v-if="currentTask">Disk logs: {{ logPathSummary }}</p>
         <div ref="logViewport" class="terminal-viewer">
           <div v-for="(line, index) in taskStore.logLines" :key="`${line.timestamp}-${index}`" class="terminal-line" :class="lineClass(line)">
-            <span class="phase-tag">{{ line.phase }}</span>
-            <span class="stream-tag">{{ line.stream }}</span>
-            <span>{{ line.content }}</span>
+            <div class="terminal-line-badges">
+              <span class="phase-tag">{{ line.phase }}</span>
+              <span class="stream-tag">{{ line.stream }}</span>
+            </div>
+            <span class="terminal-line-message">{{ line.content }}</span>
           </div>
         </div>
       </div>
@@ -322,6 +349,7 @@ import { useAppStore } from '../../stores/app'
 import { useConnectionStore } from '../../stores/connection'
 import { useTaskStore } from '../../stores/task'
 import { useTemplateStore } from '../../stores/template'
+import { getOracleSwingbenchMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
 
 const appStore = useAppStore()
 const templateStore = useTemplateStore()
@@ -360,6 +388,8 @@ const logPhase = ref('')
 const autoScroll = ref(true)
 const logViewport = ref(null)
 const nowTick = ref(Date.now())
+const logActionNotice = ref(null)
+let logNoticeTimer = null
 
 const selectedTemplate = computed(() => templates.value.find((template) => template.id === draft.template_id) || null)
 const selectedConnection = computed(() => connections.value.find((connection) => connection.id === draft.connection_id) || null)
@@ -376,7 +406,7 @@ const filteredConnections = computed(() => {
   return connections.value.filter((connection) => connection.type === draft.database_type)
 })
 const filteredTemplates = computed(() => {
-  if (!draft.database_type || !draft.connection_id) return []
+  if (!draft.database_type) return []
   return templateStore.templatesByDatabase(draft.database_type)
     .filter((template) => template.dbFamily === draft.database_type || template.database_types?.includes(draft.database_type))
 })
@@ -462,7 +492,10 @@ const statusPopoverItems = computed(() => {
       { label: 'Action', value: actionLabel(activeTask.value.action) },
       { label: 'Current Phase', value: activeTask.value.current_phase || 'none' },
       { label: 'Started At', value: formatDate(activeTask.value.started_at || activeTask.value.created_at) },
-      { label: 'Elapsed', value: elapsedLabel.value },
+      { label: 'Requested Run Duration', value: requestedRunDurationLabel.value },
+      { label: 'Prepare', value: phaseTiming.value.prepare },
+      { label: 'Run', value: phaseTiming.value.run },
+      { label: 'Total', value: phaseTiming.value.total },
       { label: 'DB Validation', value: activeTask.value.readiness?.db_message || 'N/A' },
       { label: 'SSH Status', value: activeTask.value.readiness?.ssh_message || 'N/A' },
       { label: 'Disk Log Path', value: logPathSummary.value },
@@ -485,8 +518,8 @@ const statusPopoverItems = computed(() => {
 const businessMetrics = computed(() => {
   const metrics = currentTask.value?.metrics || {}
   return [
-    metricCard('TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
-    metricCard('TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
+    metricCard(currentTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
+    metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
   ]
 })
 
@@ -505,6 +538,12 @@ const cpuChart = computed(() => {
 const diskChart = computed(() => diskMetricChart(currentTask.value?.metrics || {}))
 
 const elapsedLabel = computed(() => formatElapsed(currentTask.value?.started_at, currentTask.value?.completed_at, nowTick.value))
+const phaseTiming = computed(() => ({
+  prepare: formatDurationMs(currentTask.value?.timing?.prepare_ms || 0),
+  run: formatDurationMs(currentTask.value?.timing?.run_ms || 0),
+  total: formatDurationMs(currentTask.value?.timing?.total_ms || 0)
+}))
+const requestedRunDurationLabel = computed(() => formatDurationMs(currentTask.value?.timing?.run_duration_input_ms || 0))
 const logPathSummary = computed(() => {
   const paths = Object.entries(currentTask.value?.run_log_paths || {})
     .filter(([, path]) => !!path)
@@ -516,7 +555,9 @@ const statusStrip = computed(() => {
     return {
       status: 'Idle',
       phase: 'No active task',
-      time: 'Ready',
+      prepare: '00:00',
+      run: '00:00',
+      total: '00:00',
       meta: '',
       badgeClass: 'idle',
       stateClass: 'idle'
@@ -525,18 +566,23 @@ const statusStrip = computed(() => {
 
   const status = statusLabel(currentTask.value.status)
   const phase = phaseLabel(currentTask.value.current_phase, currentTask.value.status)
-  const time = formatElapsed(currentTask.value.started_at, currentTask.value.completed_at, nowTick.value)
-  const metaParts = [
-    currentTask.value.benchmark_tool || '',
-    currentTask.value.connection_snapshot?.type || '',
-    currentTask.value.template_snapshot?.name || ''
-  ].filter(Boolean)
-
   return {
     status,
     phase,
-    time,
-    meta: metaParts.join(' · '),
+    prepare: phaseTiming.value.prepare,
+    run: phaseTiming.value.run,
+    total: phaseTiming.value.total,
+    timings: [
+      { label: 'Prepare', value: phaseTiming.value.prepare },
+      { label: 'Run', value: phaseTiming.value.run },
+      { label: 'Total', value: phaseTiming.value.total }
+    ],
+    metaItems: [
+      { label: 'Task', value: currentTask.value.template_snapshot?.name || 'N/A' },
+      { label: 'Tool', value: currentTask.value.benchmark_tool || 'N/A' },
+      { label: 'Database', value: currentTask.value.connection_snapshot?.type || 'N/A' },
+      { label: 'Run target', value: requestedRunDurationLabel.value }
+    ].filter((item) => item.value && item.value !== 'N/A'),
     badgeClass: currentTask.value.status || 'idle',
     stateClass: isActive(currentTask.value.status) ? 'active' : currentTask.value.status || 'idle'
   }
@@ -585,6 +631,7 @@ onMounted(async () => {
     const handoffTemplate = templates.value.find((template) => template.id === pendingTaskTemplate.value.templateId)
     if (handoffTemplate) {
       draft.database_type = handoffTemplate.dbFamily || handoffTemplate.database_types?.[0] || ''
+      draft.template_id = handoffTemplate.id
     }
     appStore.clearPendingTaskTemplate()
   }
@@ -595,6 +642,7 @@ onBeforeUnmount(() => {
   taskStore.stopPolling()
   clearTimeout(validationTimer)
   if (clockTimer) clearInterval(clockTimer)
+  if (logNoticeTimer) clearTimeout(logNoticeTimer)
 })
 
 watch(
@@ -681,7 +729,10 @@ async function handleStop() {
 async function openLogViewer() {
   if (!currentTask.value) return
   logViewerOpen.value = true
-  await taskStore.fetchLogs({ taskId: currentTask.value.id, query: logQuery.value, phase: logPhase.value })
+  const lines = await taskStore.fetchLogs({ taskId: currentTask.value.id, query: logQuery.value, phase: logPhase.value })
+  if (!lines.length && taskStore.error) {
+    setLogActionNotice(taskStore.error, 'error')
+  }
   await nextTick()
   scrollLogsToBottom()
 }
@@ -705,7 +756,7 @@ function actionLabel(action) {
   return actionOptions.value.find((option) => option.value === action)?.label || action || 'Not selected'
 }
 
-function metricCard(label, metric = {}, unit, stroke, fill) {
+function metricCard(task, label, metric = {}, unit, stroke, fill) {
   const current = Number(metric.current || 0)
   const avg = Number(metric.avg || 0)
   const max = Number(metric.max || 0)
@@ -713,15 +764,19 @@ function metricCard(label, metric = {}, unit, stroke, fill) {
   const plotBounds = METRIC_PLOT_BOUNDS
   const trend = buildTrendData(series, 320, 140, null, plotBounds)
   const ticks = buildAxisTicks(trend.min, trend.max, formatCompactNumber, 140, plotBounds)
+  const overlay = getOracleSwingbenchMetricOverlayState(task, label)
+  const showOverlay = overlay.kind !== 'none'
   return {
     label,
-    current: formatNumber(current),
+    current: showOverlay && overlay.kind === 'prepare' ? '0' : formatNumber(current),
     avg: formatNumber(avg),
     max: formatNumber(max),
-    headerStats: [
-      { label: 'AVG', value: formatNumber(avg) },
-      { label: 'MAX', value: formatNumber(max) }
-    ],
+    headerStats: showOverlay
+      ? [{ label: overlay.kind === 'prepare' ? 'PHASE' : 'STATE', value: overlay.kind === 'prepare' ? 'Prepare' : 'Waiting' }]
+      : [
+          { label: 'AVG', value: formatNumber(avg) },
+          { label: 'MAX', value: formatNumber(max) }
+        ],
     unit,
     stroke,
     glow: withAlpha(stroke, 0.11),
@@ -732,8 +787,9 @@ function metricCard(label, metric = {}, unit, stroke, fill) {
     ticks,
     tickLines: ticks.map((tick) => ({ ...tick, x1: plotBounds.x1, x2: plotBounds.x2 })),
     plotBounds,
-    statusLabel: metricStatus(metric),
-    statusClass: `metric-${metricStatus(metric).toLowerCase()}`
+    statusLabel: showOverlay ? (overlay.kind === 'prepare' ? 'Prepare' : 'Waiting') : metricStatus(metric),
+    statusClass: `metric-${(showOverlay ? (overlay.kind === 'prepare' ? 'Prepare' : 'Waiting') : metricStatus(metric)).toLowerCase()}`,
+    overlay
   }
 }
 
@@ -982,6 +1038,21 @@ function formatElapsed(startedAt, completedAt, nowValue) {
   return `${prefix} ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
+function formatDurationMs(value) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value || 0) / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function setLogActionNotice(message, tone) {
+  logActionNotice.value = { message, tone }
+  if (logNoticeTimer) clearTimeout(logNoticeTimer)
+  logNoticeTimer = setTimeout(() => {
+    logActionNotice.value = null
+  }, 5000)
+}
+
 function sanitizeName(value) {
   return String(value || '')
     .trim()
@@ -994,7 +1065,7 @@ function buildTaskNameStamp() {
 }
 
 function runtimeOverridesSummary() {
-  const parts = [`duration=${Number(draft.overrides.duration || 0)}s`]
+  const parts = [`run_duration=${Number(draft.overrides.duration || 0)}s`]
   if (selectedTemplate.value) {
     parts.push(`${concurrencyKey.value}=${Number(draft.overrides[concurrencyKey.value] || 0)}`)
   }
@@ -1045,7 +1116,7 @@ function sanitizeDraftState() {
 }
 
 function templateMatchesDatabaseAndConnection(templateId) {
-  if (!draft.database_type || !draft.connection_id) return false
+  if (!draft.database_type) return false
   return filteredTemplates.value.some((template) => template.id === templateId)
 }
 
@@ -1122,6 +1193,7 @@ function closeLogViewer() {
 .page-subtitle,
 .header-panel p,
 .preview-grid p,
+.preview-meta-grid p,
 .log-meta {
   margin: 4px 0 0;
   color: #94a3b8;
@@ -1335,11 +1407,11 @@ function closeLogViewer() {
 }
 
 .status-strip {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 12px;
+  padding: 10px 12px;
   background: #101720;
 }
 
@@ -1348,27 +1420,83 @@ function closeLogViewer() {
 }
 
 .status-strip-main,
-.status-strip-meta {
+.status-strip-meta,
+.status-strip-phase-block,
+.status-strip-timings {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
+.status-strip-main {
+  justify-content: space-between;
+  min-width: 0;
+  gap: 14px;
+}
+
+.status-strip-phase-block {
+  min-width: 0;
+}
+
+.status-strip-phase-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-strip-timings,
+.status-strip-meta {
+  flex-wrap: wrap;
+}
+
+.status-strip-time-chip,
+.status-strip-meta-chip {
+  display: grid;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(49, 71, 93, 0.72);
+  background: rgba(11, 17, 24, 0.72);
+}
+
+.status-strip-label,
 .status-strip-phase,
 .status-strip-time,
-.status-strip-meta {
+.status-strip-meta strong {
   font-size: var(--tm-font-meta);
-  color: #9ba9bc;
   letter-spacing: 0.04em;
 }
 
+.status-strip-label {
+  color: #6f8297;
+  text-transform: uppercase;
+}
+
 .status-strip-phase {
-  text-transform: lowercase;
+  color: #e8edf5;
+  text-transform: capitalize;
+  font-size: var(--tm-font-body);
 }
 
 .status-strip-time {
   color: #dce4ef;
   font-weight: 600;
+  font-size: var(--tm-font-body);
+}
+
+.action-notice {
+  padding: 8px 12px;
+  background: #101720;
+}
+
+.action-notice.success {
+  color: #a7f3d0;
+  border-color: rgba(77, 208, 168, 0.35);
+}
+
+.action-notice.error {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.35);
 }
 
 .field {
@@ -1465,13 +1593,15 @@ select,
 .override-grid,
 .metric-grid,
 .system-grid,
-.preview-grid {
+.preview-grid,
+.preview-meta-grid {
   display: grid;
   gap: 10px;
 }
 
 .override-grid,
-.preview-grid {
+.preview-grid,
+.preview-meta-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1595,6 +1725,18 @@ select,
   background: rgba(248, 113, 113, 0.12);
 }
 
+.metric-prepare {
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.35);
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.metric-waiting {
+  color: #f7cf93;
+  border-color: rgba(244, 162, 97, 0.35);
+  background: rgba(244, 162, 97, 0.12);
+}
+
 .metric-stats {
   justify-content: flex-start;
   align-items: baseline;
@@ -1672,19 +1814,52 @@ select,
 }
 
 .metric-chart-canvas {
-  padding: 28px 0 6px;
+  padding: 14px 0 6px;
 }
 
 .metric-chart-current {
   position: absolute;
-  top: 6px;
-  left: 10px;
+  top: 10px;
+  left: 12px;
   z-index: 2;
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
   max-width: calc(100% - 20px);
   pointer-events: none;
+}
+
+.metric-overlay {
+  position: absolute;
+  inset: 20px 18px 18px;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(8, 13, 19, 0.82);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.metric-overlay strong {
+  font-size: 13px;
+  color: #f8fbff;
+}
+
+.metric-overlay span {
+  max-width: 32ch;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #d5e5fb;
+}
+
+.metric-overlay-run-waiting {
+  border-color: rgba(244, 162, 97, 0.25);
 }
 
 .metric-chart-current strong {
@@ -1969,18 +2144,37 @@ select,
 
 .terminal-line {
   display: flex;
-  gap: 10px;
-  padding: 2px 0;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
   color: #a8b4c5;
+}
+
+.terminal-line-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.terminal-line-message {
+  flex: 1;
+  min-width: 0;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .stream-tag {
-  min-width: 64px;
-  text-align: center;
+  min-width: auto;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   background: rgba(55, 74, 95, 0.35);
+}
+
+.phase-tag,
+.stream-tag {
+  padding: 2px 8px;
+  line-height: 1.2;
 }
 
 .terminal-line.error {
@@ -2007,6 +2201,36 @@ select,
   border: 1px solid #2a3e54;
   border-radius: 18px;
   padding: 20px;
+}
+
+.preview-meta-card {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(49, 71, 93, 0.68);
+  background: rgba(11, 17, 24, 0.72);
+}
+
+.preview-meta-card strong {
+  line-height: 1.25;
+}
+
+.preview-params-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.params-preview {
+  margin: 0;
+  min-height: 220px;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .modal-wide {
@@ -2038,6 +2262,8 @@ select,
 .status-popover-item strong,
 .preview-grid strong,
 .preview-grid p,
+.preview-meta-grid strong,
+.preview-meta-grid p,
 .params-preview,
 .text-action,
 .modal,
@@ -2091,6 +2317,7 @@ select,
   .workspace-grid,
   .metric-grid,
   .preview-grid,
+  .preview-meta-grid,
   .system-grid,
   .override-grid {
     grid-template-columns: 1fr;
@@ -2098,9 +2325,14 @@ select,
 
   .tab-header,
   .top-controls,
-  .status-strip {
+  .status-strip-main,
+  .status-strip-meta {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .status-strip {
+    grid-template-columns: 1fr;
   }
 
   .tasks-monitor-tab {
