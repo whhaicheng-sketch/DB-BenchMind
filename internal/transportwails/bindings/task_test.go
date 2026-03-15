@@ -369,6 +369,38 @@ func TestClassifyTaskExecutionError_OraclePreparePermission(t *testing.T) {
 	}
 }
 
+func TestClassifyTaskExecutionError_OracleRunAuthenticationFailure(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "soe"},
+		BenchmarkTool:      "swingbench",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New("Could not establish/maintain connection: ORA-01017: invalid username/password; logon denied"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "invalid Oracle workload username/password", "credentials"}) {
+		t.Fatalf("unexpected authentication error: %s", got)
+	}
+}
+
+func TestClassifyTaskExecutionError_OracleRunMissingPreparedSchema(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "soe"},
+		BenchmarkTool:      "swingbench",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New("ORA-00942: table or view does not exist"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "SOE schema", "run Prepare first"}) {
+		t.Fatalf("unexpected schema error: %s", got)
+	}
+}
+
 func containsAll(value string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(value, sub) {

@@ -993,7 +993,42 @@ func classifyTaskExecutionError(task *domaintask.ExecutionTask, phase domaintask
 		}
 		return fmt.Errorf("Oracle Swingbench prepare requires a higher-privilege account. The prepare flow ran post-schema setup as %s and failed to grant EXECUTE on sys.dbms_lock to SOE (ORA-01031). Use a DBA/SYSDBA-style account for prepare, or grant the required privilege before prepare. Run can use a lower-privilege SOE workload account after schema build. Original error: %s", username, message)
 	}
+	if oracleSwingbenchRunError := classifyOracleSwingbenchRunError(task, phase, message); oracleSwingbenchRunError != nil {
+		return oracleSwingbenchRunError
+	}
 	return err
+}
+
+func classifyOracleSwingbenchRunError(task *domaintask.ExecutionTask, phase domaintask.Phase, message string) error {
+	if task == nil ||
+		phase != domaintask.PhaseRun ||
+		!strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") ||
+		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) {
+		return nil
+	}
+
+	upper := strings.ToUpper(message)
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(upper, "ORA-01017") || strings.Contains(lower, "invalid username/password"):
+		return fmt.Errorf("Oracle Swingbench run failed: invalid Oracle workload username/password. Check the workload credentials and Oracle connection settings. Original error: %s", message)
+	case strings.Contains(lower, "could not establish/maintain connection") ||
+		strings.Contains(upper, "ORA-12154") ||
+		strings.Contains(upper, "ORA-125") ||
+		strings.Contains(lower, "tns:") ||
+		strings.Contains(lower, "logon denied"):
+		return fmt.Errorf("Oracle Swingbench run failed: Oracle connection/login failed while starting the workload. Check the workload credentials and Oracle connection configuration. Original error: %s", message)
+	case strings.Contains(upper, "ORA-00942") ||
+		strings.Contains(lower, "table or view does not exist") ||
+		strings.Contains(lower, "schema missing") ||
+		(strings.Contains(lower, "soe") && strings.Contains(lower, "does not exist")) ||
+		(strings.Contains(lower, "object") && strings.Contains(lower, "does not exist")):
+		return fmt.Errorf("Oracle Swingbench run failed: required SOE schema or workload objects are missing. This run depends on prepared Oracle workload objects; run Prepare first. Original error: %s", message)
+	case strings.Contains(lower, "child process failed") || strings.Contains(lower, "process exited"):
+		return fmt.Errorf("Oracle Swingbench run failed: Swingbench child process exited before the first TPS/TPM sample. Check the run log for the failing command output. Original error: %s", message)
+	default:
+		return nil
+	}
 }
 
 func preparePrivilegeHint(task *domaintask.ExecutionTask) string {

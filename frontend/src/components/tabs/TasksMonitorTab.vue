@@ -158,7 +158,7 @@
                         <strong>{{ metric.overlay.title }}</strong>
                         <span>{{ metric.overlay.body }}</span>
                       </div>
-                      <div class="metric-chart-current" data-testid="metric-current-value">
+                      <div class="metric-chart-current" :class="{ 'metric-chart-current-muted': metric.overlay.kind !== 'none' }" data-testid="metric-current-value">
                         <strong>{{ metric.current }}</strong>
                         <span>{{ metric.unit }}</span>
                       </div>
@@ -350,6 +350,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { useTaskStore } from '../../stores/task'
 import { useTemplateStore } from '../../stores/template'
 import { getOracleSwingbenchMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
+import { buildStatusStripModel } from './tasksMonitorStatusStrip.mjs'
 
 const appStore = useAppStore()
 const templateStore = useTemplateStore()
@@ -551,41 +552,11 @@ const logPathSummary = computed(() => {
   return paths.length ? paths.join(' | ') : 'pending'
 })
 const statusStrip = computed(() => {
-  if (!currentTask.value) {
-    return {
-      status: 'Idle',
-      phase: 'No active task',
-      prepare: '00:00',
-      run: '00:00',
-      total: '00:00',
-      meta: '',
-      badgeClass: 'idle',
-      stateClass: 'idle'
-    }
-  }
-
-  const status = statusLabel(currentTask.value.status)
-  const phase = phaseLabel(currentTask.value.current_phase, currentTask.value.status)
-  return {
-    status,
-    phase,
-    prepare: phaseTiming.value.prepare,
-    run: phaseTiming.value.run,
-    total: phaseTiming.value.total,
-    timings: [
-      { label: 'Prepare', value: phaseTiming.value.prepare },
-      { label: 'Run', value: phaseTiming.value.run },
-      { label: 'Total', value: phaseTiming.value.total }
-    ],
-    metaItems: [
-      { label: 'Task', value: currentTask.value.template_snapshot?.name || 'N/A' },
-      { label: 'Tool', value: currentTask.value.benchmark_tool || 'N/A' },
-      { label: 'Database', value: currentTask.value.connection_snapshot?.type || 'N/A' },
-      { label: 'Run target', value: requestedRunDurationLabel.value }
-    ].filter((item) => item.value && item.value !== 'N/A'),
-    badgeClass: currentTask.value.status || 'idle',
-    stateClass: isActive(currentTask.value.status) ? 'active' : currentTask.value.status || 'idle'
-  }
+  return buildStatusStripModel(currentTask.value, phaseTiming.value, requestedRunDurationLabel.value, {
+    statusLabel,
+    phaseLabel,
+    isActive
+  })
 })
 
 let validationTimer = null
@@ -766,13 +737,21 @@ function metricCard(task, label, metric = {}, unit, stroke, fill) {
   const ticks = buildAxisTicks(trend.min, trend.max, formatCompactNumber, 140, plotBounds)
   const overlay = getOracleSwingbenchMetricOverlayState(task, label)
   const showOverlay = overlay.kind !== 'none'
+  const overlayLabel = overlay.kind === 'prepare'
+    ? 'Prepare'
+    : overlay.kind === 'run-waiting'
+      ? 'Waiting'
+      : overlay.kind === 'run-error'
+        ? 'Error'
+        : null
+  const metricStateLabel = showOverlay ? overlayLabel : metricStatus(metric)
   return {
     label,
-    current: showOverlay && overlay.kind === 'prepare' ? '0' : formatNumber(current),
+    current: showOverlay ? '0' : formatNumber(current),
     avg: formatNumber(avg),
     max: formatNumber(max),
     headerStats: showOverlay
-      ? [{ label: overlay.kind === 'prepare' ? 'PHASE' : 'STATE', value: overlay.kind === 'prepare' ? 'Prepare' : 'Waiting' }]
+      ? [{ label: overlay.kind === 'prepare' ? 'PHASE' : 'STATE', value: overlayLabel }]
       : [
           { label: 'AVG', value: formatNumber(avg) },
           { label: 'MAX', value: formatNumber(max) }
@@ -787,8 +766,8 @@ function metricCard(task, label, metric = {}, unit, stroke, fill) {
     ticks,
     tickLines: ticks.map((tick) => ({ ...tick, x1: plotBounds.x1, x2: plotBounds.x2 })),
     plotBounds,
-    statusLabel: showOverlay ? (overlay.kind === 'prepare' ? 'Prepare' : 'Waiting') : metricStatus(metric),
-    statusClass: `metric-${(showOverlay ? (overlay.kind === 'prepare' ? 'Prepare' : 'Waiting') : metricStatus(metric)).toLowerCase()}`,
+    statusLabel: metricStateLabel,
+    statusClass: `metric-${metricStateLabel.toLowerCase()}`,
     overlay
   }
 }
@@ -1409,9 +1388,9 @@ function closeLogViewer() {
 .status-strip {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px;
   background: #101720;
 }
 
@@ -1429,31 +1408,34 @@ function closeLogViewer() {
 }
 
 .status-strip-main {
-  justify-content: space-between;
+  justify-content: flex-start;
   min-width: 0;
-  gap: 14px;
+  gap: 16px;
 }
 
 .status-strip-phase-block {
   min-width: 0;
+  align-items: center;
 }
 
 .status-strip-phase-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .status-strip-timings,
 .status-strip-meta {
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .status-strip-time-chip,
 .status-strip-meta-chip {
   display: grid;
-  gap: 3px;
-  padding: 6px 10px;
+  gap: 4px;
+  min-width: 88px;
+  padding: 7px 10px;
   border-radius: 10px;
   border: 1px solid rgba(49, 71, 93, 0.72);
   background: rgba(11, 17, 24, 0.72);
@@ -1474,7 +1456,7 @@ function closeLogViewer() {
 
 .status-strip-phase {
   color: #e8edf5;
-  text-transform: capitalize;
+  text-transform: none;
   font-size: var(--tm-font-body);
 }
 
@@ -1737,6 +1719,12 @@ select,
   background: rgba(244, 162, 97, 0.12);
 }
 
+.metric-error {
+  color: #ffb4b4;
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(248, 113, 113, 0.14);
+}
+
 .metric-stats {
   justify-content: flex-start;
   align-items: baseline;
@@ -1829,6 +1817,14 @@ select,
   pointer-events: none;
 }
 
+.metric-chart-current-muted {
+  top: auto;
+  left: auto;
+  right: 12px;
+  bottom: 10px;
+  opacity: 0.28;
+}
+
 .metric-overlay {
   position: absolute;
   inset: 20px 18px 18px;
@@ -1860,6 +1856,11 @@ select,
 
 .metric-overlay-run-waiting {
   border-color: rgba(244, 162, 97, 0.25);
+}
+
+.metric-overlay-run-error {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(25, 11, 14, 0.82);
 }
 
 .metric-chart-current strong {
@@ -2143,17 +2144,19 @@ select,
 }
 
 .terminal-line {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 8px;
-  padding: 5px 0;
+  padding: 6px 0;
   color: #a8b4c5;
 }
 
 .terminal-line-badges {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-wrap: wrap;
   flex: 0 0 auto;
 }
 
@@ -2162,6 +2165,7 @@ select,
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.45;
 }
 
 .stream-tag {
@@ -2173,8 +2177,13 @@ select,
 
 .phase-tag,
 .stream-tag {
-  padding: 2px 8px;
-  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  line-height: 1.1;
+  border-radius: 999px;
+  font-size: 10px;
+  border: 1px solid rgba(127, 144, 167, 0.22);
 }
 
 .terminal-line.error {
@@ -2205,9 +2214,10 @@ select,
 
 .preview-meta-card {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   align-content: start;
-  padding: 12px;
+  min-height: 88px;
+  padding: 12px 13px;
   border-radius: 12px;
   border: 1px solid rgba(49, 71, 93, 0.68);
   background: rgba(11, 17, 24, 0.72);
@@ -2215,12 +2225,21 @@ select,
 
 .preview-meta-card strong {
   line-height: 1.25;
+  min-width: 0;
+}
+
+.preview-meta-card p {
+  margin: 0;
+  color: #9cb0c5;
+  line-height: 1.35;
 }
 
 .preview-params-section {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(49, 71, 93, 0.55);
 }
 
 .params-preview {
@@ -2229,7 +2248,8 @@ select,
 }
 
 .modal-actions {
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 16px;
 }
 
