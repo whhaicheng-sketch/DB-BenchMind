@@ -86,11 +86,14 @@ DB-BenchMind 对支持的 benchmark 工具统一采用以下生命周期：
 
 Oracle Swingbench 额外约束：
 
-- `Prepare` 固定为一次 `Cleanup` 加一次 init/create 链路；不允许按 “schema 是否已存在” 探测后跳过。
+- `Cleanup` 是 destructive teardown：必须删除 `SOE` 用户、`SOE/SOE_IDX` 表空间、相关 datafile 和会影响下次 `Prepare` 的残留。
+- `Prepare` 固定为 `Cleanup -> Verify Cleanup State -> Bootstrap SOE -> Create Schema -> Generate Data -> Build Indexes`；不允许按 “schema 是否已存在” 探测后跳过。
 - `Cleanup` 必须是幂等清理：对象不存在、部分存在、完整存在、上次中断残留都要受控处理。
 - `Cleanup` 不能只看脚本退出码；必须在继续 `oewizard -create` 前校验 `SOE` 用户、`SOE/SOE_IDX` 表空间、会阻塞 create 的 datafile/残留对象都已清理到预期状态。
 - 如果 cleanup 校验未通过，`Prepare` 必须在 create 前失败，并把具体残留原因写入 run workspace / log viewer。
-- Oracle Swingbench 的 `Prepare` 会在 cleanup 校验通过后串行执行 SOE bootstrap SQL、`oewizard -create`、`oewizard -generate`、`oewizard -allindexes`。
+- Oracle Swingbench 的 bootstrap 必须等价于手工 `cts_orac.sql`：使用 `sys as sysdba` 创建/恢复 `SOE`、`SOE_IDX` 和所需 datafile 基线。
+- Oracle Swingbench 的 `oewizard` 命令必须按手工基线构造：`create` / `generate` / `allindexes` 都要显式带 `-its SOE_IDX`，且不能依赖 `SYS -> SYSTEM` 黑盒映射。
+- Oracle Swingbench 的 `Run` 只负责 workload：固定调用 `charbench`，使用 SOE workload 账号和 server-side SOE 配置，不夹带 prepare/cleanup。
 
 ---
 

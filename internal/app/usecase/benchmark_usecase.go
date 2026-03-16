@@ -1833,6 +1833,18 @@ func (uc *BenchmarkUseCase) executeCommandSequence(ctx context.Context, run *exe
 				Content:   step.Description,
 			})
 		}
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("Command: %s", step.CmdLine),
+		})
+		for _, debugPath := range extractSwingbenchDebugPaths(step.CmdLine) {
+			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "info",
+				Content:   fmt.Sprintf("Swingbench debug log: %s", debugPath),
+			})
+		}
 
 		// Execute the step command
 		var err error
@@ -2024,6 +2036,24 @@ func isSwingbenchCommandLine(cmdLine string) bool {
 		strings.Contains(lower, "oewizard") ||
 		strings.Contains(lower, "minibench") ||
 		strings.Contains(lower, "swingbench")
+}
+
+func extractSwingbenchDebugPaths(cmdLine string) []string {
+	parts, err := parseCommandLine(cmdLine)
+	if err != nil {
+		return nil
+	}
+
+	var paths []string
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "-debugf" {
+			candidate := strings.TrimSpace(parts[i+1])
+			if candidate != "" && !strings.HasPrefix(candidate, "-") {
+				paths = append(paths, candidate)
+			}
+		}
+	}
+	return paths
 }
 
 func normalizeSwingbenchCommandParts(parts []string) []string {

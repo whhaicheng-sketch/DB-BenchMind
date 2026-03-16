@@ -368,10 +368,12 @@ Swingbench Oracle 任务补充说明：
 
 - Tasks & Monitor 中填写的 `duration` 语义是 `Run duration`，只对应 workload run 阶段，不包含 prepare/cleanup。
 - Oracle Swingbench `prepare` 会单独建 schema / 造数，所以 prepare 阶段看到 TPS/TPM 为 0 属于正常现象，吞吐指标会在 run 阶段开始显示。
-- Oracle Swingbench `prepare` 需要更高权限账号完成建表空间、建 schema 和 `grant execute on sys.dbms_lock to soe`。普通业务账号通常只能承担 run 阶段的 SOE workload 连接。
-- DB-BenchMind 的生命周期语义已统一：`prepare = cleanup + init/create`，`run = workload only`，`cleanup = teardown only`。不会因为 schema 已存在而跳过 prepare。
-- Oracle Swingbench `prepare` 会先做一次幂等 cleanup，并在进入 `oewizard -create` 前验证 `SOE` 用户、`SOE/SOE_IDX` 表空间、datafile 与阻塞 create 的残留对象已经清理完毕；若未清干净，会直接失败并要求查看日志。
-- Oracle 管理凭据分为两类：SQL*Plus 管理步骤使用 admin/SYSDBA 来源，`oewizard` 使用显式配置的 DBA 凭据；两者来源都会写入日志摘要，便于定位是凭据问题还是环境残留问题。
+- Oracle Swingbench `cleanup` 是 destructive teardown：会删除 `SOE` 用户、`SOE/SOE_IDX` 表空间、相关 datafile 和阻塞下次 prepare 的残留。
+- DB-BenchMind 的生命周期语义已统一：`prepare = cleanup -> verify cleanup -> bootstrap -> create -> generate -> allindexes`，`run = workload only`，`cleanup = teardown only`。不会因为 schema 已存在而跳过 prepare。
+- Oracle Swingbench `prepare` 的 bootstrap 使用 `sys as sysdba` 对齐手工 `cts_orac.sql` 语义，先恢复 `SOE`、`SOE_IDX` 和 datafile 基线，再继续 `oewizard` 建结构/装数/建索引。
+- Oracle Swingbench `prepare` 会先做一次幂等 cleanup，并在进入 bootstrap/create 前验证 `SOE` 用户、`SOE/SOE_IDX` 表空间、datafile 与阻塞 create 的残留对象已经清理完毕；若未清干净，会直接失败并要求查看日志。
+- Oracle 管理凭据分为两类：cleanup/bootstrap/verify 使用 `SYS/SYSDBA` 管理凭据；`oewizard` create/generate/allindexes 使用显式配置的 DBA 凭据，不再做 `SYS -> SYSTEM` 自动映射。
+- Oracle Swingbench `run` 固定调用 `charbench` 执行 workload，并继续写出结果文件和日志供 Tasks & Monitor 查看。
 
 ### 查看可用模板（通过 API）
 

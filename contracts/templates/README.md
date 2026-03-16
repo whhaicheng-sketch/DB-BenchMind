@@ -42,10 +42,11 @@ Swingbench Oracle notes:
 - Template/runtime `duration` maps to run-phase duration only.
 - Prepare and cleanup are separate phases and should not be mixed into run duration semantics.
 - DB-BenchMind lifecycle semantics are unified: `prepare` always rebuilds, `run` reuses the prepared environment, and `cleanup` fully removes it.
-- Oracle Swingbench prepare requires a privileged account for schema build and post-schema grants such as `EXECUTE ON SYS.DBMS_LOCK`.
-- Oracle Swingbench prepare is strictly `cleanup` once, verify cleanup state, then bootstrap plus `oewizard -create`, `-generate`, and `-allindexes`; it must not short-circuit just because SOE already exists.
-- Oracle Swingbench cleanup is expected to be idempotent and verification-gated: after cleanup returns, DB-BenchMind must verify the `SOE` user, `SOE/SOE_IDX` tablespaces, datafiles, and other create-blocking remnants are gone before continuing.
-- `oewizard` DBA credentials must come from explicit resolved parameters and be logged clearly enough that credential failures can be distinguished from cleanup residue failures.
+- Oracle Swingbench cleanup is a destructive teardown of the whole SOE benchmark environment: `SOE` user, `SOE/SOE_IDX` tablespaces, related datafiles, and other create-blocking residue.
+- Oracle Swingbench prepare is strictly `cleanup` once, `Verify Cleanup State`, then bootstrap plus `oewizard -create`, `-generate`, and `-allindexes`; it must not short-circuit just because SOE already exists.
+- Oracle Swingbench bootstrap uses `sys as sysdba` and must remain semantically aligned with the validated `cts_orac.sql` flow.
+- Oracle Swingbench `oewizard` DBA credentials must come from explicit resolved parameters and be logged clearly enough that credential failures can be distinguished from cleanup residue failures. `SYS -> SYSTEM` implicit remapping is not allowed.
+- Oracle Swingbench run is workload-only and uses `charbench`; prepare/cleanup work must not leak into the run phase.
 
 ### HammerDB Templates
 

@@ -4,7 +4,7 @@
 
 **Goal:** Make `prepare`, `run`, and `cleanup` follow one consistent lifecycle across supported databases: `prepare` always rebuilds, `run` reuses the prepared environment, and `cleanup` fully removes it.
 
-**Architecture:** Keep lifecycle orchestration centralized in the benchmark use case while pushing database-specific teardown/build details down into each adapter. Oracle Swingbench prepare becomes an explicit multi-step rebuild flow with an embedded bootstrap SQL script; direct run remains guarded by preflight checks that require a prepared environment after cleanup.
+**Architecture:** Keep lifecycle orchestration centralized in the benchmark use case while pushing database-specific teardown/build details down into each adapter. Oracle Swingbench prepare becomes an explicit multi-step rebuild flow aligned to the validated manual baseline: `cleanup -> verify cleanup -> bootstrap -> create -> generate -> allindexes`; direct run remains guarded by preflight checks that require a prepared environment after cleanup.
 
 **Tech Stack:** Go, Wails bindings, repository-backed execution logs, built-in template seeds, Markdown docs.
 
@@ -47,7 +47,7 @@ Expected: FAIL only because production code has not been updated yet.
 - [ ] **Step 1: Embed the bootstrap SQL and wire prepare to cleanup-first rebuild**
 
 Implement embedded/non-interactive `cts_orac.sql` generation plus ordered steps:
-cleanup -> connection probe -> bootstrap -> create -> generate -> allindexes -> post-schema setup.
+cleanup -> verify cleanup -> bootstrap -> create -> generate -> allindexes.
 
 - [ ] **Step 2: Implement full Oracle cleanup semantics**
 
@@ -81,8 +81,7 @@ Expected: PASS.
 ### Task 4: Align built-in template/docs wording with the unified lifecycle
 
 **Files:**
-- Modify: `internal/domain/template/seeds.go`
-- Modify: `README.md`
+- Modify: `docs/USER_GUIDE.md`
 - Modify: `docs/OPERATION.md`
 - Modify: `contracts/templates/README.md`
 
@@ -92,7 +91,7 @@ Describe prepare as rebuild/recreate, run as reusable after prepare, and cleanup
 
 - [ ] **Step 2: Update user-facing docs**
 
-Document the lifecycle explicitly, including Oracle Swingbench’s embedded bootstrap SQL behavior and cleanup consequences.
+Document the lifecycle explicitly, including destructive cleanup semantics, the `cts_orac.sql`-equivalent bootstrap behavior, and the workload-only `charbench` run phase.
 
 - [ ] **Step 3: Run targeted template/doc-adjacent tests**
 
