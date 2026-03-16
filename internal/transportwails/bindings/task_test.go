@@ -1,11 +1,13 @@
 package bindings
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
@@ -564,6 +566,64 @@ func TestOracleSwingbenchDirectRunGuard_AllowsRunAfterLaterPrepare(t *testing.T)
 	}
 }
 
+func TestTaskBindingRunPhase_OracleSwingbenchCleanupGuardDoesNotOptimisticallyEnterRunning(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ID:            "task-run",
+		Action:        domaintask.ActionRun,
+		Status:        domaintask.StatusStarting,
+		CurrentPhase:  domaintask.PhaseNone,
+		BenchmarkTool: "swingbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			ID:   "conn-oracle",
+			Type: "oracle",
+		},
+		TemplateSnapshot: domaintask.TemplateSnapshot{
+			WorkloadFamily: "order-entry",
+		},
+	}
+	binding := &TaskBinding{
+		tasks: map[string]*domaintask.ExecutionTask{
+			"task-run": task,
+			"task-cleanup": {
+				ID:            "task-cleanup",
+				BenchmarkTool: "swingbench",
+				ConnectionSnapshot: domaintask.ConnectionSnapshot{
+					ID:   "conn-oracle",
+					Type: "oracle",
+				},
+				TemplateSnapshot: domaintask.TemplateSnapshot{
+					WorkloadFamily: "order-entry",
+				},
+				PhaseHistory: []domaintask.PhaseRecord{
+					{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: time.Now().Add(-time.Minute)},
+				},
+			},
+		},
+		executions: map[string]*taskExecutionContext{
+			"task-run": {
+				logSeen: make(map[string]int),
+			},
+		},
+	}
+
+	err := binding.runPhase("task-run", domaintask.PhaseRun)
+	if err == nil {
+		t.Fatal("runPhase() expected cleanup guard error")
+	}
+	if got := task.Status; got != domaintask.StatusStarting {
+		t.Fatalf("task status = %s, want %s", got, domaintask.StatusStarting)
+	}
+	if got := task.CurrentPhase; got != domaintask.PhaseNone {
+		t.Fatalf("task current phase = %s, want %s", got, domaintask.PhaseNone)
+	}
+	if len(task.PhaseHistory) != 0 {
+		t.Fatalf("phase history length = %d, want 0", len(task.PhaseHistory))
+	}
+	if !containsAll(task.LogTail[len(task.LogTail)-1].Content, []string{"Cleanup removed required SOE objects", "Prepare first"}) {
+		t.Fatalf("unexpected log tail: %+v", task.LogTail)
+	}
+}
+
 func TestTaskBindingStopTask_IgnoresDuplicateStopRequests(t *testing.T) {
 	binding := &TaskBinding{
 		tasks: map[string]*domaintask.ExecutionTask{
@@ -602,6 +662,53 @@ func TestTaskBindingStopTask_IgnoresDuplicateStopRequests(t *testing.T) {
 	if stopEvents != 1 {
 		t.Fatalf("Stop requested events = %d, want 1", stopEvents)
 	}
+}
+
+func TestTaskBindingStopTask_RollsBackStoppingStateWhenStopRequestFails(t *testing.T) {
+	runRepo := useTestRunRepoWithRun(&execution.Run{
+		ID:    "run-completed",
+		State: execution.StateCompleted,
+	})
+	benchmarkUC := &usecase.BenchmarkUseCase{}
+	*benchmarkUC = *usecase.NewBenchmarkUseCase(runRepo, nil, nil, nil)
+
+	binding := &TaskBinding{
+		benchmarkUC: benchmarkUC,
+		tasks: map[string]*domaintask.ExecutionTask{
+			"task-1": {
+				ID:           "task-1",
+				Status:       domaintask.StatusRunning,
+				CurrentPhase: domaintask.PhaseRun,
+			},
+		},
+		executions: map[string]*taskExecutionContext{
+			"task-1": {
+				currentRunID: "run-completed",
+				logSeen:      make(map[string]int),
+			},
+		},
+	}
+
+	result := binding.StopTask("task-1")
+	if result.Error == "" {
+		t.Fatal("StopTask() expected error")
+	}
+
+	task := binding.tasks["task-1"]
+	if got := task.Status; got != domaintask.StatusRunning {
+		t.Fatalf("task status = %s, want %s", got, domaintask.StatusRunning)
+	}
+	if binding.executions["task-1"].stopRequested {
+		t.Fatal("stopRequested should rollback to false on stop failure")
+	}
+}
+
+func useTestRunRepoWithRun(run *execution.Run) *usecase.MemoryRunRepository {
+	repo := usecase.NewMemoryRunRepository()
+	if run != nil {
+		_ = repo.Save(context.Background(), run)
+	}
+	return repo
 }
 
 func containsAll(value string, subs []string) bool {

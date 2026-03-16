@@ -433,7 +433,7 @@ const actionOptions = computed(() => {
 })
 const selectedActionOption = computed(() => actionOptions.value.find((action) => action.value === draft.action) || null)
 const canPreview = computed(() => !!draft.database_type && !!draft.template_id && !!draft.connection_id && selectedActionOption.value && !selectedActionOption.value.disabled)
-const canStart = computed(() => canPreview.value && !taskStore.hasActiveTask)
+const canStart = computed(() => canPreview.value && !taskBinding.value.startBlocked)
 const taskBinding = computed(() => resolveTasksMonitorBinding({
   tasks: taskStore.tasks,
   draft,
@@ -599,9 +599,7 @@ watch(
 )
 
 watch(activeTask, (task) => {
-  if (!task || task.id !== pendingStopTaskId.value || task.status !== 'stopping') {
-    pendingStopTaskId.value = ''
-  }
+  pendingStopTaskId.value = taskBinding.value.pendingStopTaskId
 })
 
 onMounted(async () => {
@@ -711,11 +709,16 @@ async function handleStop() {
   if (taskBinding.value.stopInFlight) return
   pendingStopTaskId.value = taskBinding.value.stopTaskId
   try {
-    await taskStore.stopTask(taskBinding.value.stopTaskId)
-  } finally {
-    if (taskStore.activeTask?.id !== pendingStopTaskId.value || taskStore.activeTask?.status !== 'stopping') {
+    const result = await taskStore.stopTask(taskBinding.value.stopTaskId)
+    if (result?.error) {
       pendingStopTaskId.value = ''
     }
+  } finally {
+    pendingStopTaskId.value = resolveTasksMonitorBinding({
+      tasks: taskStore.tasks,
+      draft,
+      pendingStopTaskId: pendingStopTaskId.value
+    }).pendingStopTaskId
   }
 }
 

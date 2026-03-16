@@ -188,6 +188,7 @@ func (b *TaskBinding) StopTask(taskID string) TaskActionResult {
 		b.mu.Unlock()
 		return TaskActionResult{Success: true}
 	}
+	previousStatus := task.Status
 	task.Status = domaintask.StatusStopping
 	execCtx.stopRequested = true
 	appendTaskEvent(task, task.CurrentPhase, "Stop requested")
@@ -197,6 +198,14 @@ func (b *TaskBinding) StopTask(taskID string) TaskActionResult {
 		return TaskActionResult{Success: true}
 	}
 	if err := b.benchmarkUC.StopBenchmark(context.Background(), runID, false); err != nil {
+		b.mu.Lock()
+		if rollbackTask, rollbackOK := b.tasks[taskID]; rollbackOK && rollbackTask != nil {
+			rollbackTask.Status = previousStatus
+		}
+		if rollbackExecCtx, rollbackOK := b.executions[taskID]; rollbackOK && rollbackExecCtx != nil {
+			rollbackExecCtx.stopRequested = false
+		}
+		b.mu.Unlock()
 		return TaskActionResult{Error: err.Error()}
 	}
 	return TaskActionResult{Success: true}
@@ -465,12 +474,20 @@ func (b *TaskBinding) runPhase(taskID string, phase domaintask.Phase) error {
 	switch phase {
 	case domaintask.PhasePrepare:
 		task.Status = domaintask.StatusPreparing
+		task.CurrentPhase = phase
 	case domaintask.PhaseRun:
-		task.Status = domaintask.StatusRunning
+		if isOracleSwingbenchTaskExecution(task) {
+			task.Status = domaintask.StatusStarting
+			task.CurrentPhase = domaintask.PhaseNone
+			appendTaskEvent(task, domaintask.PhaseNone, "Oracle Swingbench run preflight started")
+		} else {
+			task.Status = domaintask.StatusRunning
+			task.CurrentPhase = phase
+		}
 	case domaintask.PhaseCleanup:
 		task.Status = domaintask.StatusCleaning
+		task.CurrentPhase = phase
 	}
-	task.CurrentPhase = phase
 	appendTaskEvent(task, phase, fmt.Sprintf("Phase started: %s", phase))
 	syncTaskTiming(task, time.Now())
 	run, err := b.startPhaseRun(task, phase)
@@ -524,6 +541,7 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 			return runtimeErr
 		}
 		state := run.State
+		b.syncTaskRunState(taskID, phase, state)
 		if phase == domaintask.PhasePrepare && state == execution.StatePrepared {
 			b.finishPhase(taskID, phase, runID, "prepared")
 			return nil
@@ -548,6 +566,21 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 			return classifyTaskExecutionError(task, phase, fmt.Errorf("%s", msg))
 		}
 	}
+}
+
+func (b *TaskBinding) syncTaskRunState(taskID string, phase domaintask.Phase, state execution.RunState) {
+	if phase != domaintask.PhaseRun || state != execution.StateRunning {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	task := b.tasks[taskID]
+	if task == nil || task.Status == domaintask.StatusStopping {
+		return
+	}
+	task.Status = domaintask.StatusRunning
+	task.CurrentPhase = domaintask.PhaseRun
 }
 
 func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phase, runID string) {
@@ -1107,6 +1140,12 @@ func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[st
 		return fmt.Errorf("Cleanup removed required SOE objects. Please run Prepare first.")
 	}
 	return nil
+}
+
+func isOracleSwingbenchTaskExecution(task *domaintask.ExecutionTask) bool {
+	return task != nil &&
+		strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") &&
+		strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench))
 }
 
 func detectOracleSwingbenchRuntimeFailure(task *domaintask.ExecutionTask, run *execution.Run) error {
