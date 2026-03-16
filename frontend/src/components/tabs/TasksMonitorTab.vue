@@ -43,6 +43,7 @@
           <div class="status-strip-phase-copy">
             <span class="status-strip-label">Phase</span>
             <strong class="status-strip-phase">{{ statusStrip.phase }}</strong>
+            <span v-if="statusStrip.detail" class="status-strip-detail">{{ statusStrip.detail }}</span>
           </div>
         </div>
         <div class="status-strip-timings">
@@ -1487,6 +1488,13 @@ function closeLogViewer() {
   color: #e8edf5;
   text-transform: none;
   font-size: var(--tm-font-body);
+}
+
+.status-strip-detail {
+  color: #dce4ef;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 56ch;
 }
 
 .status-strip-time {

@@ -740,6 +740,50 @@ func TestClassifyTaskExecutionError_SQLServerHammerDBMissingObjects(t *testing.T
 	}
 }
 
+func TestFinishPhase_FailedRunPersistsTerminalReasonToTaskState(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ID: "task-run",
+		PhaseHistory: []domaintask.PhaseRecord{
+			{
+				Phase:     domaintask.PhaseRun,
+				Status:    "started",
+				RunID:     "run-1",
+				StartedAt: time.Now().Add(-5 * time.Second),
+			},
+		},
+		LogTail: []domaintask.LogLine{
+			{Phase: domaintask.PhaseRun, Stream: "event", Content: "Phase started: run"},
+		},
+	}
+	binding := &TaskBinding{
+		tasks: map[string]*domaintask.ExecutionTask{
+			task.ID: task,
+		},
+		executions: map[string]*taskExecutionContext{
+			task.ID: {
+				currentRunID: "run-1",
+				logSeen:      make(map[string]int),
+			},
+		},
+	}
+
+	message := "Sysbench run failed: benchmark tables are not prepared. Please run Prepare first."
+	binding.finishPhase(task.ID, domaintask.PhaseRun, "run-1", "failed", message)
+
+	if got := task.PhaseHistory[0].Status; got != "failed" {
+		t.Fatalf("phase status = %s, want failed", got)
+	}
+	if got := task.PhaseHistory[0].Message; got != message {
+		t.Fatalf("phase message = %q, want %q", got, message)
+	}
+	if len(task.LogTail) < 2 {
+		t.Fatalf("log tail length = %d, want >= 2", len(task.LogTail))
+	}
+	if got := task.LogTail[len(task.LogTail)-1].Content; got != message {
+		t.Fatalf("last log line = %q, want %q", got, message)
+	}
+}
+
 func TestTaskBindingStopTask_IgnoresDuplicateStopRequests(t *testing.T) {
 	binding := &TaskBinding{
 		tasks: map[string]*domaintask.ExecutionTask{

@@ -555,21 +555,21 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 		b.mu.RUnlock()
 		if runtimeErr := detectOracleSwingbenchRuntimeFailure(task, run); runtimeErr != nil {
 			_ = b.benchmarkUC.StopBenchmark(context.Background(), runID, true)
-			b.finishPhase(taskID, phase, runID, "failed")
+			b.finishPhase(taskID, phase, runID, "failed", runtimeErr.Error())
 			return runtimeErr
 		}
 		state := run.State
 		b.syncTaskRunState(taskID, phase, state)
 		if phase == domaintask.PhasePrepare && state == execution.StatePrepared {
-			b.finishPhase(taskID, phase, runID, "prepared")
+			b.finishPhase(taskID, phase, runID, "prepared", "")
 			return nil
 		}
 		if state == execution.StateCompleted {
-			b.finishPhase(taskID, phase, runID, "success")
+			b.finishPhase(taskID, phase, runID, "success", "")
 			return nil
 		}
 		if state == execution.StateCancelled || state == execution.StateForceStopped {
-			b.finishPhase(taskID, phase, runID, "stopped")
+			b.finishPhase(taskID, phase, runID, "stopped", "")
 			return fmt.Errorf("task stopped")
 		}
 		if state == execution.StateFailed || state == execution.StateTimeout {
@@ -577,11 +577,9 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 			if msg == "" {
 				msg = run.Message
 			}
-			b.finishPhase(taskID, phase, runID, "failed")
-			b.mu.RLock()
-			task := cloneTask(b.tasks[taskID])
-			b.mu.RUnlock()
-			return classifyTaskExecutionError(task, phase, fmt.Errorf("%s", msg))
+			classifiedErr := classifyTaskExecutionError(task, phase, fmt.Errorf("%s", msg))
+			b.finishPhase(taskID, phase, runID, "failed", classifiedErr.Error())
+			return classifiedErr
 		}
 	}
 }
@@ -653,7 +651,7 @@ func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phas
 	}
 }
 
-func (b *TaskBinding) finishPhase(taskID string, phase domaintask.Phase, runID string, status string) {
+func (b *TaskBinding) finishPhase(taskID string, phase domaintask.Phase, runID string, status string, message string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	task := b.tasks[taskID]
@@ -666,10 +664,14 @@ func (b *TaskBinding) finishPhase(taskID string, phase domaintask.Phase, runID s
 			now := time.Now()
 			task.PhaseHistory[i].Status = status
 			task.PhaseHistory[i].EndedAt = &now
+			task.PhaseHistory[i].Message = message
 			break
 		}
 	}
 	appendTaskEvent(task, phase, fmt.Sprintf("Phase finished: %s (%s)", phase, status))
+	if strings.TrimSpace(message) != "" {
+		appendTaskEvent(task, phase, message)
+	}
 	syncTaskTiming(task, time.Now())
 	execCtx.currentRunID = ""
 }
