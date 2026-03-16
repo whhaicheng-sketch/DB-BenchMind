@@ -92,7 +92,7 @@ Oracle Swingbench 额外约束：
 - `Cleanup` 不能只看脚本退出码；必须在继续 `oewizard -create` 前校验 `SOE` 用户、`SOE/SOE_IDX` 表空间、会阻塞 create 的 datafile/残留对象都已清理到预期状态。
 - 如果 cleanup 校验未通过，`Prepare` 必须在 create 前失败，并把具体残留原因写入 run workspace / log viewer。
 - Oracle Swingbench 的 bootstrap 必须等价于手工 `cts_orac.sql`：使用 `sys as sysdba` 创建/恢复 `SOE`、`SOE_IDX` 和所需 datafile 基线。
-- Oracle Swingbench 的 `oewizard` 命令必须按手工基线构造：`create` / `generate` / `allindexes` 都要显式带 `-its SOE_IDX`，且不能依赖 `SYS -> SYSTEM` 黑盒映射。
+- Oracle Swingbench 的 `oewizard` 命令必须按当前安装环境的真实能力构造。当前安装的 `oewizard` 不支持 `-its`，因此 `SOE_IDX` 由 bootstrap 预创建，但不会作为 `oewizard` 参数传入。默认使用 `system` 加当前连接密码；若显式配置了 `dba_username/dba_password`，则以显式配置为准。权限不足时应直接失败并暴露实际错误。
 - Oracle Swingbench 的 `Run` 只负责 workload：固定调用 `charbench`，使用 SOE workload 账号和 server-side SOE 配置，不夹带 prepare/cleanup。
 
 ---

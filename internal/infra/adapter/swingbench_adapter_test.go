@@ -93,7 +93,6 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step4Create.CmdLine, "-p soe")
 	assert.Contains(t, step4Create.CmdLine, "-scale 0.1")
 	assert.Contains(t, step4Create.CmdLine, "-ts SOE")
-	assert.Contains(t, step4Create.CmdLine, "-its SOE_IDX")
 	assert.Contains(t, step4Create.CmdLine, "-normalfile")
 	assert.Contains(t, step4Create.CmdLine, "-create")
 	assert.Contains(t, step4Create.CmdLine, "-v")
@@ -116,7 +115,6 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step5Generate.CmdLine, "-p soe")
 	assert.Contains(t, step5Generate.CmdLine, "-scale 0.1")
 	assert.Contains(t, step5Generate.CmdLine, "-ts SOE")
-	assert.Contains(t, step5Generate.CmdLine, "-its SOE_IDX")
 	assert.Contains(t, step5Generate.CmdLine, "-normalfile")
 	assert.Contains(t, step5Generate.CmdLine, "-generate")
 	assert.Contains(t, step5Generate.CmdLine, "-tc 32")
@@ -140,7 +138,6 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step6Indexes.CmdLine, "-p soe")
 	assert.Contains(t, step6Indexes.CmdLine, "-scale 0.1")
 	assert.Contains(t, step6Indexes.CmdLine, "-ts SOE")
-	assert.Contains(t, step6Indexes.CmdLine, "-its SOE_IDX")
 	assert.Contains(t, step6Indexes.CmdLine, "-normalfile")
 	assert.Contains(t, step6Indexes.CmdLine, "-allindexes")
 	assert.Contains(t, step6Indexes.CmdLine, "-v")
@@ -192,7 +189,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
 }
 
-func TestSwingbenchAdapter_BuildPrepareCommand_RequiresExplicitOewizardDBACredentials(t *testing.T) {
+func TestSwingbenchAdapter_BuildPrepareCommand_UsesDefaultSystemCredentialsForOewizard(t *testing.T) {
 	ctx := context.Background()
 	adapter := NewSwingbenchAdapter()
 
@@ -216,9 +213,12 @@ func TestSwingbenchAdapter_BuildPrepareCommand_RequiresExplicitOewizardDBACreden
 		},
 		WorkDir: "/tmp/test-sys-auto",
 	})
-	require.Error(t, err)
-	assert.Nil(t, cmd)
-	assert.Contains(t, err.Error(), "oewizard DBA credentials")
+	require.NoError(t, err)
+	require.Len(t, cmd.Commands, 6)
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dbap manager")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *testing.T) {
@@ -327,7 +327,7 @@ func TestResolveOracleWizardCredentials_PrefersExplicitDBACredentialsAndReportsS
 	assert.Equal(t, "dba_username/dba_password", source)
 }
 
-func TestResolveOracleWizardCredentials_DoesNotMapSysToSystemImplicitly(t *testing.T) {
+func TestResolveOracleWizardCredentials_DefaultsSysConnectionToSystemWithSamePassword(t *testing.T) {
 	conn := &connection.OracleConnection{
 		BaseConnection: connection.BaseConnection{ID: "test-conn-no-map", Name: "Oracle No Map"},
 		Host:           "localhost",
@@ -338,18 +338,12 @@ func TestResolveOracleWizardCredentials_DoesNotMapSysToSystemImplicitly(t *testi
 		ConnectAs:      "sysdba",
 	}
 
-	user, pass, source, err := resolveOracleWizardCredentials(conn, &Config{
-		Connection: conn,
-		Parameters: map[string]interface{}{
-			"dba_username": "system",
-			"dba_password": "system-pass",
-		},
-	})
+	user, pass, source, err := resolveOracleWizardCredentials(conn, &Config{Connection: conn})
 
 	require.NoError(t, err)
 	assert.Equal(t, "system", user)
-	assert.Equal(t, "system-pass", pass)
-	assert.Equal(t, "dba_username/dba_password", source)
+	assert.Equal(t, "sys-pass", pass)
+	assert.Equal(t, "connection credentials (default SYSTEM with connection password)", source)
 }
 
 func TestSwingbenchAdapter_BuildCleanupCommand_DropsUserAndTablespaces(t *testing.T) {

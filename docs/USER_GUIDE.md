@@ -371,8 +371,9 @@ Swingbench Oracle 任务补充说明：
 - Oracle Swingbench `cleanup` 是 destructive teardown：会删除 `SOE` 用户、`SOE/SOE_IDX` 表空间、相关 datafile 和阻塞下次 prepare 的残留。
 - DB-BenchMind 的生命周期语义已统一：`prepare = cleanup -> verify cleanup -> bootstrap -> create -> generate -> allindexes`，`run = workload only`，`cleanup = teardown only`。不会因为 schema 已存在而跳过 prepare。
 - Oracle Swingbench `prepare` 的 bootstrap 使用 `sys as sysdba` 对齐手工 `cts_orac.sql` 语义，先恢复 `SOE`、`SOE_IDX` 和 datafile 基线，再继续 `oewizard` 建结构/装数/建索引。
+- 当前安装环境的 `oewizard` 不支持 `-its` 参数，因此 `SOE_IDX` 由 bootstrap 阶段创建，但不会作为 `oewizard` 命令参数传入。
 - Oracle Swingbench `prepare` 会先做一次幂等 cleanup，并在进入 bootstrap/create 前验证 `SOE` 用户、`SOE/SOE_IDX` 表空间、datafile 与阻塞 create 的残留对象已经清理完毕；若未清干净，会直接失败并要求查看日志。
-- Oracle 管理凭据分为两类：cleanup/bootstrap/verify 使用 `SYS/SYSDBA` 管理凭据；`oewizard` create/generate/allindexes 使用显式配置的 DBA 凭据，不再做 `SYS -> SYSTEM` 自动映射。
+- Oracle 管理凭据分为两类：cleanup/bootstrap/verify 使用 `SYS/SYSDBA` 管理语义；`oewizard` create/generate/allindexes 默认使用 `system` 加当前连接密码，也可显式覆盖为 `dba_username/dba_password`。若权限不足，会直接在日志中暴露实际失败原因。
 - Oracle Swingbench `run` 固定调用 `charbench` 执行 workload，并继续写出结果文件和日志供 Tasks & Monitor 查看。
 
 ### 查看可用模板（通过 API）

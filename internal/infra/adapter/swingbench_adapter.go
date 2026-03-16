@@ -1292,30 +1292,29 @@ func splitOracleAdminUsername(username string, fallbackConnectAs string) (string
 }
 
 func resolveOracleWizardCredentials(conn *connection.OracleConnection, config *Config) (string, string, string, error) {
-	_ = conn
-	if config == nil {
-		return "", "", "", fmt.Errorf("oewizard DBA credentials are required")
+	if conn == nil {
+		return "", "", "", fmt.Errorf("oracle connection is required")
 	}
-
-	if value, ok := config.Parameters["oewizard_dba_username"].(string); ok && strings.TrimSpace(value) != "" {
-		password, ok := config.Parameters["oewizard_dba_password"].(string)
-		if !ok || strings.TrimSpace(password) == "" {
-			return "", "", "", fmt.Errorf("oewizard DBA credentials are required: set oewizard_dba_password")
+	if config != nil {
+		if value, ok := config.Parameters["oewizard_dba_username"].(string); ok && strings.TrimSpace(value) != "" {
+			password, ok := config.Parameters["oewizard_dba_password"].(string)
+			if !ok || strings.TrimSpace(password) == "" {
+				return "", "", "", fmt.Errorf("oewizard DBA credentials are required: set oewizard_dba_password")
+			}
+			username, _ := splitOracleAdminUsername(strings.TrimSpace(value), "normal")
+			return username, password, "oewizard_dba_username/oewizard_dba_password", nil
 		}
-		username, _ := splitOracleAdminUsername(strings.TrimSpace(value), "normal")
-		return username, password, "oewizard_dba_username/oewizard_dba_password", nil
-	}
-
-	if value, ok := config.Parameters["dba_username"].(string); ok && strings.TrimSpace(value) != "" {
-		password, ok := config.Parameters["dba_password"].(string)
-		if !ok || strings.TrimSpace(password) == "" {
-			return "", "", "", fmt.Errorf("oewizard DBA credentials are required: set dba_password")
+		if value, ok := config.Parameters["dba_username"].(string); ok && strings.TrimSpace(value) != "" {
+			password, ok := config.Parameters["dba_password"].(string)
+			if !ok || strings.TrimSpace(password) == "" {
+				return "", "", "", fmt.Errorf("oewizard DBA credentials are required: set dba_password")
+			}
+			username, _ := splitOracleAdminUsername(strings.TrimSpace(value), "normal")
+			return username, password, "dba_username/dba_password", nil
 		}
-		username, _ := splitOracleAdminUsername(strings.TrimSpace(value), "normal")
-		return username, password, "dba_username/dba_password", nil
 	}
 
-	return "", "", "", fmt.Errorf("oewizard DBA credentials are required: provide dba_username/dba_password or oewizard_dba_username/oewizard_dba_password")
+	return "system", conn.Password, "connection credentials (default SYSTEM with connection password)", nil
 }
 
 func lowerCaseReplaceOriginal(username, suffix string) string {
@@ -1649,7 +1648,6 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-p", "soe",
 		"-scale", formatSwingbenchScale(scaleFloat),
 		"-ts", "SOE",
-		"-its", "SOE_IDX",
 		"-normalfile",
 		"-create",
 		"-v",
@@ -1676,7 +1674,6 @@ func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.Oracle
 		"-p", "soe",
 		"-scale", formatSwingbenchScale(scaleFloat),
 		"-ts", "SOE",
-		"-its", "SOE_IDX",
 		"-normalfile",
 		"-generate",
 		"-tc", fmt.Sprintf("%d", threads),
@@ -1703,7 +1700,6 @@ func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.Orac
 		"-u", "soe",
 		"-p", "soe",
 		"-ts", "SOE",
-		"-its", "SOE_IDX",
 		"-normalfile",
 		"-allindexes",
 		"-scale", formatSwingbenchScale(scaleFloat),
