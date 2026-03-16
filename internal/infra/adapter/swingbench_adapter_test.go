@@ -53,9 +53,9 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	// Prepare must follow the exact hand-validated lifecycle:
-	// cleanup -> verify cleanup -> bootstrap -> create -> generate -> allindexes.
+	// cleanup -> verify cleanup -> bootstrap -> create.
 	assert.Equal(t, "oracle_prepare_sequence", cmd.CmdLine)
-	assert.Len(t, cmd.Commands, 6, "Prepare should have 6 steps")
+	assert.Len(t, cmd.Commands, 4, "Prepare should have 4 steps")
 
 	// Step 1: Cleanup existing environment
 	step1 := cmd.Commands[0]
@@ -103,41 +103,11 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.NotContains(t, step4Create.CmdLine, "-nopart")
 	assert.NotContains(t, step4Create.CmdLine, "-nocompress")
 
-	// Step 5: oewizard -generate
-	step5Generate := cmd.Commands[4]
-	assert.Equal(t, "Generate Data", step5Generate.StepName)
-	assert.Contains(t, step5Generate.CmdLine, "oewizard")
-	assert.Contains(t, step5Generate.CmdLine, "-cl")
-	assert.Contains(t, step5Generate.CmdLine, "-cs //localhost:1521/ORCL")
-	assert.Contains(t, step5Generate.CmdLine, "-dba system")
-	assert.Contains(t, step5Generate.CmdLine, "-dbap testpass")
-	assert.Contains(t, step5Generate.CmdLine, "-u soe")
-	assert.Contains(t, step5Generate.CmdLine, "-p soe")
-	assert.Contains(t, step5Generate.CmdLine, "-scale 0.1")
-	assert.Contains(t, step5Generate.CmdLine, "-ts SOE")
-	assert.Contains(t, step5Generate.CmdLine, "-normalfile")
-	assert.Contains(t, step5Generate.CmdLine, "-generate")
-	assert.Contains(t, step5Generate.CmdLine, "-tc 32")
-	assert.Contains(t, step5Generate.CmdLine, "-v")
-	assert.Contains(t, step5Generate.CmdLine, "-debugf /tmp/test/oewizard-generate-debug.log")
-	assert.NotContains(t, step5Generate.CmdLine, "-c oewizard.xml")
-	assert.NotContains(t, step5Generate.CmdLine, "-version")
-	assert.NotContains(t, step5Generate.CmdLine, "-dt")
-	assert.NotContains(t, step5Generate.CmdLine, "-nopart")
-	assert.NotContains(t, step5Generate.CmdLine, "-nocompress")
-
-	// Step 6: allindexes
-	step6Indexes := cmd.Commands[5]
-	assert.Equal(t, "Build Indexes", step6Indexes.StepName)
-	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
-	assert.Contains(t, step6Indexes.CmdLine, "-cs //localhost:1521/ORCL")
-	assert.Contains(t, step6Indexes.CmdLine, "-u soe")
-	assert.Contains(t, step6Indexes.CmdLine, "-p soe")
-	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -ci")
-	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -code")
-	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -val")
-	assert.Contains(t, step6Indexes.Description, "sbutil")
-	assert.Contains(t, step6Indexes.Description, "sbutil-validate.log")
+	for _, step := range cmd.Commands {
+		assert.NotEqual(t, "Generate Data", step.StepName)
+		assert.NotEqual(t, "Build Indexes", step.StepName)
+		assert.NotContains(t, step.CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
+	}
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdministrativeSteps(t *testing.T) {
@@ -170,14 +140,12 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 6)
+	require.Len(t, cmd.Commands, 4)
 
 	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_UsesDefaultSystemCredentialsForOewizard(t *testing.T) {
@@ -205,10 +173,8 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesDefaultSystemCredentialsForOe
 		WorkDir: "/tmp/test-sys-auto",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 6)
+	require.Len(t, cmd.Commands, 4)
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dbap manager")
 }
 
@@ -237,7 +203,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *test
 		WorkDir: "/tmp/rebuild",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 6)
+	require.Len(t, cmd.Commands, 4)
 
 	first := cmd.Commands[0]
 	assert.Equal(t, "Cleanup Existing Environment", first.StepName)
@@ -275,14 +241,12 @@ func TestSwingbenchAdapter_BuildPrepareCommand_VerifiesCleanupBeforeBootstrapAnd
 		WorkDir: "/tmp/oracle-verify",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 6)
+	require.Len(t, cmd.Commands, 4)
 
 	assert.Equal(t, "Cleanup Existing Environment", cmd.Commands[0].StepName)
 	assert.Equal(t, "Verify Cleanup State", cmd.Commands[1].StepName)
 	assert.Equal(t, "Bootstrap SOE", cmd.Commands[2].StepName)
 	assert.Equal(t, "Create Schema", cmd.Commands[3].StepName)
-	assert.Equal(t, "Generate Data", cmd.Commands[4].StepName)
-	assert.Equal(t, "Build Indexes", cmd.Commands[5].StepName)
 
 	verifySQLFile := strings.TrimSpace(cmd.Commands[1].CmdLine[strings.LastIndex(cmd.Commands[1].CmdLine, "@")+1:])
 	verifySQL, readErr := os.ReadFile(verifySQLFile)
@@ -295,6 +259,11 @@ func TestSwingbenchAdapter_BuildPrepareCommand_VerifiesCleanupBeforeBootstrapAnd
 	bootstrapSQL, bootstrapReadErr := os.ReadFile(bootstrapSQLFile)
 	require.NoError(t, bootstrapReadErr)
 	assert.Contains(t, string(bootstrapSQL), "grant execute on dbms_lock")
+	assert.Contains(t, string(bootstrapSQL), "grant analyze any to")
+	assert.Contains(t, string(bootstrapSQL), "grant analyze any dictionary to")
+	assert.Contains(t, string(bootstrapSQL), "grant create job to")
+	assert.Contains(t, string(bootstrapSQL), "grant manage scheduler to")
+	assert.Contains(t, string(bootstrapSQL), "grant manage any queue to")
 }
 
 func TestResolveOracleWizardCredentials_PrefersExplicitDBACredentialsAndReportsSource(t *testing.T) {
@@ -367,6 +336,10 @@ func TestSwingbenchAdapter_BuildCleanupCommand_DropsUserAndTablespaces(t *testin
 	content, readErr := os.ReadFile(sqlFile)
 	require.NoError(t, readErr)
 	assert.Contains(t, string(content), "drop user SOE cascade")
+	assert.Contains(t, string(content), "Drop user attempt")
+	assert.Contains(t, string(content), "dbms_lock.sleep")
+	assert.Contains(t, string(content), "last_error=")
+	assert.Contains(t, string(content), "remaining_sessions=")
 	assert.Contains(t, string(content), "drop tablespace SOE_IDX including contents and datafiles")
 	assert.Contains(t, string(content), "drop tablespace SOE including contents and datafiles")
 }
@@ -397,8 +370,12 @@ func TestSwingbenchAdapter_BuildCleanupCommand_IsIdempotentForMissingOrPartialOb
 	require.NoError(t, readErr)
 	sqlText := string(content)
 
-	assert.Contains(t, sqlText, "whenever sqlerror continue")
-	assert.Contains(t, sqlText, "Drop user skipped")
+	assert.Contains(t, sqlText, "whenever sqlerror exit sql.sqlcode rollback")
+	assert.Contains(t, sqlText, "Drop user attempt ")
+	assert.Contains(t, sqlText, "Cleanup residual: SOE user still exists after drop retries")
+	assert.Contains(t, sqlText, "raise_application_error")
+	assert.Contains(t, sqlText, "last_error=")
+	assert.Contains(t, sqlText, "remaining_sessions=")
 	assert.Contains(t, sqlText, "Drop tablespace SOE_IDX skipped")
 	assert.Contains(t, sqlText, "Drop tablespace SOE skipped")
 }
@@ -428,7 +405,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesSysdbaSemanticsForAdministrat
 		WorkDir: "/tmp/test-system",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 6)
+	require.Len(t, cmd.Commands, 4)
 	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")

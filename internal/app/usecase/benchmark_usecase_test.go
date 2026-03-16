@@ -1268,6 +1268,7 @@ func TestIsSwingbenchCommandLine(t *testing.T) {
 		{name: "charbench script", cmdLine: "./charbench -c ../configs/server_side_soe_v2.xml", want: true},
 		{name: "oewizard launcher", cmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard", want: true},
 		{name: "minibench", cmdLine: "./minibench -c config.xml", want: true},
+		{name: "sbutil shell wrapper", cmdLine: "bash -lc \"/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -val\"", want: false},
 		{name: "sysbench", cmdLine: "sysbench oltp_read_write run", want: false},
 	}
 
@@ -1394,19 +1395,19 @@ func TestSwingbenchNoOutputTimeoutForStep(t *testing.T) {
 		want time.Duration
 	}{
 		{
-			name: "generate data uses inactivity timeout",
+			name: "generate data has no inactivity kill timeout",
 			step: &adapter.Command{StepName: "Generate Data", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
-			want: 10 * time.Minute,
+			want: 0,
 		},
 		{
-			name: "create schema uses inactivity timeout",
+			name: "create schema has no inactivity kill timeout",
 			step: &adapter.Command{StepName: "Create Schema", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
-			want: 10 * time.Minute,
+			want: 0,
 		},
 		{
-			name: "build indexes uses inactivity timeout",
-			step: &adapter.Command{StepName: "Build Indexes", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
-			want: 10 * time.Minute,
+			name: "build indexes has no inactivity kill timeout",
+			step: &adapter.Command{StepName: "Build Indexes", CmdLine: "bash -lc \"/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -val\""},
+			want: 0,
 		},
 		{
 			name: "post schema setup has no inactivity timeout",

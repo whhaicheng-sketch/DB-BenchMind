@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -1759,10 +1758,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 
 	// Start realtime sample collection from stdout
 	sampleCh, errCh, _ := adapt.StartRealtimeCollection(ctx, mirroredStdout)
-	timeout := swingbenchNoOutputTimeoutForStep(cmd)
-	lastActivityUnix := atomic.Int64{}
-	lastActivityUnix.Store(time.Now().UnixNano())
-	lastActivityLine := ""
 
 	// Also capture stderr to log entries
 	var stderrBuf strings.Builder
@@ -1773,8 +1768,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 		for scanner.Scan() {
 			line := scanner.Text()
 			stderrBuf.WriteString(line + "\n")
-			lastActivityUnix.Store(time.Now().UnixNano())
-			lastActivityLine = line
 
 			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 				Timestamp: time.Now().Format(time.RFC3339),
@@ -1791,11 +1784,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 	go func() {
 		done <- process.Wait()
 	}()
-	var inactivityTicker *time.Ticker
-	if timeout > 0 {
-		inactivityTicker = time.NewTicker(5 * time.Second)
-		defer inactivityTicker.Stop()
-	}
 
 	// Collect samples and monitor for completion
 	for {
@@ -1815,8 +1803,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 			}
 
 			// Save sample to repository
-			lastActivityUnix.Store(time.Now().UnixNano())
-			lastActivityLine = sample.RawLine
 			metricSample := execution.MetricSample{
 				Timestamp:  sample.Timestamp,
 				Phase:      "prepare", // Swingbench prepare/cleanup phase
@@ -1857,18 +1843,6 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 				continue
 			}
 			slog.Error("Benchmark: Error from sample collector", "run_id", run.ID, "error", err)
-
-		case <-tickerChan(inactivityTicker):
-			last := time.Unix(0, lastActivityUnix.Load())
-			if timeout == 0 || time.Since(last) < timeout {
-				continue
-			}
-			_ = terminateProcess(process, true)
-			line := strings.TrimSpace(lastActivityLine)
-			if line == "" {
-				return fmt.Errorf("Swingbench step %q produced no new output for %s and was terminated", cmd.StepName, timeout)
-			}
-			return fmt.Errorf("Swingbench step %q produced no new output for %s after last line %q and was terminated", cmd.StepName, timeout, line)
 
 		case <-ctx.Done():
 			slog.Info("Benchmark: Context cancelled", "run_id", run.ID)
@@ -2163,8 +2137,7 @@ func isSwingbenchCommandLine(cmdLine string) bool {
 	return strings.Contains(lower, "launcherbootstrap") ||
 		strings.Contains(lower, "charbench") ||
 		strings.Contains(lower, "oewizard") ||
-		strings.Contains(lower, "minibench") ||
-		strings.Contains(lower, "swingbench")
+		strings.Contains(lower, "minibench")
 }
 
 func extractSwingbenchDebugPaths(cmdLine string) []string {
@@ -3384,15 +3357,6 @@ func terminateProcess(cmd *exec.Cmd, force bool) error {
 }
 
 func swingbenchNoOutputTimeoutForStep(step *adapter.Command) time.Duration {
-	if step == nil {
-		return 0
-	}
-	switch strings.TrimSpace(step.StepName) {
-	case "Create Schema", "Generate Data", "Build Indexes":
-		if isSwingbenchCommandLine(step.CmdLine) {
-			return 10 * time.Minute
-		}
-	}
 	return 0
 }
 

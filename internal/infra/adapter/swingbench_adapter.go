@@ -55,15 +55,12 @@ func (a *SwingbenchAdapter) Type() AdapterType {
 // 1. Full cleanup of existing SOE environment
 // 2. Verify cleanup state
 // 3. Bootstrap SOE user + SOE/SOE_IDX tablespaces as SYSDBA
-// 4. Run oewizard -create to build schema structure
-// 5. Run oewizard -generate to load data
-// 6. Run oewizard -allindexes to build indexes
+// 4. Run oewizard -create to build schema, generate data, build indexes, and validate
 //
 // Phase behavior:
 // - Creates SOE/SOE_IDX tablespaces (auto-detects OMF)
 // - Creates SOE user with default password "soe"
-// - Creates all tables (ORDERS, ORDER_ITEMS, CUSTOMERS, WAREHOUSES, etc.)
-// - Generates and populates data based on scale parameter
+// - Runs SwingBench's full SOE datagenerator lifecycle for 23.x
 //
 // Prepare is destructive by design and always rebuilds the SOE environment.
 func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Config) (*Command, error) {
@@ -96,15 +93,6 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 		scaleFloat = float64(s)
 	}
 
-	// threads parameter is used for data generation parallelism
-	// Default: 2 threads for faster data generation (oewizard -tc parameter)
-	threads := 2 // Default 2 threads
-	if t, ok := config.Parameters["virtual_users"].(int); ok {
-		threads = t
-	} else if t, ok := config.Parameters["threads"].(int); ok {
-		threads = t
-	}
-
 	// Step 1: Full cleanup
 	cleanupCmd := a.buildCleanupSOEObjectsCommand(oracleConn, adminCreds)
 
@@ -114,16 +102,8 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	// Step 3: Bootstrap SOE user and tablespaces
 	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, adminCreds)
 
-	// Step 4-6: Build schema, generate data, and build indexes.
+	// Step 4: SwingBench 23.x create already runs the full SOE datagenerator lifecycle.
 	createSchemaCmd, createDebugLog, wizardCredentialSource, err := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
-	if err != nil {
-		return nil, err
-	}
-	generateDataCmd, generateDebugLog, _, err := a.buildOewizardGenerateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
-	if err != nil {
-		return nil, err
-	}
-	buildIndexesCmd, indexesDebugLog, _, err := a.buildOewizardAllIndexesCommand(oracleConn, connectionStr, scaleFloat, config)
 	if err != nil {
 		return nil, err
 	}
@@ -155,19 +135,7 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				CmdLine:     createSchemaCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Create Schema",
-				Description: fmt.Sprintf("Running oewizard create to build SOE schema structure. DBA credentials source: %s. Debug log: %s", wizardCredentialSource, createDebugLog),
-			},
-			{
-				CmdLine:     generateDataCmd,
-				WorkDir:     config.WorkDir,
-				StepName:    "Generate Data",
-				Description: fmt.Sprintf("Running oewizard generate to load SOE benchmark data (debug log: %s)", generateDebugLog),
-			},
-			{
-				CmdLine:     buildIndexesCmd,
-				WorkDir:     config.WorkDir,
-				StepName:    "Build Indexes",
-				Description: fmt.Sprintf("Running oewizard allindexes to build SOE indexes (debug log: %s)", indexesDebugLog),
+				Description: fmt.Sprintf("Running oewizard create to rebuild the full SOE schema lifecycle on SwingBench 23.x (schema, data, indexes, validation). DBA credentials source: %s. Debug log: %s", wizardCredentialSource, createDebugLog),
 			},
 		},
 	}, nil
@@ -1477,6 +1445,11 @@ begin
   execute immediate 'grant create session, create table, create sequence, create procedure, create trigger, create view, create type, create synonym to '||v_user;
   execute immediate 'grant unlimited tablespace to '||v_user;
   execute immediate 'grant execute on dbms_lock to '||v_user;
+  execute immediate 'grant analyze any to '||v_user;
+  execute immediate 'grant analyze any dictionary to '||v_user;
+  execute immediate 'grant create job to '||v_user;
+  execute immediate 'grant manage scheduler to '||v_user;
+  execute immediate 'grant manage any queue to '||v_user;
   dbms_output.put_line('Bootstrap complete.');
 end;
 /
@@ -1495,32 +1468,66 @@ exit
 func (a *SwingbenchAdapter) buildCleanupSOEObjectsCommand(conn *connection.OracleConnection, creds oracleAdminCredentials) string {
 	cleanupSQL := `
 set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
-whenever sqlerror continue
+whenever sqlerror exit sql.sqlcode rollback
 
 declare
+  v_user_count        number := 0;
+  v_session_count     number := 0;
+  v_last_drop_error   varchar2(4000) := 'none';
+
+  procedure kill_soe_sessions is
+  begin
+    for r in (
+      select sid, serial#
+        from v$session
+       where username = 'SOE'
+         and type = 'USER'
+    ) loop
+      begin
+        execute immediate 'alter system kill session ''' || r.sid || ',' || r.serial# || ''' immediate';
+        dbms_output.put_line('Killed session ' || r.sid || ',' || r.serial#);
+      exception
+        when others then
+          dbms_output.put_line('Kill session skipped: ' || sqlerrm);
+      end;
+    end loop;
+  end;
 begin
-  for r in (
-    select sid, serial#
-      from v$session
-     where username = 'SOE'
-       and type = 'USER'
-  ) loop
+  for i in 1 .. 3 loop
+    kill_soe_sessions;
     begin
-      execute immediate 'alter system kill session ''' || r.sid || ',' || r.serial# || ''' immediate';
-      dbms_output.put_line('Killed session ' || r.sid || ',' || r.serial#);
+      execute immediate 'drop user SOE cascade';
+      dbms_output.put_line('Dropped user SOE');
+      v_last_drop_error := 'none';
+      exit;
     exception
       when others then
-        dbms_output.put_line('Kill session skipped: ' || sqlerrm);
+        v_last_drop_error := sqlerrm;
+        dbms_output.put_line('Drop user attempt ' || i || ' skipped: ' || sqlerrm);
+        if i < 3 then
+          dbms_lock.sleep(1);
+        end if;
     end;
   end loop;
 
-  begin
-    execute immediate 'drop user SOE cascade';
-    dbms_output.put_line('Dropped user SOE');
-  exception
-    when others then
-      dbms_output.put_line('Drop user skipped: ' || sqlerrm);
-  end;
+  select count(*) into v_user_count
+    from dba_users
+   where username = 'SOE';
+  if v_user_count > 0 then
+    select count(*) into v_session_count
+      from v$session
+     where username = 'SOE'
+       and type = 'USER';
+    dbms_output.put_line(
+      'Cleanup residual: SOE user still exists after drop retries; last_error='
+      || v_last_drop_error || '; remaining_sessions=' || v_session_count
+    );
+    raise_application_error(
+      -20012,
+      'SOE cleanup failed: user still exists after drop retries; last_error='
+      || v_last_drop_error || '; remaining_sessions=' || v_session_count
+    );
+  end if;
 
   begin
     execute immediate 'drop tablespace SOE_IDX including contents and datafiles';
