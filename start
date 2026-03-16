@@ -1,7 +1,14 @@
 #!/bin/bash
+set -euo pipefail
+
 # DB-BenchMind 启动脚本
 
 cd "$(dirname "$0")"
+
+if [ ! -x ./bin/db-benchmind ]; then
+    echo "Missing ./bin/db-benchmind, running ./build first..."
+    ./build
+fi
 
 # 自动检测 DISPLAY
 if [ -z "$DISPLAY" ]; then
@@ -16,11 +23,11 @@ fi
 echo "DISPLAY=$DISPLAY"
 
 # 停止已有 GUI 进程
-pkill -f "build/bin/db-benchmind" 2>/dev/null || true
+pkill -f "bin/db-benchmind" 2>/dev/null || true
 
 # 清理 DB-BenchMind 启动过的 benchmark 残留进程
 pkill -TERM -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' 2>/dev/null || true
 sleep 0.5
 pkill -KILL -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' 2>/dev/null || true
 
-exec ./build/bin/db-benchmind
+exec ./bin/db-benchmind
