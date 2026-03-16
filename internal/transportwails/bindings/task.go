@@ -1087,6 +1087,16 @@ func classifyTaskExecutionError(task *domaintask.ExecutionTask, phase domaintask
 	if strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") &&
 		strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) &&
 		phase == domaintask.PhasePrepare &&
+		strings.Contains(strings.ToLower(message), "prepare requires sys credentials") {
+		username := strings.TrimSpace(task.ConnectionSnapshot.Username)
+		if username == "" {
+			username = "current connection account"
+		}
+		return fmt.Errorf("Oracle Swingbench prepare requires SYS credentials. Current account %s will fail during prepare. Switch the connection username to SYS and provide the password. Original error: %s", username, message)
+	}
+	if strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") &&
+		strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) &&
+		phase == domaintask.PhasePrepare &&
 		strings.Contains(strings.ToUpper(message), "ORA-01031") &&
 		strings.Contains(strings.ToLower(message), "dbms_lock") {
 		username := strings.TrimSpace(task.ConnectionSnapshot.Username)

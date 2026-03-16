@@ -34,7 +34,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 		Host:        "localhost",
 		Port:        1521,
 		ServiceName: "ORCL",
-		Username:    "testuser",
+		Username:    "sys",
 		Password:    "testpass",
 	}
 
@@ -166,10 +166,46 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba sys as sysdba")
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
 	assert.Contains(t, cmd.Commands[4].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba sys as sysdba")
-	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba sys as sysdba")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba system")
+}
+
+func TestSwingbenchAdapter_BuildPrepareCommand_AutoElevatesSysUserToSysdba(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "test-conn-sys-auto",
+			Name: "Oracle SYS Auto",
+		},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "sys",
+		Password:    "manager",
+	}
+
+	cmd, err := adapter.BuildPrepareCommand(ctx, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"scale":   0.1,
+			"threads": 2,
+		},
+		WorkDir: "/tmp/test-sys-auto",
+	})
+	require.NoError(t, err)
+	require.Len(t, cmd.Commands, 7)
+
+	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[4].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba system")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *testing.T) {
@@ -236,6 +272,34 @@ func TestSwingbenchAdapter_BuildCleanupCommand_DropsUserAndTablespaces(t *testin
 	assert.Contains(t, string(content), "drop user SOE cascade")
 	assert.Contains(t, string(content), "drop tablespace SOE_IDX including contents and datafiles")
 	assert.Contains(t, string(content), "drop tablespace SOE including contents and datafiles")
+}
+
+func TestSwingbenchAdapter_BuildPrepareCommand_RejectsNonSysAdministrativeUser(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "test-conn-system",
+			Name: "Oracle SYSTEM",
+		},
+		Host:        "localhost",
+		Port:        1521,
+		ServiceName: "ORCL",
+		Username:    "system",
+		Password:    "manager",
+	}
+
+	_, err := adapter.BuildPrepareCommand(ctx, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"scale":   0.1,
+			"threads": 2,
+		},
+		WorkDir: "/tmp/test-system",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Oracle Swingbench prepare requires SYS")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.

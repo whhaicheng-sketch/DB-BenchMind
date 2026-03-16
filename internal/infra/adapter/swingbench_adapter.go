@@ -73,6 +73,9 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	if !ok {
 		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
 	}
+	if !strings.EqualFold(strings.TrimSpace(oracleConn.Username), "sys") {
+		return nil, fmt.Errorf("Oracle Swingbench prepare requires SYS credentials. Current username %q will fail during prepare; use SYS and provide the password", strings.TrimSpace(oracleConn.Username))
+	}
 
 	// Build connection string for swingbench (not JDBC format)
 	connectionStr := a.buildCharbenchConnectionString(oracleConn)
@@ -1284,6 +1287,10 @@ func resolveOracleAdminCredentials(conn *connection.OracleConnection, config *Co
 		}
 	}
 
+	if strings.EqualFold(strings.TrimSpace(username), "sys") && connectAs == "normal" {
+		connectAs = "sysdba"
+	}
+
 	return username, password, connectAs
 }
 
@@ -1297,6 +1304,24 @@ func splitOracleAdminUsername(username string, fallbackConnectAs string) (string
 	default:
 		return strings.TrimSpace(username), fallbackConnectAs
 	}
+}
+
+func resolveOracleWizardCredentials(conn *connection.OracleConnection, config *Config) (string, string) {
+	username := strings.TrimSpace(conn.Username)
+	password := conn.Password
+
+	if value, ok := config.Parameters["oewizard_dba_username"].(string); ok && strings.TrimSpace(value) != "" {
+		username = strings.TrimSpace(value)
+	}
+	if value, ok := config.Parameters["oewizard_dba_password"].(string); ok && value != "" {
+		password = value
+	}
+
+	if strings.EqualFold(username, "sys") {
+		username = "system"
+	}
+
+	return username, password
 }
 
 func lowerCaseReplaceOriginal(username, suffix string) string {
@@ -1565,10 +1590,7 @@ exit
 func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
 	// Use system default java to avoid hardcoded path issues
 	javaPath := "java"
-	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
-	if connectAs != "" && connectAs != "normal" {
-		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
-	}
+	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
 
 	cmdArgs := []string{
 		javaPath,
@@ -1603,10 +1625,7 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 
 func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, threads int, config *Config) string {
 	javaPath := "java"
-	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
-	if connectAs != "" && connectAs != "normal" {
-		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
-	}
+	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
 
 	cmdArgs := []string{
 		javaPath,
@@ -1642,10 +1661,7 @@ func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.Oracle
 
 func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
 	javaPath := "java"
-	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
-	if connectAs != "" && connectAs != "normal" {
-		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
-	}
+	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
 
 	cmdArgs := []string{
 		javaPath,
