@@ -646,6 +646,100 @@ func TestTaskBindingRunPhase_OracleSwingbenchCleanupGuardDoesNotOptimisticallyEn
 	}
 }
 
+func TestTaskBindingRunPhase_MySQLSysbenchCleanupGuardDoesNotOptimisticallyEnterRunning(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ID:            "task-run",
+		Action:        domaintask.ActionRun,
+		Status:        domaintask.StatusStarting,
+		CurrentPhase:  domaintask.PhaseNone,
+		BenchmarkTool: "sysbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			ID:   "conn-mysql",
+			Type: "mysql",
+		},
+		TemplateSnapshot: domaintask.TemplateSnapshot{
+			WorkloadFamily: "oltp-read-write",
+		},
+	}
+	binding := &TaskBinding{
+		tasks: map[string]*domaintask.ExecutionTask{
+			"task-run": task,
+			"task-cleanup": {
+				ID:            "task-cleanup",
+				BenchmarkTool: "sysbench",
+				ConnectionSnapshot: domaintask.ConnectionSnapshot{
+					ID:   "conn-mysql",
+					Type: "mysql",
+				},
+				TemplateSnapshot: domaintask.TemplateSnapshot{
+					WorkloadFamily: "oltp-read-write",
+				},
+				PhaseHistory: []domaintask.PhaseRecord{
+					{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: time.Now().Add(-time.Minute)},
+				},
+			},
+		},
+		executions: map[string]*taskExecutionContext{
+			"task-run": {
+				logSeen: make(map[string]int),
+			},
+		},
+	}
+
+	err := binding.runPhase("task-run", domaintask.PhaseRun)
+	if err == nil {
+		t.Fatal("runPhase() expected cleanup guard error")
+	}
+	if got := task.Status; got != domaintask.StatusStarting {
+		t.Fatalf("task status = %s, want %s", got, domaintask.StatusStarting)
+	}
+	if got := task.CurrentPhase; got != domaintask.PhaseNone {
+		t.Fatalf("task current phase = %s, want %s", got, domaintask.PhaseNone)
+	}
+	if len(task.PhaseHistory) != 0 {
+		t.Fatalf("phase history length = %d, want 0", len(task.PhaseHistory))
+	}
+	if !containsAll(task.LogTail[len(task.LogTail)-1].Content, []string{"Cleanup removed required benchmark objects", "Prepare first"}) {
+		t.Fatalf("unexpected log tail: %+v", task.LogTail)
+	}
+}
+
+func TestClassifyTaskExecutionError_SysbenchMissingTables(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "mysql"},
+		BenchmarkTool:      "sysbench",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New(`run: ✗ Error: Benchmark tables do not exist
+
+The benchmark tables do not exist (Table 'sbtest.sbtest1' doesn't exist).
+
+Please run the Prepare phase first to create the tables and load data.`))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Sysbench run failed", "benchmark tables are not prepared", "Prepare first"}) {
+		t.Fatalf("unexpected sysbench error: %s", got)
+	}
+}
+
+func TestClassifyTaskExecutionError_SQLServerHammerDBMissingObjects(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "sqlserver"},
+		BenchmarkTool:      "hammerdb",
+		CurrentPhase:       domaintask.PhaseRun,
+	}
+
+	err := classifyTaskExecutionError(task, domaintask.PhaseRun, errors.New("Error: Invalid object name 'dbo.warehouse'"))
+	if err == nil {
+		t.Fatal("classifyTaskExecutionError() returned nil")
+	}
+	if got := err.Error(); !containsAll(got, []string{"HammerDB run failed", "benchmark objects are missing", "Prepare first"}) {
+		t.Fatalf("unexpected HammerDB object error: %s", got)
+	}
+}
+
 func TestTaskBindingStopTask_IgnoresDuplicateStopRequests(t *testing.T) {
 	binding := &TaskBinding{
 		tasks: map[string]*domaintask.ExecutionTask{
@@ -735,13 +829,13 @@ func TestTaskBindingStopTask_ReconcilesPreparedOracleSwingbenchRunWithoutProcess
 	*benchmarkUC = *usecase.NewBenchmarkUseCase(runRepo, nil, nil, nil)
 
 	binding := &TaskBinding{
-		benchmarkUC:   benchmarkUC,
-		activeTaskID:  "task-1",
+		benchmarkUC:  benchmarkUC,
+		activeTaskID: "task-1",
 		tasks: map[string]*domaintask.ExecutionTask{
 			"task-1": {
-				ID:           "task-1",
-				Status:       domaintask.StatusStarting,
-				CurrentPhase: domaintask.PhaseNone,
+				ID:            "task-1",
+				Status:        domaintask.StatusStarting,
+				CurrentPhase:  domaintask.PhaseNone,
 				BenchmarkTool: "swingbench",
 				ConnectionSnapshot: domaintask.ConnectionSnapshot{
 					Type: "oracle",

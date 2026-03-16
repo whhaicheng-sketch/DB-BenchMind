@@ -483,7 +483,7 @@ func (b *TaskBinding) runPhase(taskID string, phase domaintask.Phase) error {
 		return fmt.Errorf("task stopped")
 	}
 	if phase == domaintask.PhaseRun {
-		if err := oracleSwingbenchDirectRunGuard(task, b.tasks); err != nil {
+		if err := benchmarkDirectRunGuard(task, b.tasks); err != nil {
 			appendTaskEvent(task, phase, err.Error())
 			b.mu.Unlock()
 			return err
@@ -494,10 +494,10 @@ func (b *TaskBinding) runPhase(taskID string, phase domaintask.Phase) error {
 		task.Status = domaintask.StatusPreparing
 		task.CurrentPhase = phase
 	case domaintask.PhaseRun:
-		if isOracleSwingbenchTaskExecution(task) {
+		if taskActionUsesRunPreflight(task) {
 			task.Status = domaintask.StatusStarting
 			task.CurrentPhase = domaintask.PhaseNone
-			appendTaskEvent(task, domaintask.PhaseNone, "Oracle Swingbench run preflight started")
+			appendTaskEvent(task, domaintask.PhaseNone, fmt.Sprintf("%s run preflight started", taskRunPreflightLabel(task)))
 		} else {
 			task.Status = domaintask.StatusRunning
 			task.CurrentPhase = phase
@@ -597,7 +597,7 @@ func (b *TaskBinding) syncTaskRunState(taskID string, phase domaintask.Phase, st
 	if task == nil || task.Status == domaintask.StatusStopping {
 		return
 	}
-	if isOracleSwingbenchTaskExecution(task) {
+	if taskHasRunPreflightSemantics(task) {
 		for i := len(task.PhaseHistory) - 1; i >= 0; i-- {
 			record := &task.PhaseHistory[i]
 			if record.Phase != domaintask.PhaseRun {
@@ -1050,7 +1050,7 @@ func shouldSkipTimingForPreflight(task *domaintask.ExecutionTask, record domaint
 	if task == nil || record.Phase != domaintask.PhaseRun {
 		return false
 	}
-	return isOracleSwingbenchTaskExecution(task) &&
+	return taskHasRunPreflightSemantics(task) &&
 		task.Status == domaintask.StatusStarting &&
 		task.CurrentPhase == domaintask.PhaseNone &&
 		record.Status == "started"
@@ -1095,6 +1095,12 @@ func classifyTaskExecutionError(task *domaintask.ExecutionTask, phase domaintask
 	}
 	if oracleSwingbenchRunError := classifyOracleSwingbenchRunError(task, phase, message); oracleSwingbenchRunError != nil {
 		return oracleSwingbenchRunError
+	}
+	if sysbenchRunError := classifySysbenchRunError(task, phase, message); sysbenchRunError != nil {
+		return sysbenchRunError
+	}
+	if hammerDBRunError := classifyHammerDBRunError(task, phase, message); hammerDBRunError != nil {
+		return hammerDBRunError
 	}
 	return err
 }
@@ -1142,14 +1148,10 @@ func classifyOracleSwingbenchRunError(task *domaintask.ExecutionTask, phase doma
 	}
 }
 
-func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[string]*domaintask.ExecutionTask) error {
-	if task == nil ||
-		task.Action != domaintask.ActionRun ||
-		!strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") ||
-		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) {
+func benchmarkDirectRunGuard(task *domaintask.ExecutionTask, tasks map[string]*domaintask.ExecutionTask) error {
+	if task == nil || task.Action != domaintask.ActionRun || !taskSupportsCleanupAwareDirectRunGuard(task) {
 		return nil
 	}
-
 	latestPhase := domaintask.PhaseNone
 	latestAt := time.Time{}
 	for _, candidate := range tasks {
@@ -1157,8 +1159,8 @@ func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[st
 			continue
 		}
 		if candidate.ConnectionSnapshot.ID != task.ConnectionSnapshot.ID ||
-			!strings.EqualFold(candidate.ConnectionSnapshot.Type, "oracle") ||
-			!strings.EqualFold(candidate.BenchmarkTool, string(domaintemplate.ToolSwingbench)) ||
+			!strings.EqualFold(candidate.ConnectionSnapshot.Type, task.ConnectionSnapshot.Type) ||
+			!strings.EqualFold(candidate.BenchmarkTool, task.BenchmarkTool) ||
 			!strings.EqualFold(candidate.TemplateSnapshot.WorkloadFamily, task.TemplateSnapshot.WorkloadFamily) {
 			continue
 		}
@@ -1181,9 +1183,96 @@ func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[st
 	}
 
 	if latestPhase == domaintask.PhaseCleanup {
-		return fmt.Errorf("Cleanup removed required SOE objects. Please run Prepare first.")
+		if isOracleSwingbenchTaskExecution(task) {
+			return fmt.Errorf("Cleanup removed required SOE objects. Please run Prepare first.")
+		}
+		return fmt.Errorf("Cleanup removed required benchmark objects. Please run Prepare first.")
 	}
 	return nil
+}
+
+func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[string]*domaintask.ExecutionTask) error {
+	return benchmarkDirectRunGuard(task, tasks)
+}
+
+func taskActionUsesRunPreflight(task *domaintask.ExecutionTask) bool {
+	return task != nil && task.Action == domaintask.ActionRun && taskHasRunPreflightSemantics(task)
+}
+
+func taskHasRunPreflightSemantics(task *domaintask.ExecutionTask) bool {
+	if task == nil {
+		return false
+	}
+	if isOracleSwingbenchTaskExecution(task) {
+		return true
+	}
+	if strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSysbench)) &&
+		(strings.EqualFold(task.ConnectionSnapshot.Type, "mysql") || strings.EqualFold(task.ConnectionSnapshot.Type, "postgresql")) {
+		return true
+	}
+	return strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolHammerDB)) &&
+		strings.EqualFold(task.ConnectionSnapshot.Type, "sqlserver")
+}
+
+func taskSupportsCleanupAwareDirectRunGuard(task *domaintask.ExecutionTask) bool {
+	return taskActionUsesRunPreflight(task)
+}
+
+func taskRunPreflightLabel(task *domaintask.ExecutionTask) string {
+	if task == nil {
+		return "Benchmark"
+	}
+	switch {
+	case isOracleSwingbenchTaskExecution(task):
+		return "Oracle Swingbench"
+	case strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSysbench)):
+		return "Sysbench"
+	case strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolHammerDB)):
+		return "HammerDB"
+	default:
+		return "Benchmark"
+	}
+}
+
+func classifySysbenchRunError(task *domaintask.ExecutionTask, phase domaintask.Phase, message string) error {
+	if task == nil ||
+		phase != domaintask.PhaseRun ||
+		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSysbench)) {
+		return nil
+	}
+
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "access denied"), strings.Contains(lower, "invalid credentials"), strings.Contains(lower, "authentication failed"):
+		return fmt.Errorf("Sysbench run failed: workload login failed. Check the benchmark credentials before running again. Original error: %s", message)
+	case strings.Contains(lower, "unknown database"), strings.Contains(lower, "database does not exist"), strings.Contains(lower, "error 1049"), strings.Contains(lower, "3d000"):
+		return fmt.Errorf("Sysbench run failed: benchmark database does not exist. Please run Prepare first. Original error: %s", message)
+	case strings.Contains(lower, "sbtest1"), strings.Contains(lower, "benchmark tables do not exist"), strings.Contains(lower, "benchmark tables have not been created"), strings.Contains(lower, "thread initialization failed"), strings.Contains(lower, "mysql_stmt_prepare"):
+		return fmt.Errorf("Sysbench run failed: benchmark tables are not prepared. Please run Prepare first. Original error: %s", message)
+	default:
+		return nil
+	}
+}
+
+func classifyHammerDBRunError(task *domaintask.ExecutionTask, phase domaintask.Phase, message string) error {
+	if task == nil ||
+		phase != domaintask.PhaseRun ||
+		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolHammerDB)) ||
+		!strings.EqualFold(task.ConnectionSnapshot.Type, "sqlserver") {
+		return nil
+	}
+
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "login failed"), strings.Contains(lower, "18456"), strings.Contains(lower, "authentication failed"):
+		return fmt.Errorf("HammerDB run failed: workload login failed. Check the benchmark credentials before running again. Original error: %s", message)
+	case strings.Contains(lower, "cannot open database"), strings.Contains(lower, "database does not exist"):
+		return fmt.Errorf("HammerDB run failed: benchmark database does not exist. Please run Prepare first. Original error: %s", message)
+	case strings.Contains(lower, "invalid object name"), strings.Contains(lower, "stored procedure"), strings.Contains(lower, "benchmark objects are missing"):
+		return fmt.Errorf("HammerDB run failed: benchmark objects are missing. Please run Prepare first. Original error: %s", message)
+	default:
+		return nil
+	}
 }
 
 func isOracleSwingbenchTaskExecution(task *domaintask.ExecutionTask) bool {

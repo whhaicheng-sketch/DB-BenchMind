@@ -257,6 +257,108 @@ func TestOracleSwingbenchRunPreflight_FailsWhenLoginSucceedsButObjectsAreMissing
 	}
 }
 
+func TestBenchmarkRunPreflight_FailsForMySQLSysbenchWhenDatabaseIsMissing(t *testing.T) {
+	restore := sysbenchMySQLRunPreflightCheck
+	defer func() {
+		sysbenchMySQLRunPreflightCheck = restore
+	}()
+
+	sysbenchMySQLRunPreflightCheck = func(ctx context.Context, conn *connection.MySQLConnection, dbName string) (benchmarkRunPreflightStatus, error) {
+		return benchmarkRunPreflightDatabaseMissing, nil
+	}
+
+	err := benchmarkRunPreflight(context.Background(), &adapter.Config{
+		Connection: &connection.MySQLConnection{
+			BaseConnection: connection.BaseConnection{ID: "mysql-1", Name: "MySQL Sysbench"},
+			Host:           "127.0.0.1",
+			Port:           3306,
+			Database:       "sbtest",
+			Username:       "root",
+			Password:       "secret",
+		},
+		Template: &domaintemplate.Template{
+			Tool:     domaintemplate.ToolSysbench,
+			DBFamily: "mysql",
+		},
+		Parameters: map[string]interface{}{},
+	})
+	if err == nil {
+		t.Fatal("benchmarkRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"Sysbench run failed", "benchmark database does not exist", "Prepare first"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func TestBenchmarkRunPreflight_FailsForPostgreSQLSysbenchWhenTablesAreMissing(t *testing.T) {
+	restore := sysbenchPostgreSQLRunPreflightCheck
+	defer func() {
+		sysbenchPostgreSQLRunPreflightCheck = restore
+	}()
+
+	sysbenchPostgreSQLRunPreflightCheck = func(ctx context.Context, conn *connection.PostgreSQLConnection, dbName string) (benchmarkRunPreflightStatus, error) {
+		return benchmarkRunPreflightSchemaMissing, nil
+	}
+
+	err := benchmarkRunPreflight(context.Background(), &adapter.Config{
+		Connection: &connection.PostgreSQLConnection{
+			BaseConnection: connection.BaseConnection{ID: "pg-1", Name: "PostgreSQL Sysbench"},
+			Host:           "127.0.0.1",
+			Port:           5432,
+			Database:       "sbtest",
+			Username:       "postgres",
+			Password:       "secret",
+			SSLMode:        "disable",
+		},
+		Template: &domaintemplate.Template{
+			Tool:     domaintemplate.ToolSysbench,
+			DBFamily: "postgresql",
+		},
+		Parameters: map[string]interface{}{},
+	})
+	if err == nil {
+		t.Fatal("benchmarkRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"Sysbench run failed", "benchmark tables are not prepared", "Prepare first"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func TestBenchmarkRunPreflight_FailsForSQLServerHammerDBWhenObjectsAreMissing(t *testing.T) {
+	restore := hammerDBSQLServerRunPreflightCheck
+	defer func() {
+		hammerDBSQLServerRunPreflightCheck = restore
+	}()
+
+	hammerDBSQLServerRunPreflightCheck = func(ctx context.Context, conn *connection.SQLServerConnection, databaseName string) (benchmarkRunPreflightStatus, error) {
+		return benchmarkRunPreflightBenchmarkObjectsMissing, nil
+	}
+
+	err := benchmarkRunPreflight(context.Background(), &adapter.Config{
+		Connection: &connection.SQLServerConnection{
+			BaseConnection: connection.BaseConnection{ID: "sqlserver-1", Name: "SQL Server HammerDB"},
+			Host:           "127.0.0.1",
+			Port:           1433,
+			Database:       "tpcc",
+			Username:       "sa",
+			Password:       "secret",
+		},
+		Template: &domaintemplate.Template{
+			Tool:     domaintemplate.ToolHammerDB,
+			DBFamily: "sqlserver",
+		},
+		Parameters: map[string]interface{}{
+			"database_name": "tpcc",
+		},
+	})
+	if err == nil {
+		t.Fatal("benchmarkRunPreflight() expected error")
+	}
+	if got := err.Error(); !containsBenchmarkUseCaseSubs(got, []string{"HammerDB run failed", "benchmark objects are missing", "Prepare first"}) {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
 func containsBenchmarkUseCaseSubs(value string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(value, sub) {

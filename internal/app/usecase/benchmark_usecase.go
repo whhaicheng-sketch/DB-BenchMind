@@ -119,6 +119,8 @@ var (
 
 type oracleSwingbenchRunPreflightStatus string
 
+type benchmarkRunPreflightStatus string
+
 const (
 	oracleSwingbenchRunPreflightOK                 oracleSwingbenchRunPreflightStatus = "ok"
 	oracleSwingbenchRunPreflightUserMissing        oracleSwingbenchRunPreflightStatus = "user_missing"
@@ -126,6 +128,165 @@ const (
 	oracleSwingbenchRunPreflightInvalidCredentials oracleSwingbenchRunPreflightStatus = "invalid_credentials"
 	oracleSwingbenchRunPreflightSchemaIncomplete   oracleSwingbenchRunPreflightStatus = "schema_incomplete"
 	oracleSwingbenchRunPreflightCleanupInvalidated oracleSwingbenchRunPreflightStatus = "cleanup_invalidated"
+
+	benchmarkRunPreflightOK                      benchmarkRunPreflightStatus = "ok"
+	benchmarkRunPreflightInvalidCredentials      benchmarkRunPreflightStatus = "invalid_credentials"
+	benchmarkRunPreflightDatabaseMissing         benchmarkRunPreflightStatus = "database_missing"
+	benchmarkRunPreflightSchemaMissing           benchmarkRunPreflightStatus = "benchmark_schema_missing"
+	benchmarkRunPreflightCleanupInvalidated      benchmarkRunPreflightStatus = "cleanup_invalidated"
+	benchmarkRunPreflightBenchmarkObjectsMissing benchmarkRunPreflightStatus = "benchmark_objects_missing"
+	benchmarkRunPreflightUnknownFailure          benchmarkRunPreflightStatus = "unknown_preflight_failure"
+)
+
+var (
+	sysbenchMySQLRunPreflightCheck = func(ctx context.Context, conn *connection.MySQLConnection, dbName string) (benchmarkRunPreflightStatus, error) {
+		adminDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false&timeout=5s&readTimeout=5s&writeTimeout=5s",
+			conn.Username, conn.Password, conn.Host, conn.Port)
+		db, err := sql.Open("mysql", adminDSN)
+		if err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		defer db.Close()
+
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(checkCtx); err != nil {
+			if isMySQLAuthenticationError(err.Error()) {
+				return benchmarkRunPreflightInvalidCredentials, nil
+			}
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+
+		var databaseCount int
+		if err := db.QueryRowContext(checkCtx, "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", dbName).Scan(&databaseCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if databaseCount == 0 {
+			return benchmarkRunPreflightDatabaseMissing, nil
+		}
+
+		var tableCount int
+		if err := db.QueryRowContext(checkCtx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'sbtest1'", dbName).Scan(&tableCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if tableCount == 0 {
+			return benchmarkRunPreflightSchemaMissing, nil
+		}
+		return benchmarkRunPreflightOK, nil
+	}
+
+	sysbenchPostgreSQLRunPreflightCheck = func(ctx context.Context, conn *connection.PostgreSQLConnection, dbName string) (benchmarkRunPreflightStatus, error) {
+		adminDSN := buildPostgreSQLRunPreflightDSN(conn, "postgres")
+		db, err := sql.Open("postgres", adminDSN)
+		if err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		defer db.Close()
+
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(checkCtx); err != nil {
+			if isPostgreSQLAuthenticationError(err.Error()) {
+				return benchmarkRunPreflightInvalidCredentials, nil
+			}
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+
+		var databaseCount int
+		if err := db.QueryRowContext(checkCtx, "SELECT COUNT(*) FROM pg_database WHERE datname = $1", dbName).Scan(&databaseCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if databaseCount == 0 {
+			return benchmarkRunPreflightDatabaseMissing, nil
+		}
+
+		targetDB, err := sql.Open("postgres", buildPostgreSQLRunPreflightDSN(conn, dbName))
+		if err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		defer targetDB.Close()
+
+		if err := targetDB.PingContext(checkCtx); err != nil {
+			if isPostgreSQLAuthenticationError(err.Error()) {
+				return benchmarkRunPreflightInvalidCredentials, nil
+			}
+			if isPostgreSQLDatabaseMissingError(err.Error()) {
+				return benchmarkRunPreflightDatabaseMissing, nil
+			}
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+
+		var tableCount int
+		if err := targetDB.QueryRowContext(checkCtx, "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'sbtest1'").Scan(&tableCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if tableCount == 0 {
+			return benchmarkRunPreflightSchemaMissing, nil
+		}
+		return benchmarkRunPreflightOK, nil
+	}
+
+	hammerDBSQLServerRunPreflightCheck = func(ctx context.Context, conn *connection.SQLServerConnection, databaseName string) (benchmarkRunPreflightStatus, error) {
+		adminDSN := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=master&encrypt=disable&trustservercertificate=%t",
+			conn.Username, conn.Password, conn.Host, conn.Port, conn.TrustServerCertificate)
+		db, err := sql.Open("sqlserver", adminDSN)
+		if err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		defer db.Close()
+
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(checkCtx); err != nil {
+			if isSQLServerAuthenticationError(err.Error()) {
+				return benchmarkRunPreflightInvalidCredentials, nil
+			}
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+
+		var databaseCount int
+		if err := db.QueryRowContext(checkCtx, "SELECT COUNT(*) FROM sys.databases WHERE name = @p1", databaseName).Scan(&databaseCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if databaseCount == 0 {
+			return benchmarkRunPreflightDatabaseMissing, nil
+		}
+
+		targetDSN := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable&trustservercertificate=%t",
+			conn.Username, conn.Password, conn.Host, conn.Port, databaseName, conn.TrustServerCertificate)
+		targetDB, err := sql.Open("sqlserver", targetDSN)
+		if err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		defer targetDB.Close()
+
+		if err := targetDB.PingContext(checkCtx); err != nil {
+			if isSQLServerAuthenticationError(err.Error()) {
+				return benchmarkRunPreflightInvalidCredentials, nil
+			}
+			if isSQLServerDatabaseMissingError(err.Error()) {
+				return benchmarkRunPreflightDatabaseMissing, nil
+			}
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+
+		var objectCount int
+		if err := targetDB.QueryRowContext(checkCtx, `
+			SELECT COUNT(*)
+			FROM INFORMATION_SCHEMA.TABLES
+			WHERE TABLE_SCHEMA = 'dbo'
+			  AND TABLE_NAME IN ('warehouse', 'district', 'customer', 'history', 'orders', 'new_order', 'order_line', 'item', 'stock')
+		`).Scan(&objectCount); err != nil {
+			return benchmarkRunPreflightUnknownFailure, err
+		}
+		if objectCount < 9 {
+			return benchmarkRunPreflightBenchmarkObjectsMissing, nil
+		}
+		return benchmarkRunPreflightOK, nil
+	}
 )
 
 // RealtimeSampleCallback is called for each realtime sample during benchmark execution.
@@ -699,8 +860,8 @@ func (uc *BenchmarkUseCase) executeRun(
 		slog.Info("Benchmark: Tables configuration check passed", "run_id", run.ID)
 	}
 
-	if err := oracleSwingbenchRunPreflight(ctx, config); err != nil {
-		slog.Warn("Benchmark: Oracle Swingbench run preflight failed", "run_id", run.ID, "error", err)
+	if err := benchmarkRunPreflight(ctx, config); err != nil {
+		slog.Warn("Benchmark: benchmark run preflight failed", "run_id", run.ID, "error", err)
 		return err
 	}
 
@@ -831,6 +992,8 @@ func (uc *BenchmarkUseCase) executeRun(
 					var userMsg string
 					if tmpl.Tool == "swingbench" {
 						userMsg = uc.parseSwingbenchError(errorOutput, stdoutBuf.String())
+					} else if tmpl.Tool == "hammerdb" {
+						userMsg = uc.parseHammerDBError(errorOutput)
 					} else {
 						// Default to sysbench error parsing
 						userMsg = uc.parseSysbenchError(errorOutput)
@@ -2462,6 +2625,25 @@ func (uc *BenchmarkUseCase) parseSysbenchError(stderr string) string {
 	return "✗ Error: Benchmark execution failed\n\nPlease check the logs for more details."
 }
 
+func (uc *BenchmarkUseCase) parseHammerDBError(stderr string) string {
+	errorOutput := strings.TrimSpace(stderr)
+	lower := strings.ToLower(errorOutput)
+
+	switch {
+	case strings.Contains(lower, "login failed"), strings.Contains(lower, "18456"), strings.Contains(lower, "authentication failed"):
+		return "✗ Error: SQL Server login failed\n\nHammerDB could not log in to the benchmark database.\n\nPlease check the workload credentials in the connection settings before running again."
+	case strings.Contains(lower, "cannot open database"), strings.Contains(lower, "does not exist"), strings.Contains(lower, "unknown database"):
+		return "✗ Error: Benchmark database does not exist\n\nHammerDB requires the benchmark database to exist before Run.\n\nPlease run the Prepare phase first."
+	case strings.Contains(lower, "invalid object name"), strings.Contains(lower, "could not find stored procedure"), strings.Contains(lower, "object"), strings.Contains(lower, "table"):
+		return "✗ Error: Benchmark objects are missing\n\nHammerDB could not find the required benchmark schema objects.\n\nPlease run the Prepare phase first."
+	default:
+		if errorOutput == "" {
+			return "✗ Error: HammerDB execution failed\n\nPlease check the logs for more details."
+		}
+		return "✗ Error: HammerDB execution failed\n\n" + errorOutput
+	}
+}
+
 // parseSwingbenchError parses Swingbench/oewizard stderr and generates a user-friendly error message.
 // This function extracts Oracle/Swingbench specific errors and translates them to
 // clear action messages for the user.
@@ -2559,6 +2741,139 @@ func (uc *BenchmarkUseCase) parseSwingbenchError(stderr, stdout string) string {
 
 	// Fallback to generic error message
 	return "✗ Error: Swingbench execution failed\n\nPlease check the logs for more details."
+}
+
+func benchmarkRunPreflight(ctx context.Context, config *adapter.Config) error {
+	if config == nil || config.Template == nil || config.Connection == nil {
+		return nil
+	}
+
+	if err := oracleSwingbenchRunPreflight(ctx, config); err != nil {
+		return err
+	}
+
+	switch {
+	case config.Template.Tool == domaintemplate.ToolSysbench && config.Connection.GetType() == connection.DatabaseTypeMySQL:
+		conn, ok := config.Connection.(*connection.MySQLConnection)
+		if !ok {
+			return nil
+		}
+		status, err := sysbenchMySQLRunPreflightCheck(ctx, conn, resolveSysbenchDatabaseName(config))
+		return benchmarkRunPreflightError("Sysbench", status, err)
+	case config.Template.Tool == domaintemplate.ToolSysbench && config.Connection.GetType() == connection.DatabaseTypePostgreSQL:
+		conn, ok := config.Connection.(*connection.PostgreSQLConnection)
+		if !ok {
+			return nil
+		}
+		status, err := sysbenchPostgreSQLRunPreflightCheck(ctx, conn, resolveSysbenchDatabaseName(config))
+		return benchmarkRunPreflightError("Sysbench", status, err)
+	case config.Template.Tool == domaintemplate.ToolHammerDB && config.Connection.GetType() == connection.DatabaseTypeSQLServer:
+		conn, ok := config.Connection.(*connection.SQLServerConnection)
+		if !ok {
+			return nil
+		}
+		status, err := hammerDBSQLServerRunPreflightCheck(ctx, conn, resolveHammerDBDatabaseName(config))
+		return benchmarkRunPreflightError("HammerDB", status, err)
+	default:
+		return nil
+	}
+}
+
+func resolveSysbenchDatabaseName(config *adapter.Config) string {
+	if config == nil {
+		return "sbtest"
+	}
+	if value, ok := config.Parameters["db_name"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	switch conn := config.Connection.(type) {
+	case *connection.MySQLConnection:
+		if strings.TrimSpace(conn.Database) != "" {
+			return strings.TrimSpace(conn.Database)
+		}
+	case *connection.PostgreSQLConnection:
+		if strings.TrimSpace(conn.Database) != "" {
+			return strings.TrimSpace(conn.Database)
+		}
+	}
+	return "sbtest"
+}
+
+func resolveHammerDBDatabaseName(config *adapter.Config) string {
+	if config == nil {
+		return "tpcc"
+	}
+	if value, ok := config.Parameters["database_name"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	if conn, ok := config.Connection.(*connection.SQLServerConnection); ok && strings.TrimSpace(conn.Database) != "" {
+		return strings.TrimSpace(conn.Database)
+	}
+	return "tpcc"
+}
+
+func benchmarkRunPreflightError(toolName string, status benchmarkRunPreflightStatus, cause error) error {
+	switch status {
+	case benchmarkRunPreflightOK:
+		return nil
+	case benchmarkRunPreflightInvalidCredentials:
+		if cause == nil {
+			return fmt.Errorf("%s run failed: workload login failed. Check the benchmark credentials before running again.", toolName)
+		}
+		return fmt.Errorf("%s run failed: workload login failed. Check the benchmark credentials before running again. Original error: %s", toolName, cause)
+	case benchmarkRunPreflightDatabaseMissing:
+		return fmt.Errorf("%s run failed: benchmark database does not exist. Please run Prepare first.", toolName)
+	case benchmarkRunPreflightSchemaMissing:
+		return fmt.Errorf("%s run failed: benchmark tables are not prepared. Please run Prepare first.", toolName)
+	case benchmarkRunPreflightCleanupInvalidated:
+		return fmt.Errorf("%s run failed: Cleanup removed required benchmark objects. Please run Prepare first.", toolName)
+	case benchmarkRunPreflightBenchmarkObjectsMissing:
+		return fmt.Errorf("%s run failed: benchmark objects are missing. Please run Prepare first.", toolName)
+	case benchmarkRunPreflightUnknownFailure:
+		if cause != nil {
+			return fmt.Errorf("%s run failed: unable to complete run preflight. Original error: %s", toolName, cause)
+		}
+		return fmt.Errorf("%s run failed: unable to complete run preflight", toolName)
+	default:
+		if cause != nil {
+			return cause
+		}
+		return fmt.Errorf("%s run failed", toolName)
+	}
+}
+
+func buildPostgreSQLRunPreflightDSN(conn *connection.PostgreSQLConnection, dbName string) string {
+	sslMode := conn.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	return fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+		conn.Host, conn.Port, dbName, conn.Username, conn.Password, sslMode)
+}
+
+func isMySQLAuthenticationError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "access denied") || strings.Contains(lower, "error 1045")
+}
+
+func isPostgreSQLAuthenticationError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "password authentication failed") || strings.Contains(lower, "28p01")
+}
+
+func isPostgreSQLDatabaseMissingError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "does not exist") || strings.Contains(lower, "3d000")
+}
+
+func isSQLServerAuthenticationError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "login failed") || strings.Contains(lower, "18456")
+}
+
+func isSQLServerDatabaseMissingError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "cannot open database") || strings.Contains(lower, "does not exist")
 }
 
 // checkTablesConfigForRun checks if existing tables match the expected configuration before run.
