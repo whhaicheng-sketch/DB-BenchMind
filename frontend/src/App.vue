@@ -7,27 +7,13 @@
 import { ref, onMounted, onUnmounted, onErrorCaptured } from 'vue'
 import { useMonitorStore } from './stores/monitor'
 import { useAppStore } from './stores/app'
+import { navigationTabs } from './constants/navigationTabs.mjs'
 
 // Tab components
 import ConnectionsTab from './components/tabs/ConnectionsTab.vue'
 import TemplatesTab from './components/tabs/TemplatesTab.vue'
 import TasksMonitorTab from './components/tabs/TasksMonitorTab.vue'
 import HistoryTab from './components/tabs/HistoryTab.vue'
-import ComparisonTab from './components/tabs/ComparisonTab.vue'
-import ReportsTab from './components/tabs/ReportsTab.vue'
-import SettingsTab from './components/tabs/SettingsTab.vue'
-
-// Active tab
-// Tabs configuration
-const tabs = [
-  { id: 'connections', label: 'Connections', icon: '🔌' },
-  { id: 'templates', label: 'Templates', icon: '📋' },
-  { id: 'tasks', label: 'Tasks & Monitor', icon: '📊' },
-  { id: 'history', label: 'History', icon: '📜' },
-  { id: 'comparison', label: 'Comparison', icon: '📈' },
-  { id: 'reports', label: 'Reports', icon: '📄' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' }
-]
 
 // Global error state
 const globalError = ref(null)
@@ -101,7 +87,7 @@ onUnmounted(async () => {
     <div class="tab-navigation">
       <div class="tab-list">
         <button
-          v-for="tab in tabs"
+          v-for="tab in navigationTabs"
           :key="tab.id"
           :class="['tab-item', { active: appStore.activeTab === tab.id }]"
           @click="appStore.setActiveTab(tab.id)"
@@ -118,9 +104,6 @@ onUnmounted(async () => {
       <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
       <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
       <HistoryTab v-else-if="appStore.activeTab === 'history'" />
-      <ComparisonTab v-else-if="appStore.activeTab === 'comparison'" />
-      <ReportsTab v-else-if="appStore.activeTab === 'reports'" />
-      <SettingsTab v-else-if="appStore.activeTab === 'settings'" />
     </div>
   </div>
 </template>

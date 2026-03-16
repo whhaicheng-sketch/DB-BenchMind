@@ -5,6 +5,8 @@
 **Status:** Active
 **Based On:** 实际开发 5 个 GUI 页面的经验总结
 
+> 注：当前 Wails GUI 已移除 `Comparison`、`Reports`、`Settings` 顶部入口；文中涉及这些页面的布局内容仅供历史参考。
+
 ---
 
 ## 目录

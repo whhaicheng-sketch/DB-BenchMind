@@ -634,56 +634,7 @@ err := reportUC.GenerateReport(ctx, "run-001", report.FormatPDF)
 
 ### 概述
 
-DB-BenchMind 提供强大的多配置横向对比功能，允许您：
-- 选择 2-10 条历史记录进行对比
-- 按 Threads、Database Type、Template Name 或 Date 分组
-- 查看 TPS、延迟、QPS 等关键指标的统计对比
-- 通过表格和 ASCII 柱状图可视化结果
-- 分析读写比例和查询分布
-
-### GUI 使用方式
-
-#### 基本流程
-
-1. **打开 Comparison 页面**
-   - 启动 DB-BenchMind GUI
-   - 点击 "Comparison" 标签页
-
-2. **选择要对比的记录**
-   - 从历史记录列表中勾选 2-10 条记录
-   - 每条记录显示：数据库类型 | 模板名 | 线程数 | TPS | QPS | 时间
-
-3. **选择分组方式**
-   - **Threads**: 按线程数分组对比
-   - **Database Type**: 按数据库类型分组对比
-   - **Template Name**: 按模板名称分组对比
-   - **Date**: 按日期分组对比
-
-4. **执行对比**
-   - 点击 "📊 Compare Selected" 按钮
-   - 系统自动计算并显示对比结果
-
-5. **查看结果**
-   - 表格视图：展示 TPS、延迟、QPS 的 Min/Avg/Max/StdDev
-   - 柱状图：ASCII 柱状图可视化指标差异
-   - 查询分布：读写比例统计
-
-6. **导出报告**
-   - 点击 "💾 Export Report" 导出对比结果
-   - 支持 TXT、Markdown、CSV 格式（即将推出）
-
-#### 功能按钮
-
-- **🔄 Refresh**: 刷新历史记录列表
-- **📊 Compare Selected**: 对比选中的记录
-- **💾 Export Report**: 导出对比报告
-- **🗑️ Clear**: 清空对比结果
-
-#### 搜索过滤
-
-使用搜索框快速过滤记录：
-- 支持搜索：数据库类型、模板名称、连接名、线程数
-- 实时过滤显示匹配的记录
+当前版本的 GUI 已移除 Comparison 页面入口。底层 comparison 能力与报告生成相关代码仍保留，供 API、CLI 和历史兼容链路使用。
 
 ### API 使用方式
 
