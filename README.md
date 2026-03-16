@@ -85,6 +85,14 @@ cd /path/to/DB-Benchmind  # 必须进入项目根目录
 
 ## 使用指南
 
+### Benchmark 生命周期
+
+- `Prepare`：总是先清理旧 benchmark 环境，再按当前参数完整重建。
+- `Run`：基于当前已准备好的环境执行压测，可以重复执行多次。
+- `Cleanup`：彻底删除 benchmark 环境；执行后必须重新 `Prepare` 才能再次 `Run`。
+
+对于 Oracle Swingbench，DB-BenchMind 会内置执行 SOE bootstrap SQL，再串行执行 `oewizard -create`、`-generate`、`-allindexes`。`Cleanup` 会删除 `SOE` 用户、`SOE/SOE_IDX` 表空间以及对应数据文件。
+
 ### 首次使用流程
 
 1. **启动应用并设置工具路径**

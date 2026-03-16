@@ -36,6 +36,18 @@ func TestOracleConnection_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid connection with SYSDBA connect_as",
+			conn: &OracleConnection{
+				BaseConnection: BaseConnection{Name: "test-conn"},
+				Host:           "localhost",
+				Port:           1521,
+				ServiceName:    "ORCL",
+				Username:       "sys",
+				ConnectAs:      "sysdba",
+			},
+			wantErr: false,
+		},
+		{
 			name: "missing service_name and SID",
 			conn: &OracleConnection{
 				BaseConnection: BaseConnection{Name: "test-conn"},
@@ -58,6 +70,19 @@ func TestOracleConnection_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "service_name and sid are mutually exclusive",
+		},
+		{
+			name: "invalid connect_as mode",
+			conn: &OracleConnection{
+				BaseConnection: BaseConnection{Name: "test-conn"},
+				Host:           "localhost",
+				Port:           1521,
+				ServiceName:    "ORCL",
+				Username:       "system",
+				ConnectAs:      "invalid-mode",
+			},
+			wantErr: true,
+			errMsg:  "connect_as must be one of",
 		},
 	}
 

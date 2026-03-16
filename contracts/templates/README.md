@@ -41,7 +41,9 @@ Swingbench Oracle notes:
 
 - Template/runtime `duration` maps to run-phase duration only.
 - Prepare and cleanup are separate phases and should not be mixed into run duration semantics.
-- Oracle prepare requires a privileged account for schema build and post-schema grants such as `EXECUTE ON SYS.DBMS_LOCK`.
+- DB-BenchMind lifecycle semantics are unified: `prepare` always rebuilds, `run` reuses the prepared environment, and `cleanup` fully removes it.
+- Oracle Swingbench prepare requires a privileged account for schema build and post-schema grants such as `EXECUTE ON SYS.DBMS_LOCK`.
+- Oracle Swingbench prepare runs an embedded SOE bootstrap SQL before `oewizard -create`, `-generate`, and `-allindexes`; cleanup removes the `SOE` user plus `SOE/SOE_IDX` tablespaces and datafiles.
 
 ### HammerDB Templates
 

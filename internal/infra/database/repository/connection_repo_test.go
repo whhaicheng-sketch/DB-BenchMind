@@ -72,6 +72,7 @@ func TestSQLiteConnectionRepository_SaveAndFind(t *testing.T) {
 				Port:        1521,
 				ServiceName: "ORCL",
 				Username:    "system",
+				ConnectAs:   "sysdba",
 			},
 			wantErr: false,
 		},
@@ -122,6 +123,15 @@ func TestSQLiteConnectionRepository_SaveAndFind(t *testing.T) {
 			}
 			if found.GetType() != tt.conn.GetType() {
 				t.Errorf("FindByID() Type = %v, want %v", found.GetType(), tt.conn.GetType())
+			}
+			if wantOracle, ok := tt.conn.(*connection.OracleConnection); ok {
+				gotOracle, ok := found.(*connection.OracleConnection)
+				if !ok {
+					t.Fatalf("FindByID() type = %T, want OracleConnection", found)
+				}
+				if gotOracle.ConnectAs != wantOracle.ConnectAs {
+					t.Errorf("FindByID() ConnectAs = %q, want %q", gotOracle.ConnectAs, wantOracle.ConnectAs)
+				}
 			}
 		})
 	}

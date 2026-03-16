@@ -169,7 +169,7 @@ func DefaultSeedTemplates() []*Template {
 		mustTemplate(&Template{
 			ID:             "tpl_test_mysql_sysbench",
 			Name:           "MySQL - Sysbench Test",
-			Description:    "Minimal MySQL sysbench smoke template for prepare, run, cleanup, and result verification.",
+			Description:    "Minimal MySQL sysbench smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.",
 			Tool:           ToolSysbench,
 			DBFamily:       "mysql",
 			WorkloadFamily: "oltp-read-write",
@@ -213,7 +213,7 @@ func DefaultSeedTemplates() []*Template {
 		mustTemplate(&Template{
 			ID:             "tpl_test_postgresql_sysbench",
 			Name:           "PostgreSQL - Sysbench Test",
-			Description:    "Minimal PostgreSQL sysbench smoke template for prepare, run, cleanup, and result verification.",
+			Description:    "Minimal PostgreSQL sysbench smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.",
 			Tool:           ToolSysbench,
 			DBFamily:       "postgresql",
 			WorkloadFamily: "oltp-read-write",
@@ -257,7 +257,7 @@ func DefaultSeedTemplates() []*Template {
 		mustTemplate(&Template{
 			ID:             "tpl_test_oracle_swingbench",
 			Name:           "Oracle - Swingbench Test",
-			Description:    "Minimal Oracle Swingbench smoke template for schema prepare, short run, cleanup, and result verification.",
+			Description:    "Minimal Oracle Swingbench smoke template where prepare rebuilds SOE from scratch, run can be repeated, and cleanup fully removes the benchmark state.",
 			Tool:           ToolSwingbench,
 			DBFamily:       "oracle",
 			WorkloadFamily: "order-entry",
@@ -311,7 +311,7 @@ func DefaultSeedTemplates() []*Template {
 		mustTemplate(&Template{
 			ID:             "tpl_test_sqlserver_hammerdb",
 			Name:           "SQL Server - HammerDB Test",
-			Description:    "Minimal SQL Server HammerDB smoke template for prepare, timed run, cleanup, and result verification.",
+			Description:    "Minimal SQL Server HammerDB smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.",
 			Tool:           ToolHammerDB,
 			DBFamily:       "sqlserver",
 			WorkloadFamily: "tproc-c",

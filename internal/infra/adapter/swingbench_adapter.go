@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -45,10 +44,14 @@ func (a *SwingbenchAdapter) Type() AdapterType {
 
 // BuildPrepareCommand builds the command for data preparation phase.
 //
-// Oracle prepare workflow (3 steps):
-// 1. Create SOE/SOE_IDX tablespaces (with OMF detection)
+// Oracle prepare workflow:
+// 1. Full cleanup of existing SOE environment
 // 2. Connection probe verification
-// 3. Run oewizard -create to generate schema and data
+// 3. Bootstrap SOE user + SOE/SOE_IDX tablespaces as SYSDBA
+// 4. Run oewizard -create to build schema structure
+// 5. Run oewizard -generate to load data
+// 6. Run oewizard -allindexes to build indexes
+// 7. Grant DBMS_LOCK and recompile invalid objects
 //
 // Phase behavior:
 // - Creates SOE/SOE_IDX tablespaces (auto-detects OMF)
@@ -57,7 +60,7 @@ func (a *SwingbenchAdapter) Type() AdapterType {
 // - Creates all tables (ORDERS, ORDER_ITEMS, CUSTOMERS, WAREHOUSES, etc.)
 // - Generates and populates data based on scale parameter
 //
-// If SOE schema already exists, oewizard will fail with error.
+// Prepare is destructive by design and always rebuilds the SOE environment.
 func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Config) (*Command, error) {
 	conn := config.Connection
 
@@ -84,12 +87,6 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 		scaleFloat = float64(s)
 	}
 
-	// For -scale parameter (supports float in newer oewizard versions)
-	scale := int(math.Ceil(scaleFloat))
-	if scale == 0 && scaleFloat > 0 {
-		scale = 1 // Minimum 1 for compatibility
-	}
-
 	// threads parameter is used for data generation parallelism
 	// Default: 2 threads for faster data generation (oewizard -tc parameter)
 	threads := 2 // Default 2 threads
@@ -99,30 +96,34 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 		threads = t
 	}
 
-	// Step 1: Connection probe (using DBA user to verify database connectivity)
+	// Step 1: Full cleanup
+	cleanupCmd := a.buildCleanupSOEObjectsCommand(oracleConn, config)
+
+	// Step 2: Connection probe (using DBA user to verify database connectivity)
 	probeCmd := a.buildConnectionProbeCommand(oracleConn, config)
 
-	// Step 2: Check if SOE schema already exists (early detection)
-	preCheckCmd := a.buildSchemaExistenceCheckCommand(oracleConn)
+	// Step 3: Bootstrap SOE user and tablespaces
+	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, config)
 
-	// Step 3: Create tablespaces with explicit datafile paths
-	// This is REQUIRED because oewizard cannot create tablespaces without paths
-	createTSCmd := a.buildCreateTablespacesOnlyCommand(oracleConn)
+	// Step 4-6: Split schema create, data generation, and index build.
+	createSchemaCmd := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
+	generateDataCmd := a.buildOewizardGenerateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
+	buildIndexesCmd := a.buildOewizardAllIndexesCommand(oracleConn, connectionStr, scaleFloat, config)
 
-	// Step 4: oewizard -create
-	// oewizard will detect existing tablespaces and use them
-	// Then create user, tables, indexes, and data
-	oewizardCmd := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
-
-	// Step 5: Post-schema setup
-	// Grant DBMS_LOCK permission and recompile package body
+	// Step 7: Post-schema setup
 	postSetupCmd := a.buildPostSchemaSetupCommand(oracleConn, config)
 
 	// Return command sequence
 	return &Command{
 		CmdLine:     "oracle_prepare_sequence", // Dummy command line for sequence
-		Description: "Oracle SOE schema preparation",
+		Description: "Oracle SOE schema rebuild",
 		Commands: []*Command{
+			{
+				CmdLine:     cleanupCmd,
+				WorkDir:     config.WorkDir,
+				StepName:    "Cleanup Existing Environment",
+				Description: "Dropping existing SOE user, tablespaces, and datafiles before rebuild",
+			},
 			{
 				CmdLine:     probeCmd,
 				WorkDir:     config.WorkDir,
@@ -130,22 +131,28 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				Description: "Verifying database connectivity and instance status",
 			},
 			{
-				CmdLine:     preCheckCmd,
+				CmdLine:     bootstrapCmd,
 				WorkDir:     config.WorkDir,
-				StepName:    "Schema Check",
-				Description: "Checking if SOE schema already exists",
+				StepName:    "Bootstrap SOE",
+				Description: "Creating SOE user and SOE/SOE_IDX tablespaces for the rebuild",
 			},
 			{
-				CmdLine:     createTSCmd,
+				CmdLine:     createSchemaCmd,
 				WorkDir:     config.WorkDir,
-				StepName:    "Create Tablespaces",
-				Description: "Creating SOE tablespaces with datafile paths",
+				StepName:    "Create Schema",
+				Description: "Running oewizard create to build SOE schema structure",
 			},
 			{
-				CmdLine:     oewizardCmd,
+				CmdLine:     generateDataCmd,
 				WorkDir:     config.WorkDir,
-				StepName:    "Initialize Data",
-				Description: "Running oewizard to create schema and generate test data",
+				StepName:    "Generate Data",
+				Description: "Running oewizard generate to load SOE benchmark data",
+			},
+			{
+				CmdLine:     buildIndexesCmd,
+				WorkDir:     config.WorkDir,
+				StepName:    "Build Indexes",
+				Description: "Running oewizard allindexes to build SOE indexes",
 			},
 			{
 				CmdLine:     postSetupCmd,
@@ -329,18 +336,20 @@ func (a *SwingbenchAdapter) BuildCleanupCommand(ctx context.Context, config *Con
 		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
 	}
 
-	// Build connection string for swingbench (not JDBC format)
-	connectionStr := a.buildCharbenchConnectionString(oracleConn)
-
-	// Build oewizard drop command matching the provided example:
-	// oewizard -cl -drop -version 2.0 -cs //host:port/ORCL -dt thin
-	//   -dba system -dbap 'password' -u soe -p soe -ts SOE -v -debug
-	cmdLine := a.buildOewizardDropCommand(oracleConn, connectionStr, config)
+	cmdLine := a.buildCleanupSOEObjectsCommand(oracleConn, config)
 
 	return &Command{
 		CmdLine: cmdLine,
 		WorkDir: config.WorkDir,
 	}, nil
+}
+
+func writeOracleTempSQL(prefix string, sqlText string) (string, error) {
+	tempSQLFile := fmt.Sprintf("/tmp/%s-%d.sql", prefix, time.Now().UnixNano())
+	if err := os.WriteFile(tempSQLFile, []byte(sqlText), 0644); err != nil {
+		return "", err
+	}
+	return tempSQLFile, nil
 }
 
 // ParseRunOutput parses the output from a charbench run.
@@ -1242,29 +1251,257 @@ exit
 `
 
 	// Use DBA credentials if provided, otherwise use connection credentials
-	var username, password string
-	if dbaUser, ok := config.Parameters["dba_username"].(string); ok {
-		username = dbaUser
-	} else {
-		username = conn.Username
-	}
-	if dbaPass, ok := config.Parameters["dba_password"].(string); ok {
-		password = dbaPass
-	} else {
-		password = conn.Password
-	}
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
 
-	// Format: sqlplus -L 'username/password@connection_string' <<'SQL'
-	return fmt.Sprintf("sqlplus -L '%s/%s@%s' <<'SQL'\n%s\nSQL",
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' <<'SQL'\n%s\nSQL",
 		username,
 		password,
 		a.buildCharbenchConnectionString(conn),
+		sqlplusConnectAsSuffix(connectAs),
 		probeSQL)
+}
+
+func resolveOracleAdminCredentials(conn *connection.OracleConnection, config *Config) (string, string, string) {
+	username := strings.TrimSpace(conn.Username)
+	password := conn.Password
+	connectAs := strings.ToLower(strings.TrimSpace(conn.ConnectAs))
+	if connectAs == "" {
+		connectAs = "normal"
+	}
+
+	if dbaUser, ok := config.Parameters["dba_username"].(string); ok && strings.TrimSpace(dbaUser) != "" {
+		username, connectAs = splitOracleAdminUsername(strings.TrimSpace(dbaUser), connectAs)
+	}
+	if dbaPass, ok := config.Parameters["dba_password"].(string); ok && dbaPass != "" {
+		password = dbaPass
+	}
+	if sysUser, ok := config.Parameters["sysdba_username"].(string); ok && strings.TrimSpace(sysUser) != "" {
+		username = strings.TrimSpace(sysUser)
+		connectAs = "sysdba"
+	}
+	if sysPass, ok := config.Parameters["sysdba_password"].(string); ok && sysPass != "" {
+		password = sysPass
+		if connectAs == "normal" {
+			connectAs = "sysdba"
+		}
+	}
+
+	return username, password, connectAs
+}
+
+func splitOracleAdminUsername(username string, fallbackConnectAs string) (string, string) {
+	lower := strings.ToLower(username)
+	switch {
+	case strings.Contains(lower, " as sysdba"):
+		return strings.TrimSpace(strings.ReplaceAll(lowerCaseReplaceOriginal(username, " as sysdba"), "  ", " ")), "sysdba"
+	case strings.Contains(lower, " as sysoper"):
+		return strings.TrimSpace(strings.ReplaceAll(lowerCaseReplaceOriginal(username, " as sysoper"), "  ", " ")), "sysoper"
+	default:
+		return strings.TrimSpace(username), fallbackConnectAs
+	}
+}
+
+func lowerCaseReplaceOriginal(username, suffix string) string {
+	lower := strings.ToLower(username)
+	index := strings.Index(lower, suffix)
+	if index < 0 {
+		return username
+	}
+	return username[:index]
+}
+
+func sqlplusConnectAsSuffix(connectAs string) string {
+	switch strings.ToLower(strings.TrimSpace(connectAs)) {
+	case "sysdba":
+		return " as sysdba"
+	case "sysoper":
+		return " as sysoper"
+	default:
+		return ""
+	}
+}
+
+func (a *SwingbenchAdapter) buildSOEBootstrapCommand(conn *connection.OracleConnection, config *Config) string {
+	bootstrapSQL := `
+set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
+whenever sqlerror exit sql.sqlcode rollback
+
+declare
+  v_user        varchar2(128) := 'SOE';
+  v_pass        varchar2(128) := 'soe';
+  v_ts_data     varchar2(128) := 'SOE';
+  v_ts_idx      varchar2(128) := 'SOE_IDX';
+  v_temp_ts     varchar2(128) := 'TEMP';
+  v_data_mb     number := 1024;
+  v_idx_mb      number := 512;
+  v_next_mb     number := 64;
+  v_omf_dest    varchar2(4000);
+  v_sample_df   varchar2(4000);
+  v_fs_dir      varchar2(4000);
+  v_asm_dg      varchar2(4000);
+  v_use_omf     varchar2(1);
+  v_use_asm     varchar2(1);
+  v_cnt         number;
+  v_sql         clob;
+  v_bigfile     varchar2(3);
+
+  function norm_fs_dir(p varchar2) return varchar2 is
+  begin
+    if p is null then return null; end if;
+    if substr(p, -1) = '/' then return p; end if;
+    return p||'/';
+  end;
+
+  function datafile_clause(p_ts varchar2, p_role varchar2, p_size_mb number) return varchar2 is
+    v_loc   varchar2(4000);
+    v_fname varchar2(4000);
+  begin
+    if v_use_omf = 'Y' then
+      return ' datafile size '||p_size_mb||'M';
+    end if;
+    if v_use_asm = 'Y' then
+      return ' datafile '''||v_asm_dg||''' size '||p_size_mb||'M';
+    end if;
+    v_loc := norm_fs_dir(v_fs_dir);
+    v_fname := lower(p_ts)||'_'||lower(p_role)||'_01.dbf';
+    return ' datafile '''||v_loc||v_fname||''' size '||p_size_mb||'M';
+  end;
+begin
+  select nvl(value, '') into v_omf_dest from v$parameter where name = 'db_create_file_dest';
+  select name into v_sample_df from v$datafile where rownum = 1;
+
+  v_fs_dir := nvl(regexp_substr(v_sample_df, '^(.*/)', 1, 1), '');
+  v_asm_dg := nvl(regexp_substr(v_sample_df, '^\+[^/]+', 1, 1), '');
+  v_use_omf := case when length(v_omf_dest) > 0 then 'Y' else 'N' end;
+  v_use_asm := case when regexp_like(v_sample_df, '^\+') then 'Y' else 'N' end;
+
+  select count(*) into v_cnt from dba_tablespaces where tablespace_name = v_ts_data;
+  if v_cnt = 0 then
+    v_sql := 'create tablespace '||v_ts_data
+          || datafile_clause(v_ts_data, 'data', v_data_mb)
+          || ' autoextend on next '||v_next_mb||'M maxsize unlimited'
+          || ' extent management local segment space management auto';
+    execute immediate v_sql;
+    dbms_output.put_line('Created tablespace '||v_ts_data);
+  else
+    select bigfile into v_bigfile from dba_tablespaces where tablespace_name = v_ts_data;
+    if v_bigfile = 'YES' then
+      raise_application_error(-20002, 'Tablespace '||v_ts_data||' already exists and is BIGFILE.');
+    end if;
+    dbms_output.put_line('Tablespace exists: '||v_ts_data);
+  end if;
+
+  select count(*) into v_cnt from dba_tablespaces where tablespace_name = v_ts_idx;
+  if v_cnt = 0 then
+    v_sql := 'create tablespace '||v_ts_idx
+          || datafile_clause(v_ts_idx, 'idx', v_idx_mb)
+          || ' autoextend on next '||v_next_mb||'M maxsize unlimited'
+          || ' extent management local segment space management auto';
+    execute immediate v_sql;
+    dbms_output.put_line('Created tablespace '||v_ts_idx);
+  else
+    select bigfile into v_bigfile from dba_tablespaces where tablespace_name = v_ts_idx;
+    if v_bigfile = 'YES' then
+      raise_application_error(-20003, 'Tablespace '||v_ts_idx||' already exists and is BIGFILE.');
+    end if;
+    dbms_output.put_line('Tablespace exists: '||v_ts_idx);
+  end if;
+
+  select count(*) into v_cnt from dba_users where username = v_user;
+  if v_cnt = 0 then
+    execute immediate 'create user '||v_user||' identified by "'||replace(v_pass,'"','""')||'"'
+                   || ' default tablespace '||v_ts_data
+                   || ' temporary tablespace '||v_temp_ts;
+    dbms_output.put_line('Created user '||v_user);
+  else
+    execute immediate 'alter user '||v_user||' identified by "'||replace(v_pass,'"','""')||'"';
+    execute immediate 'alter user '||v_user||' default tablespace '||v_ts_data;
+    execute immediate 'alter user '||v_user||' temporary tablespace '||v_temp_ts;
+    dbms_output.put_line('User exists, altered: '||v_user);
+  end if;
+
+  execute immediate 'alter user '||v_user||' quota unlimited on '||v_ts_data;
+  execute immediate 'grant create session, create table, create sequence, create procedure, create trigger, create view, create type, create synonym to '||v_user;
+  execute immediate 'grant unlimited tablespace to '||v_user;
+  dbms_output.put_line('Bootstrap complete.');
+end;
+/
+exit
+`
+
+	tempSQLFile, err := writeOracleTempSQL("db-benchmind-cts-oracle", bootstrapSQL)
+	if err != nil {
+		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
+	}
+
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
+		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+}
+
+func (a *SwingbenchAdapter) buildCleanupSOEObjectsCommand(conn *connection.OracleConnection, config *Config) string {
+	cleanupSQL := `
+set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
+whenever sqlerror continue
+
+declare
+begin
+  for r in (
+    select sid, serial#
+      from v$session
+     where username = 'SOE'
+       and type = 'USER'
+  ) loop
+    begin
+      execute immediate 'alter system kill session ''' || r.sid || ',' || r.serial# || ''' immediate';
+      dbms_output.put_line('Killed session ' || r.sid || ',' || r.serial#);
+    exception
+      when others then
+        dbms_output.put_line('Kill session skipped: ' || sqlerrm);
+    end;
+  end loop;
+
+  begin
+    execute immediate 'drop user SOE cascade';
+    dbms_output.put_line('Dropped user SOE');
+  exception
+    when others then
+      dbms_output.put_line('Drop user skipped: ' || sqlerrm);
+  end;
+
+  begin
+    execute immediate 'drop tablespace SOE_IDX including contents and datafiles';
+    dbms_output.put_line('Dropped tablespace SOE_IDX');
+  exception
+    when others then
+      dbms_output.put_line('Drop tablespace SOE_IDX skipped: ' || sqlerrm);
+  end;
+
+  begin
+    execute immediate 'drop tablespace SOE including contents and datafiles';
+    dbms_output.put_line('Dropped tablespace SOE');
+  exception
+    when others then
+      dbms_output.put_line('Drop tablespace SOE skipped: ' || sqlerrm);
+  end;
+end;
+/
+exit
+`
+
+	tempSQLFile, err := writeOracleTempSQL("db-benchmind-cleanup-soe", cleanupSQL)
+	if err != nil {
+		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
+	}
+
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
+		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
 }
 
 // buildSchemaExistenceCheckCommand builds a sqlplus command to check if SOE schema already exists.
 // This provides early detection to avoid running oewizard unnecessarily.
-func (a *SwingbenchAdapter) buildSchemaExistenceCheckCommand(conn *connection.OracleConnection) string {
+func (a *SwingbenchAdapter) buildSchemaExistenceCheckCommand(conn *connection.OracleConnection, config *Config) string {
 	checkSQL := `
 set pages 0 lines 200
 set heading off
@@ -1315,23 +1552,25 @@ exit
 `
 
 	// Use DBA credentials for schema check
-	var username, password string
-	// Note: We'll use the connection credentials (DBA for prepare phase)
-	username = conn.Username
-	password = conn.Password
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
 
-	return fmt.Sprintf("sqlplus -L '%s/%s@%s' <<'SQL'\n%s\nSQL",
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' <<'SQL'\n%s\nSQL",
 		username,
 		password,
 		a.buildCharbenchConnectionString(conn),
+		sqlplusConnectAsSuffix(connectAs),
 		checkSQL)
 }
 
 // buildOewizardCreateCommand builds the oewizard -create command.
 // Uses correct parameters matching the user's example.
-func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, threads int, config *Config) string {
+func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
 	// Use system default java to avoid hardcoded path issues
 	javaPath := "java"
+	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
+	if connectAs != "" && connectAs != "normal" {
+		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
+	}
 
 	cmdArgs := []string{
 		javaPath,
@@ -1347,17 +1586,15 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-version", "2.0",
 		"-cs", connectionStr,
 		"-dt", "thin", // Driver type: thin
-		"-dba", conn.Username,
-		"-dbap", conn.Password,
+		"-dba", dbaUser,
+		"-dbap", dbaPass,
 		"-u", "soe",
 		"-p", "soe",
 		"-ts", "SOE", // Use existing tablespace
 		"-nopart",                                 // No partitioning
 		"-nocompress",                             // No compression
 		"-normalfile",                             // Normal file type
-		"-allindexes",                             // Create all indexes
 		"-scale", fmt.Sprintf("%.1f", scaleFloat), // Support float scale like 0.1 for test templates
-		"-tc", fmt.Sprintf("%d", threads),
 		"-v",
 		"-debug",
 		"-debugf", "/tmp/oewizard_debug.log",
@@ -1366,10 +1603,87 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 	return strings.Join(cmdArgs, " ")
 }
 
+func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, threads int, config *Config) string {
+	javaPath := "java"
+	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
+	if connectAs != "" && connectAs != "normal" {
+		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
+	}
+
+	cmdArgs := []string{
+		javaPath,
+		"-Duser.timezone=Asia/Shanghai",
+		"-Doracle.jdbc.timezoneAsRegion=false",
+		"-cp", "../launcher",
+		"LauncherBootstrap",
+		"-executablename", "oewizard",
+		"oewizard",
+		"-c", "oewizard.xml",
+		"-cl",
+		"-generate",
+		"-version", "2.0",
+		"-cs", connectionStr,
+		"-dt", "thin",
+		"-dba", dbaUser,
+		"-dbap", dbaPass,
+		"-u", "soe",
+		"-p", "soe",
+		"-ts", "SOE",
+		"-nopart",
+		"-nocompress",
+		"-normalfile",
+		"-scale", fmt.Sprintf("%.1f", scaleFloat),
+		"-tc", fmt.Sprintf("%d", threads),
+		"-v",
+		"-debug",
+		"-debugf", "/tmp/oewizard_generate_debug.log",
+	}
+
+	return strings.Join(cmdArgs, " ")
+}
+
+func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
+	javaPath := "java"
+	dbaUser, dbaPass, connectAs := resolveOracleAdminCredentials(conn, config)
+	if connectAs != "" && connectAs != "normal" {
+		dbaUser = fmt.Sprintf("%s as %s", dbaUser, connectAs)
+	}
+
+	cmdArgs := []string{
+		javaPath,
+		"-Duser.timezone=Asia/Shanghai",
+		"-Doracle.jdbc.timezoneAsRegion=false",
+		"-cp", "../launcher",
+		"LauncherBootstrap",
+		"-executablename", "oewizard",
+		"oewizard",
+		"-c", "oewizard.xml",
+		"-cl",
+		"-allindexes",
+		"-version", "2.0",
+		"-cs", connectionStr,
+		"-dt", "thin",
+		"-dba", dbaUser,
+		"-dbap", dbaPass,
+		"-u", "soe",
+		"-p", "soe",
+		"-ts", "SOE",
+		"-nopart",
+		"-nocompress",
+		"-normalfile",
+		"-scale", fmt.Sprintf("%.1f", scaleFloat),
+		"-v",
+		"-debug",
+		"-debugf", "/tmp/oewizard_indexes_debug.log",
+	}
+
+	return strings.Join(cmdArgs, " ")
+}
+
 // buildCreateTablespacesOnlyCommand creates only the tablespaces (no drop).
 // This is needed because oewizard can't create tablespaces without datafile paths.
 // The tablespaces are created empty, then oewizard will detect and use them.
-func (a *SwingbenchAdapter) buildCreateTablespacesOnlyCommand(conn *connection.OracleConnection) string {
+func (a *SwingbenchAdapter) buildCreateTablespacesOnlyCommand(conn *connection.OracleConnection, config *Config) string {
 	sqlScript := `
 set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
 whenever sqlerror exit sql.sqlcode rollback
@@ -1466,16 +1780,16 @@ exit
 
 	// Write SQL to a temp file first, then execute it
 	// This avoids complex shell escaping issues with heredocs
-	tempSQLFile := fmt.Sprintf("/tmp/db-benchmind-creatablespace-%d.sql", time.Now().UnixNano())
-	// Create the temp file with the SQL script
-	if err := os.WriteFile(tempSQLFile, []byte(sqlScript), 0644); err != nil {
+	tempSQLFile, err := writeOracleTempSQL("db-benchmind-creatablespace", sqlScript)
+	if err != nil {
 		// If we can't write the file, fall back to a simple command
 		// This shouldn't happen in normal operation
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 	// Return command to execute the SQL file with sqlplus
-	return fmt.Sprintf("sqlplus -L '%s/%s@%s' @%s",
-		conn.Username, conn.Password, a.buildCharbenchConnectionString(conn), tempSQLFile)
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
+		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
 }
 
 // buildPostSchemaSetupCommand builds the post-schema setup command.
@@ -1483,19 +1797,9 @@ exit
 func (a *SwingbenchAdapter) buildPostSchemaSetupCommand(conn *connection.OracleConnection, config *Config) string {
 	// Use DBA credentials for granting privileges
 	// For SYSDBA connection, we need to use "sys" username, not "system"
-	var username, password string
-
-	if sysUser, ok := config.Parameters["sysdba_username"].(string); ok && sysUser != "" {
-		username = sysUser
-	} else {
-		// Default to "sys" for SYSDBA connections
-		// "system" user cannot connect as SYSDBA
-		username = "sys"
-	}
-	if sysPass, ok := config.Parameters["sysdba_password"].(string); ok && sysPass != "" {
-		password = sysPass
-	} else {
-		password = conn.Password
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	if connectAs == "" || connectAs == "normal" {
+		connectAs = "sysdba"
 	}
 
 	// Build connection string for sysdba
@@ -1522,14 +1826,14 @@ exit
 `
 
 	// Write SQL to temp file and execute it
-	tempSQLFile := fmt.Sprintf("/tmp/db-benchmind-postschema-%d.sql", time.Now().UnixNano())
-	if err := os.WriteFile(tempSQLFile, []byte(setupSQL), 0644); err != nil {
+	tempSQLFile, err := writeOracleTempSQL("db-benchmind-postschema", setupSQL)
+	if err != nil {
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 
 	// Connect as SYSDBA for granting privileges
-	return fmt.Sprintf("sqlplus -L '%s/%s@%s as sysdba' @%s",
-		username, password, connStr, tempSQLFile)
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
+		username, password, connStr, sqlplusConnectAsSuffix(connectAs), tempSQLFile)
 }
 
 // buildOewizardDropCommand builds the oewizard -drop command.

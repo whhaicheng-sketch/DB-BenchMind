@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	_ "github.com/sijms/go-ora/v2" // Oracle driver
 	"database/sql"
+	_ "github.com/sijms/go-ora/v2" // Oracle driver
 )
 
 // OracleConnection represents an Oracle database connection configuration.
@@ -24,7 +24,8 @@ type OracleConnection struct {
 	ServiceName string `json:"service_name"` // Service name
 	SID         string `json:"sid"`          // SID (alternative to ServiceName)
 	Username    string `json:"username"`     // Username
-	Password    string `json:"-"`            // Password (stored in keyring)
+	ConnectAs   string `json:"connect_as,omitempty"`
+	Password    string `json:"-"` // Password (stored in keyring)
 
 	// SSH tunnel configuration
 	SSH *SSHTunnelConfig `json:"ssh,omitempty"` // SSH tunnel configuration
@@ -103,6 +104,14 @@ func (c *OracleConnection) Validate() error {
 		errs = append(errs, &ValidationError{
 			Field:   "service_name/sid",
 			Message: "service_name and sid are mutually exclusive (specify only one)",
+		})
+	}
+
+	if c.ConnectAs != "" && c.ConnectAs != "normal" && c.ConnectAs != "sysdba" && c.ConnectAs != "sysoper" {
+		errs = append(errs, &ValidationError{
+			Field:   "connect_as",
+			Message: "connect_as must be one of: normal, sysdba, sysoper",
+			Value:   c.ConnectAs,
 		})
 	}
 
@@ -186,8 +195,8 @@ func (c *OracleConnection) Test(ctx context.Context) (*TestResult, error) {
 	}
 
 	return &TestResult{
-		Success:        true,
-		LatencyMs:      latency,
+		Success:         true,
+		LatencyMs:       latency,
 		DatabaseVersion: version,
 	}, nil
 }

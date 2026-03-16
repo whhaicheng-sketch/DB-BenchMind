@@ -204,6 +204,7 @@ func (r *SQLiteConnectionRepository) serializeConnection(conn connection.Connect
 		data["service_name"] = c.ServiceName
 		data["sid"] = c.SID
 		data["username"] = c.Username
+		data["connect_as"] = c.ConnectAs
 		// Serialize SSH configuration if enabled
 		if c.SSH != nil {
 			data["ssh"] = map[string]interface{}{
@@ -356,6 +357,10 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			ServiceName:    getString(data, "service_name"),
 			SID:            getString(data, "sid"),
 			Username:       getString(data, "username"),
+			ConnectAs:      getString(data, "connect_as"),
+		}
+		if conn.ConnectAs == "" {
+			conn.ConnectAs = "normal"
 		}
 		// Load SSH configuration if present
 		if sshData, ok := data["ssh"].(map[string]interface{}); ok {
@@ -417,11 +422,11 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 		// Load WinRM configuration if present
 		if winrmData, ok := data["winrm"].(map[string]interface{}); ok {
 			conn.WinRM = &connection.WinRMConfig{
-				Enabled:   getBool(winrmData, "enabled"),
-				Host:      getString(winrmData, "host"),
-				Port:      getInt(winrmData, "port"),
-				Username:  getString(winrmData, "username"),
-				UseHTTPS:  getBool(winrmData, "use_https"),
+				Enabled:  getBool(winrmData, "enabled"),
+				Host:     getString(winrmData, "host"),
+				Port:     getInt(winrmData, "port"),
+				Username: getString(winrmData, "username"),
+				UseHTTPS: getBool(winrmData, "use_https"),
 			}
 			slog.Info("Repository: Deserialized SQL Server connection with WinRM",
 				"conn_id", id,

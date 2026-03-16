@@ -465,6 +465,7 @@ func NewOracleConnection(name, host, serviceName, sid, username string, port int
 		ServiceName: serviceName,
 		SID:         sid,
 		Username:    username,
+		ConnectAs:   "normal",
 	}
 }
 

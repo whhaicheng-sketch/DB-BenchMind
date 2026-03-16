@@ -123,7 +123,7 @@ export const templateMocks = [
   createDefaultTemplate({
     id: 'tpl_sys_mysql_smoke',
     name: 'Sysbench-MySQL-Minimal-Test-1x1k-4th-60s',
-    description: 'Minimal dataset smoke test for quick validation of the sysbench template-to-task chain.',
+    description: 'Minimal MySQL sysbench smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.',
     tool: 'sysbench',
     dbFamily: 'mysql',
     workloadFamily: 'oltp-read-write',
@@ -162,7 +162,7 @@ export const templateMocks = [
   createDefaultTemplate({
     id: 'tpl_test_postgresql_sysbench',
     name: 'PostgreSQL - Sysbench Test',
-    description: 'Minimal PostgreSQL sysbench smoke template for prepare, run, cleanup, and result verification.',
+    description: 'Minimal PostgreSQL sysbench smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.',
     tool: 'sysbench',
     dbFamily: 'postgresql',
     workloadFamily: 'oltp-read-write',
@@ -242,7 +242,7 @@ export const templateMocks = [
   createDefaultTemplate({
     id: 'tpl_test_oracle_swingbench',
     name: 'Oracle - Swingbench Test',
-    description: 'Minimal Oracle Swingbench smoke template for schema prepare, short run, cleanup, and result verification.',
+    description: 'Minimal Oracle Swingbench smoke template where prepare rebuilds SOE from scratch, run can be repeated, and cleanup fully removes the benchmark state.',
     tool: 'swingbench',
     dbFamily: 'oracle',
     workloadFamily: 'order-entry',
@@ -404,7 +404,7 @@ export const templateMocks = [
   createDefaultTemplate({
     id: 'tpl_test_sqlserver_hammerdb',
     name: 'SQL Server - HammerDB Test',
-    description: 'Minimal SQL Server HammerDB smoke template for prepare, timed run, cleanup, and result verification.',
+    description: 'Minimal SQL Server HammerDB smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.',
     tool: 'hammerdb',
     dbFamily: 'sqlserver',
     workloadFamily: 'tproc-c',

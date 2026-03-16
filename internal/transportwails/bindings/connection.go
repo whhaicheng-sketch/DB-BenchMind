@@ -2,8 +2,8 @@
 package bindings
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -24,18 +24,19 @@ func NewConnectionBinding(uc *usecase.ConnectionUseCase) *ConnectionBinding {
 // ConnectionDTO represents a connection for JSON serialization to frontend.
 // This is a simplified view without sensitive data like passwords.
 type ConnectionDTO struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Database string `json:"database,omitempty"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"` // Loaded from keyring for display
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Database    string `json:"database,omitempty"`
+	Username    string `json:"username"`
+	Password    string `json:"password,omitempty"` // Loaded from keyring for display
 	SSLMode     string `json:"ssl_mode,omitempty"`
 	SID         string `json:"sid,omitempty"`
 	ServiceName string `json:"service_name,omitempty"`
 	ConnectType string `json:"connect_type,omitempty"`
+	ConnectAs   string `json:"connect_as,omitempty"`
 	// SSH configuration
 	SSHEnabled  bool   `json:"ssh_enabled"`
 	SSHPort     int    `json:"ssh_port,omitempty"`
@@ -85,10 +86,10 @@ type SSHWinRMTestResult struct {
 // ConnectionTestResult represents the result of TestConnection.
 // Includes DB test result and optional SSH/WinRM test results if configured.
 type ConnectionTestResult struct {
-	Success         bool                 `json:"success"`
-	LatencyMs       int64                `json:"latency_ms"`
-	DatabaseVersion string              `json:"database_version,omitempty"`
-	Error           string              `json:"error,omitempty"`
+	Success         bool   `json:"success"`
+	LatencyMs       int64  `json:"latency_ms"`
+	DatabaseVersion string `json:"database_version,omitempty"`
+	Error           string `json:"error,omitempty"`
 	// SSH/WinRM test results (only populated when configured and tested)
 	SSHResult   *SSHWinRMTestResult `json:"ssh_result,omitempty"`
 	WinRMResult *SSHWinRMTestResult `json:"winrm_result,omitempty"`
@@ -97,7 +98,7 @@ type ConnectionTestResult struct {
 // ConnectionCreateRequest represents a request to create a connection.
 type ConnectionCreateRequest struct {
 	Name     string `json:"name"`
-	Type     string `json:"type"`     // mysql, postgresql, oracle, sqlserver
+	Type     string `json:"type"` // mysql, postgresql, oracle, sqlserver
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Database string `json:"database"`
@@ -254,6 +255,9 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) Connec
 		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
 			oraConn.SetPassword(req.Password)
+			if req.ConnectAs != "" {
+				oraConn.ConnectAs = req.ConnectAs
+			}
 			// SSH configuration
 			if req.SSHEnabled {
 				oraConn.SSH = &connection.SSHTunnelConfig{
@@ -371,6 +375,11 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) Connec
 		conn.Host = req.Host
 		conn.Port = req.Port
 		conn.Username = req.Username
+		if req.ConnectAs != "" {
+			conn.ConnectAs = req.ConnectAs
+		} else {
+			conn.ConnectAs = "normal"
+		}
 		// Update SID/ServiceName based on connect_type
 		if req.ConnectType == "sid" {
 			conn.SID = req.Database
@@ -671,6 +680,7 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 			dto.ConnectType = "service_name"
 		}
 		dto.Username = c.Username
+		dto.ConnectAs = c.ConnectAs
 		// SSH configuration
 		if c.SSH != nil {
 			dto.SSHEnabled = c.SSH.Enabled

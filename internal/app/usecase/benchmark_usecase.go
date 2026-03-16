@@ -451,7 +451,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			return
 		}
 
-		// Prepare phase (idempotent: cleanup first, then prepare)
+		// Prepare phase (destructive rebuild: cleanup first, then prepare)
 		// For prepare-only mode, we bypass executePhase to avoid StatePrepared
 		// and go directly to StateCompleted
 		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
@@ -459,9 +459,8 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		// Update state to preparing before executing command
 		uc.updateState(ctx, run.ID, execution.StatePreparing)
 
-		// IDEMPOTENT PREPARE: First cleanup any existing tables, then prepare
-		// This ensures prepare is idempotent - running it multiple times produces the same result
-		slog.Info("Benchmark: Prepare phase - running cleanup first for idempotency", "run_id", run.ID)
+		// Prepare always rebuilds the benchmark environment from scratch.
+		slog.Info("Benchmark: Prepare phase - running cleanup first for rebuild semantics", "run_id", run.ID)
 
 		cleanupCmd, err := adapt.BuildCleanupCommand(ctx, config)
 		if err != nil {
@@ -471,12 +470,12 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 				Timestamp: time.Now().Format(time.RFC3339),
 				Stream:    "info",
-				Content:   "=== Cleaning up existing tables (idempotent prepare) ===",
+				Content:   "=== Cleaning up existing benchmark environment before rebuild ===",
 			})
 
 			// Execute cleanup (ignore errors - tables might not exist)
 			if err := uc.executeCommand(ctx, run, cleanupCmd); err != nil {
-				slog.Debug("Benchmark: Cleanup completed (some tables may not have existed)", "run_id", run.ID)
+				slog.Debug("Benchmark: Cleanup completed (some benchmark objects may not have existed)", "run_id", run.ID)
 			} else {
 				slog.Info("Benchmark: Cleanup completed successfully", "run_id", run.ID)
 			}
@@ -484,7 +483,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 				Timestamp: time.Now().Format(time.RFC3339),
 				Stream:    "info",
-				Content:   "=== Starting prepare (creating tables and loading data) ===",
+				Content:   "=== Starting prepare rebuild (creating schema and loading data) ===",
 			})
 		}
 
@@ -505,7 +504,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		} else {
 			// Prepare completed successfully
 			msg1 := "✓ Prepare phase completed successfully"
-			msg2 := "Info: All tables created and data loaded successfully."
+			msg2 := "Info: Benchmark environment rebuilt with the current parameters."
 			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 				Timestamp: time.Now().Format(time.RFC3339),
 				Stream:    "info",
@@ -599,18 +598,8 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 	// Prepare phase
 	if !task.Options.SkipPrepare {
 		if err := uc.executePhase(ctx, run, adapt, config, "prepare", execution.StatePreparing, execution.StatePrepared); err != nil {
-			// Check if error is "table already exists" (MySQL error 1050)
-			// This is OK - means data was already prepared, we can continue
-			if strings.Contains(err.Error(), "1050") || strings.Contains(err.Error(), "already exists") {
-				slog.Warn("Benchmark: Prepare phase failed with 'table already exists', continuing",
-					"error", err, "run_id", run.ID)
-				// Continue to run phase anyway
-				uc.updateState(ctx, run.ID, execution.StatePrepared)
-			} else {
-				// For other errors, fail the benchmark
-				uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
-				return
-			}
+			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
+			return
 		}
 	} else {
 		uc.updateState(ctx, run.ID, execution.StatePrepared)
