@@ -765,15 +765,9 @@ function metricCard(task, label, metric = {}, unit, stroke, fill) {
   const showOverlay = overlay.kind !== 'none'
   const overlayLabel = overlay.kind === 'prepare'
     ? 'Prepare'
-    : overlay.kind === 'stopping'
-      ? 'Stopping'
-      : overlay.kind === 'cleanup-invalidated'
-        ? 'Error'
     : overlay.kind === 'run-waiting'
       ? 'Waiting'
-      : overlay.kind === 'run-error'
-        ? 'Error'
-        : null
+      : null
   const metricStateLabel = showOverlay ? overlayLabel : metricStatus(metric)
   return {
     label,
