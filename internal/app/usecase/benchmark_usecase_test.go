@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
@@ -836,6 +839,52 @@ func TestExecuteCommandSequence_CreateFailureLogsDiagnosticOutput(t *testing.T) 
 	}
 }
 
+func TestIngestSwingbenchDebugLogs_CollectsExplicitAndFallbackLogs(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	runID := "run-debug-logs"
+	explicitDir := t.TempDir()
+	explicitPath := filepath.Join(explicitDir, "oewizard-create-debug.log")
+	fallbackDir := t.TempDir()
+	fallbackPath := filepath.Join(fallbackDir, "debug.log")
+
+	require.NoError(t, os.WriteFile(explicitPath, []byte("explicit line 1\nexplicit line 2\n"), 0o644))
+	require.NoError(t, os.WriteFile(fallbackPath, []byte("fallback line 1\nfallback line 2\n"), 0o644))
+
+	restoreRoot := swingbenchDebugSearchRoot
+	restoreGlob := swingbenchDebugGlob
+	swingbenchDebugSearchRoot = fallbackDir
+	swingbenchDebugGlob = func(pattern string) ([]string, error) {
+		return []string{fallbackPath}, nil
+	}
+	defer func() {
+		swingbenchDebugSearchRoot = restoreRoot
+		swingbenchDebugGlob = restoreGlob
+	}()
+
+	startedAt := time.Now().Add(-time.Second)
+	uc.ingestSwingbenchDebugLogs(ctx, runID, &adapter.Command{
+		StepName: "Create Schema",
+		CmdLine:  "./oewizard -debugf " + explicitPath,
+	}, startedAt)
+
+	logText := flattenLogEntries(runRepo.logs[runID])
+	for _, want := range []string{
+		"Swingbench debug output from " + explicitPath,
+		"explicit line 1",
+		"explicit line 2",
+		"Swingbench debug output from " + fallbackPath,
+		"fallback line 1",
+		"fallback line 2",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("expected %q in logs, got: %s", want, logText)
+		}
+	}
+}
+
 func TestTerminateProcess_KillsProcessGroupChildren(t *testing.T) {
 	tempDir := t.TempDir()
 	childPIDPath := filepath.Join(tempDir, "child.pid")
@@ -1055,11 +1104,8 @@ func TestIsSwingbenchCommandLine(t *testing.T) {
 
 func TestNormalizeSwingbenchCommandParts_RewritesBundledPathsOnly(t *testing.T) {
 	parts := []string{
-		"java",
-		"-cp", "../launcher",
-		"LauncherBootstrap",
-		"-executablename", "oewizard",
-		"oewizard",
+		"./oewizard",
+		"-cl",
 		"-c", "oewizard.xml",
 		"-r", "results.xml",
 	}
@@ -1068,16 +1114,51 @@ func TestNormalizeSwingbenchCommandParts_RewritesBundledPathsOnly(t *testing.T) 
 
 	wantLauncher := filepath.Join(swingbenchInstallRoot, "launcher")
 	wantConfig := filepath.Join(swingbenchBinDir, "oewizard.xml")
+	if got[0] != "java" {
+		t.Fatalf("entrypoint = %q, want java", got[0])
+	}
 	if got[2] != wantLauncher {
 		t.Fatalf("launcher path = %q, want %q", got[2], wantLauncher)
 	}
-	if got[8] != wantConfig {
-		t.Fatalf("config path = %q, want %q", got[8], wantConfig)
+	configIndex := -1
+	resultIndex := -1
+	for i := 0; i < len(got)-1; i++ {
+		switch got[i] {
+		case "-c":
+			configIndex = i + 1
+		case "-r":
+			resultIndex = i + 1
+		}
 	}
-	if got[10] != "results.xml" {
-		t.Fatalf("result file path = %q, want relative workdir output", got[10])
+	if configIndex == -1 || got[configIndex] != wantConfig {
+		t.Fatalf("config path = %q, want %q", got[configIndex], wantConfig)
 	}
-	if parts[2] != "../launcher" || parts[8] != "oewizard.xml" {
+	if resultIndex == -1 || got[resultIndex] != "results.xml" {
+		t.Fatalf("result file path = %q, want relative workdir output", got[resultIndex])
+	}
+	if parts[0] != "./oewizard" || parts[3] != "oewizard.xml" {
+		t.Fatal("normalizeSwingbenchCommandParts should not mutate input slice")
+	}
+}
+
+func TestNormalizeSwingbenchCommandParts_InsertsDefaultOewizardConfigWhenMissing(t *testing.T) {
+	parts := []string{
+		"./oewizard",
+		"-cl",
+		"-cs", "//db-host:1521/ORCL",
+	}
+
+	got := normalizeSwingbenchCommandParts(parts)
+
+	wantConfig := filepath.Join(swingbenchBinDir, "oewizard.xml")
+	configIndex := slices.Index(got, "-c")
+	if configIndex == -1 || configIndex+1 >= len(got) {
+		t.Fatalf("expected -c in normalized args, got %v", got)
+	}
+	if got[configIndex+1] != wantConfig {
+		t.Fatalf("config path = %q, want %q", got[configIndex+1], wantConfig)
+	}
+	if parts[0] != "./oewizard" {
 		t.Fatal("normalizeSwingbenchCommandParts should not mutate input slice")
 	}
 }

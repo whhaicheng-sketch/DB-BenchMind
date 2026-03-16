@@ -123,6 +123,11 @@ const (
 	swingbenchBinDir      = swingbenchInstallRoot + "/bin"
 )
 
+var (
+	swingbenchDebugSearchRoot = swingbenchBinDir
+	swingbenchDebugGlob       = filepath.Glob
+)
+
 type oracleSwingbenchRunPreflightStatus string
 
 type benchmarkRunPreflightStatus string
@@ -1644,6 +1649,8 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 		"run_id", run.ID,
 		"cmd_line", cmd.CmdLine,
 		"work_dir", cmd.WorkDir)
+	startedAt := time.Now()
+	defer uc.ingestSwingbenchDebugLogs(ctx, run.ID, cmd, startedAt)
 
 	// Get swingbench adapter for realtime collection
 	adapt := uc.adapterReg.Get(adapter.AdapterTypeSwingbench)
@@ -2056,6 +2063,64 @@ func extractSwingbenchDebugPaths(cmdLine string) []string {
 	return paths
 }
 
+func (uc *BenchmarkUseCase) ingestSwingbenchDebugLogs(ctx context.Context, runID string, cmd *adapter.Command, startedAt time.Time) {
+	if uc == nil || uc.runRepo == nil || cmd == nil || !isSwingbenchCommandLine(cmd.CmdLine) {
+		return
+	}
+
+	seen := make(map[string]struct{})
+	paths := append([]string(nil), extractSwingbenchDebugPaths(cmd.CmdLine)...)
+	fallbackPattern := filepath.Join(swingbenchDebugSearchRoot, "debug.log*")
+	if matches, err := swingbenchDebugGlob(fallbackPattern); err == nil {
+		for _, match := range matches {
+			if match != "" {
+				paths = append(paths, match)
+			}
+		}
+	}
+
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if info.ModTime().Before(startedAt.Add(-2 * time.Second)) {
+			continue
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		uc.runRepo.SaveLogEntry(ctx, runID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "debug",
+			Content:   fmt.Sprintf("Swingbench debug output from %s", path),
+		})
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimRight(line, "\r")
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			uc.runRepo.SaveLogEntry(ctx, runID, LogEntry{
+				Timestamp: time.Now().Format(time.RFC3339),
+				Stream:    "debug",
+				Content:   line,
+			})
+		}
+	}
+}
+
 func normalizeSwingbenchCommandParts(parts []string) []string {
 	if len(parts) == 0 {
 		return nil
@@ -2064,11 +2129,11 @@ func normalizeSwingbenchCommandParts(parts []string) []string {
 	normalized := append([]string(nil), parts...)
 	switch normalized[0] {
 	case "./charbench", "charbench":
-		normalized[0] = filepath.Join(swingbenchBinDir, "charbench")
+		normalized = directSwingbenchLauncherCommand("charbench", normalized[1:])
 	case "./minibench", "minibench":
-		normalized[0] = filepath.Join(swingbenchBinDir, "minibench")
+		normalized = directSwingbenchLauncherCommand("minibench", normalized[1:])
 	case "./oewizard", "oewizard":
-		normalized[0] = filepath.Join(swingbenchBinDir, "oewizard")
+		normalized = directSwingbenchLauncherCommand("oewizard", normalized[1:])
 	}
 
 	for i := 0; i < len(normalized)-1; i++ {
@@ -2085,6 +2150,29 @@ func normalizeSwingbenchCommandParts(parts []string) []string {
 	}
 
 	return normalized
+}
+
+func directSwingbenchLauncherCommand(executable string, args []string) []string {
+	normalized := []string{
+		"java",
+		"-cp", filepath.Join(swingbenchInstallRoot, "launcher"),
+		"LauncherBootstrap",
+		"-executablename", executable,
+		executable,
+	}
+	if executable == "oewizard" && !hasSwingbenchFlag(args, "-c") {
+		normalized = append(normalized, "-c", filepath.Join(swingbenchBinDir, "oewizard.xml"))
+	}
+	return append(normalized, args...)
+}
+
+func hasSwingbenchFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveSwingbenchConfigPath(path string) (string, bool) {
