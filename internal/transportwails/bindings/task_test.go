@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/collector"
@@ -430,6 +431,176 @@ func TestClassifyTaskExecutionError_OracleRunMissingPreparedSchema(t *testing.T)
 	}
 	if got := err.Error(); !containsAll(got, []string{"Oracle Swingbench run failed", "Run requires prepared SOE schema. Please run Prepare first."}) {
 		t.Fatalf("unexpected schema error: %s", got)
+	}
+}
+
+func TestOracleSwingbenchRuntimeFailure_DetectsCleanupInvalidatedZeroThroughput(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		Status:        domaintask.StatusRunning,
+		CurrentPhase:  domaintask.PhaseRun,
+		BenchmarkTool: "swingbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			Type: "oracle",
+		},
+		PhaseHistory: []domaintask.PhaseRecord{
+			{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: time.Now().Add(-2 * time.Minute)},
+		},
+		LogTail: []domaintask.LogLine{
+			{Phase: domaintask.PhaseRun, Content: "10:58:35 [0/10]      0        0       0"},
+			{Phase: domaintask.PhaseRun, Content: "10:58:36 [0/10]      0        0       0"},
+			{Phase: domaintask.PhaseRun, Content: "10:58:37 [0/10]      0        0       0"},
+		},
+		Metrics: domaintask.UnifiedMetrics{
+			TPS: domaintask.MetricSummary{Current: 0},
+			TPM: domaintask.MetricSummary{Current: 0},
+		},
+	}
+	run := &execution.Run{
+		ID:      "run-zero",
+		State:   execution.StateRunning,
+		Message: "",
+		Result: &execution.BenchmarkResult{
+			TotalTransactions: 0,
+		},
+	}
+
+	err := detectOracleSwingbenchRuntimeFailure(task, run)
+	if err == nil {
+		t.Fatal("detectOracleSwingbenchRuntimeFailure() expected error")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Cleanup removed required SOE objects", "Prepare first"}) {
+		t.Fatalf("unexpected runtime failure: %s", got)
+	}
+}
+
+func TestOracleSwingbenchDirectRunGuard_BlocksRunAfterCleanup(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ID:            "task-run",
+		Action:        domaintask.ActionRun,
+		BenchmarkTool: "swingbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			ID:   "conn-oracle",
+			Type: "oracle",
+		},
+		TemplateSnapshot: domaintask.TemplateSnapshot{
+			WorkloadFamily: "order-entry",
+		},
+	}
+	tasks := map[string]*domaintask.ExecutionTask{
+		"task-run": task,
+		"task-cleanup": {
+			ID:            "task-cleanup",
+			BenchmarkTool: "swingbench",
+			ConnectionSnapshot: domaintask.ConnectionSnapshot{
+				ID:   "conn-oracle",
+				Type: "oracle",
+			},
+			TemplateSnapshot: domaintask.TemplateSnapshot{
+				WorkloadFamily: "order-entry",
+			},
+			PhaseHistory: []domaintask.PhaseRecord{
+				{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: time.Now().Add(-time.Minute)},
+			},
+		},
+	}
+
+	err := oracleSwingbenchDirectRunGuard(task, tasks)
+	if err == nil {
+		t.Fatal("oracleSwingbenchDirectRunGuard() expected error")
+	}
+	if got := err.Error(); !containsAll(got, []string{"Cleanup removed required SOE objects", "Prepare first"}) {
+		t.Fatalf("unexpected direct run guard error: %s", got)
+	}
+}
+
+func TestOracleSwingbenchDirectRunGuard_AllowsRunAfterLaterPrepare(t *testing.T) {
+	task := &domaintask.ExecutionTask{
+		ID:            "task-run",
+		Action:        domaintask.ActionRun,
+		BenchmarkTool: "swingbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			ID:   "conn-oracle",
+			Type: "oracle",
+		},
+		TemplateSnapshot: domaintask.TemplateSnapshot{
+			WorkloadFamily: "order-entry",
+		},
+	}
+	now := time.Now()
+	tasks := map[string]*domaintask.ExecutionTask{
+		"task-run": task,
+		"task-cleanup": {
+			ID:            "task-cleanup",
+			BenchmarkTool: "swingbench",
+			ConnectionSnapshot: domaintask.ConnectionSnapshot{
+				ID:   "conn-oracle",
+				Type: "oracle",
+			},
+			TemplateSnapshot: domaintask.TemplateSnapshot{
+				WorkloadFamily: "order-entry",
+			},
+			PhaseHistory: []domaintask.PhaseRecord{
+				{Phase: domaintask.PhaseCleanup, Status: "success", StartedAt: now.Add(-2 * time.Minute)},
+			},
+		},
+		"task-prepare": {
+			ID:            "task-prepare",
+			BenchmarkTool: "swingbench",
+			ConnectionSnapshot: domaintask.ConnectionSnapshot{
+				ID:   "conn-oracle",
+				Type: "oracle",
+			},
+			TemplateSnapshot: domaintask.TemplateSnapshot{
+				WorkloadFamily: "order-entry",
+			},
+			PhaseHistory: []domaintask.PhaseRecord{
+				{Phase: domaintask.PhasePrepare, Status: "prepared", StartedAt: now.Add(-time.Minute)},
+			},
+		},
+	}
+
+	if err := oracleSwingbenchDirectRunGuard(task, tasks); err != nil {
+		t.Fatalf("oracleSwingbenchDirectRunGuard() unexpected error: %v", err)
+	}
+}
+
+func TestTaskBindingStopTask_IgnoresDuplicateStopRequests(t *testing.T) {
+	binding := &TaskBinding{
+		tasks: map[string]*domaintask.ExecutionTask{
+			"task-1": {
+				ID:           "task-1",
+				Status:       domaintask.StatusRunning,
+				CurrentPhase: domaintask.PhaseRun,
+				LogTail: []domaintask.LogLine{
+					{Stream: "event", Content: "Phase started: run"},
+				},
+			},
+		},
+		executions: map[string]*taskExecutionContext{
+			"task-1": {
+				logSeen: make(map[string]int),
+			},
+		},
+	}
+
+	first := binding.StopTask("task-1")
+	second := binding.StopTask("task-1")
+	if !first.Success {
+		t.Fatalf("first StopTask() success = false, error = %s", first.Error)
+	}
+	if !second.Success {
+		t.Fatalf("second StopTask() success = false, error = %s", second.Error)
+	}
+
+	task := binding.tasks["task-1"]
+	stopEvents := 0
+	for _, line := range task.LogTail {
+		if line.Stream == "event" && line.Content == "Stop requested" {
+			stopEvents++
+		}
+	}
+	if stopEvents != 1 {
+		t.Fatalf("Stop requested events = %d, want 1", stopEvents)
 	}
 }
 

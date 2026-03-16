@@ -4,7 +4,12 @@ package usecase
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -436,6 +441,9 @@ func TestBenchmarkUseCase_StopBenchmark(t *testing.T) {
 	if stopped.State != execution.StateCancelled {
 		t.Errorf("State should be cancelled, got %s", stopped.State)
 	}
+	if stopped.CompletedAt == nil {
+		t.Error("CompletedAt should be set after StopBenchmark")
+	}
 }
 
 // TestBenchmarkUseCase_StopBenchmark_InvalidState tests stopping a non-running benchmark.
@@ -464,6 +472,55 @@ func TestBenchmarkUseCase_StopBenchmark_InvalidState(t *testing.T) {
 	err := uc.StopBenchmark(ctx, run.ID, false)
 	if err == nil {
 		t.Error("StopBenchmark() should return error for completed run")
+	}
+}
+
+func TestTerminateProcess_KillsProcessGroupChildren(t *testing.T) {
+	tempDir := t.TempDir()
+	childPIDPath := filepath.Join(tempDir, "child.pid")
+
+	cmd := exec.Command("bash", "-lc", "sleep 30 & echo $! > "+childPIDPath+"; wait")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer cmd.Wait()
+
+	var childPID int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(childPIDPath)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			value, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
+			if convErr != nil {
+				t.Fatalf("Atoi(child pid) failed: %v", convErr)
+			}
+			childPID = value
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("child pid was not captured before terminateProcess()")
+	}
+
+	if err := terminateProcess(cmd, true); err != nil {
+		t.Fatalf("terminateProcess() failed: %v", err)
+	}
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process group did not exit after terminateProcess()")
+	}
+
+	if err := syscall.Kill(childPID, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("child process still alive after terminateProcess(), err = %v", err)
 	}
 }
 

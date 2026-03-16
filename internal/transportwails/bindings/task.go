@@ -184,6 +184,10 @@ func (b *TaskBinding) StopTask(taskID string) TaskActionResult {
 		b.mu.Unlock()
 		return TaskActionResult{Error: "task not running"}
 	}
+	if execCtx.stopRequested || task.Status == domaintask.StatusStopping {
+		b.mu.Unlock()
+		return TaskActionResult{Success: true}
+	}
 	task.Status = domaintask.StatusStopping
 	execCtx.stopRequested = true
 	appendTaskEvent(task, task.CurrentPhase, "Stop requested")
@@ -447,6 +451,17 @@ func (b *TaskBinding) runPhase(taskID string, phase domaintask.Phase) error {
 		b.mu.Unlock()
 		return fmt.Errorf("task not found")
 	}
+	if execCtx.stopRequested {
+		b.mu.Unlock()
+		return fmt.Errorf("task stopped")
+	}
+	if phase == domaintask.PhaseRun {
+		if err := oracleSwingbenchDirectRunGuard(task, b.tasks); err != nil {
+			appendTaskEvent(task, phase, err.Error())
+			b.mu.Unlock()
+			return err
+		}
+	}
 	switch phase {
 	case domaintask.PhasePrepare:
 		task.Status = domaintask.StatusPreparing
@@ -500,6 +515,14 @@ func (b *TaskBinding) waitForRun(taskID string, phase domaintask.Phase, runID st
 			return err
 		}
 		b.refreshMetricsAndLogs(taskID, phase, runID)
+		b.mu.RLock()
+		task := cloneTask(b.tasks[taskID])
+		b.mu.RUnlock()
+		if runtimeErr := detectOracleSwingbenchRuntimeFailure(task, run); runtimeErr != nil {
+			_ = b.benchmarkUC.StopBenchmark(context.Background(), runID, true)
+			b.finishPhase(taskID, phase, runID, "failed")
+			return runtimeErr
+		}
 		state := run.State
 		if phase == domaintask.PhasePrepare && state == execution.StatePrepared {
 			b.finishPhase(taskID, phase, runID, "prepared")
@@ -1040,6 +1063,89 @@ func classifyOracleSwingbenchRunError(task *domaintask.ExecutionTask, phase doma
 	default:
 		return nil
 	}
+}
+
+func oracleSwingbenchDirectRunGuard(task *domaintask.ExecutionTask, tasks map[string]*domaintask.ExecutionTask) error {
+	if task == nil ||
+		task.Action != domaintask.ActionRun ||
+		!strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") ||
+		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) {
+		return nil
+	}
+
+	latestPhase := domaintask.PhaseNone
+	latestAt := time.Time{}
+	for _, candidate := range tasks {
+		if candidate == nil || candidate.ID == task.ID {
+			continue
+		}
+		if candidate.ConnectionSnapshot.ID != task.ConnectionSnapshot.ID ||
+			!strings.EqualFold(candidate.ConnectionSnapshot.Type, "oracle") ||
+			!strings.EqualFold(candidate.BenchmarkTool, string(domaintemplate.ToolSwingbench)) ||
+			!strings.EqualFold(candidate.TemplateSnapshot.WorkloadFamily, task.TemplateSnapshot.WorkloadFamily) {
+			continue
+		}
+		for _, record := range candidate.PhaseHistory {
+			if record.Status != "success" && record.Status != "prepared" {
+				continue
+			}
+			if record.Phase != domaintask.PhasePrepare && record.Phase != domaintask.PhaseCleanup {
+				continue
+			}
+			at := record.StartedAt
+			if record.EndedAt != nil {
+				at = *record.EndedAt
+			}
+			if at.After(latestAt) {
+				latestAt = at
+				latestPhase = record.Phase
+			}
+		}
+	}
+
+	if latestPhase == domaintask.PhaseCleanup {
+		return fmt.Errorf("Cleanup removed required SOE objects. Please run Prepare first.")
+	}
+	return nil
+}
+
+func detectOracleSwingbenchRuntimeFailure(task *domaintask.ExecutionTask, run *execution.Run) error {
+	if task == nil || run == nil ||
+		task.CurrentPhase != domaintask.PhaseRun ||
+		!strings.EqualFold(task.ConnectionSnapshot.Type, "oracle") ||
+		!strings.EqualFold(task.BenchmarkTool, string(domaintemplate.ToolSwingbench)) {
+		return nil
+	}
+
+	if task.Metrics.TPS.Current > 0 || task.Metrics.TPM.Current > 0 {
+		return nil
+	}
+
+	zeroRows := 0
+	for _, line := range task.LogTail {
+		if line.Phase != domaintask.PhaseRun {
+			continue
+		}
+		content := strings.TrimSpace(line.Content)
+		if strings.Contains(content, "[0/") && strings.Contains(content, "0") {
+			zeroRows++
+		}
+	}
+	if zeroRows < 3 {
+		return nil
+	}
+
+	for i := len(task.PhaseHistory) - 1; i >= 0; i-- {
+		record := task.PhaseHistory[i]
+		if record.Status == "success" && record.Phase == domaintask.PhaseCleanup {
+			return fmt.Errorf("Cleanup removed required SOE objects. Please run Prepare first.")
+		}
+		if record.Status == "success" || record.Status == "prepared" {
+			break
+		}
+	}
+
+	return fmt.Errorf("Oracle Swingbench run failed: workload never established completed transactions and remained at 0 TPS/TPM ([0/N]).")
 }
 
 func preparePrivilegeHint(task *domaintask.ExecutionTask) string {

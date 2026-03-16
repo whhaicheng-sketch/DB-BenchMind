@@ -125,6 +125,7 @@ const (
 	oracleSwingbenchRunPreflightUserLocked         oracleSwingbenchRunPreflightStatus = "user_locked"
 	oracleSwingbenchRunPreflightInvalidCredentials oracleSwingbenchRunPreflightStatus = "invalid_credentials"
 	oracleSwingbenchRunPreflightSchemaIncomplete   oracleSwingbenchRunPreflightStatus = "schema_incomplete"
+	oracleSwingbenchRunPreflightCleanupInvalidated oracleSwingbenchRunPreflightStatus = "cleanup_invalidated"
 )
 
 // RealtimeSampleCallback is called for each realtime sample during benchmark execution.
@@ -465,6 +466,9 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 	// Run phase
 	startTime := time.Now()
 	if err := uc.executeRun(ctx, run, adapt, config, task.Options.RunTimeout, conn, tmpl); err != nil {
+		if uc.isRunStopped(ctx, run.ID) {
+			return
+		}
 		uc.markAsFailed(ctx, run.ID, fmt.Sprintf("run: %v", err))
 		return
 	}
@@ -785,6 +789,8 @@ func (uc *BenchmarkUseCase) executeRun(
 	}()
 
 	// Collect samples and monitor for completion
+	zeroThroughputSamples := 0
+	seenPositiveThroughput := false
 	for {
 		select {
 		case sample, ok := <-sampleCh:
@@ -800,6 +806,9 @@ func (uc *BenchmarkUseCase) executeRun(
 				slog.Info("Benchmark: Process completed, processErr", "run_id", run.ID, "error", processErr)
 				<-stderrDone
 				if processErr != nil {
+					if uc.isRunStopped(ctx, run.ID) {
+						return fmt.Errorf("run stopped")
+					}
 					stderrStr := stderrBuf.String()
 
 					// Also check stdoutBuf - sysbench sometimes outputs errors to stdout
@@ -958,6 +967,24 @@ func (uc *BenchmarkUseCase) executeRun(
 				}
 				return nil
 			}
+			if tmpl.Tool == domaintemplate.ToolSwingbench && isOracleSwingbenchConfig(config) {
+				if sample.TPS > 0 || sample.TPM > 0 {
+					seenPositiveThroughput = true
+					zeroThroughputSamples = 0
+				} else if !seenPositiveThroughput && strings.Contains(sample.RawLine, "[0/") {
+					zeroThroughputSamples++
+					if zeroThroughputSamples >= 3 {
+						errMsg := "Oracle Swingbench run failed: workload never established completed transactions and remained at 0 TPS/TPM ([0/N]). Run Prepare first."
+						run.Message = errMsg
+						run.ErrorMessage = errMsg
+						uc.runRepo.Save(ctx, run)
+						uc.markAsFailed(ctx, run.ID, errMsg)
+						_ = terminateProcess(process, true)
+						return fmt.Errorf("%s", errMsg)
+					}
+				}
+			}
+
 			// Save metric sample with error handling
 			func() {
 				defer func() {
@@ -1024,6 +1051,9 @@ func (uc *BenchmarkUseCase) executeRun(
 		case err := <-done:
 			slog.Info("Benchmark: case <-done: executed", "run_id", run.ID, "err", err)
 			if err != nil {
+				if uc.isRunStopped(ctx, run.ID) {
+					return fmt.Errorf("run stopped")
+				}
 				// Check if error is "table does not exist"
 				errMsg := err.Error()
 				slog.Info("Benchmark: Run command failed, checking error type", "run_id", run.ID, "error", errMsg)
@@ -1319,6 +1349,7 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 
 	execCmd.Dir = cmd.WorkDir
 	execCmd.Env = append(os.Environ(), cmd.Env...)
+	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Debug: Log command execution with environment details
 	hasMYSQL_PWD := false
@@ -1782,6 +1813,7 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	}
 
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// For Swingbench, set working directory to swingbench bin directory
 	// This is needed because Swingbench expects to run from its bin directory
@@ -1933,29 +1965,25 @@ func (uc *BenchmarkUseCase) StopBenchmark(ctx context.Context, runID string, for
 		slog.Info("Benchmark: Stopping process", "run_id", runID, "force", force, "pid", process.Process.Pid)
 
 		// Send SIGTERM first (graceful shutdown)
-		if err := process.Process.Signal(syscall.SIGTERM); err != nil {
+		if err := terminateProcess(process, force); err != nil {
 			slog.Error("Benchmark: Failed to send SIGTERM", "run_id", runID, "error", err)
 		} else {
 			slog.Info("Benchmark: SIGTERM sent successfully", "run_id", runID)
-		}
-
-		// If force stopping, wait a bit then send SIGKILL if needed
-		if force {
-			time.Sleep(2 * time.Second)
-			if err := process.Process.Signal(syscall.SIGKILL); err != nil {
-				slog.Error("Benchmark: Failed to send SIGKILL", "run_id", runID, "error", err)
-			} else {
-				slog.Info("Benchmark: SIGKILL sent successfully", "run_id", runID)
-			}
 		}
 	} else {
 		slog.Error("Benchmark: Process not found in map or Process is nil", "run_id", runID)
 	}
 
 	if force {
-		return uc.updateState(ctx, runID, execution.StateForceStopped)
+		if err := uc.updateState(ctx, runID, execution.StateForceStopped); err != nil {
+			return err
+		}
+		return uc.markRunCompletedNow(ctx, runID)
 	}
-	return uc.updateState(ctx, runID, execution.StateCancelled)
+	if err := uc.updateState(ctx, runID, execution.StateCancelled); err != nil {
+		return err
+	}
+	return uc.markRunCompletedNow(ctx, runID)
 }
 
 // GetBenchmarkStatus returns the current status of a benchmark run.
@@ -1975,6 +2003,25 @@ func (uc *BenchmarkUseCase) ListBenchmarks(ctx context.Context, opts FindOptions
 // updateState updates the state of a run.
 func (uc *BenchmarkUseCase) updateState(ctx context.Context, runID string, state execution.RunState) error {
 	return uc.runRepo.UpdateState(ctx, runID, state)
+}
+
+func (uc *BenchmarkUseCase) isRunStopped(ctx context.Context, runID string) bool {
+	run, err := uc.runRepo.FindByID(ctx, runID)
+	if err != nil || run == nil {
+		return false
+	}
+	return run.State == execution.StateCancelled || run.State == execution.StateForceStopped
+}
+
+func (uc *BenchmarkUseCase) markRunCompletedNow(ctx context.Context, runID string) error {
+	run, err := uc.runRepo.FindByID(ctx, runID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	run.CompletedAt = &now
+	run.CalculateDuration()
+	return uc.runRepo.Save(ctx, run)
 }
 
 // markAsFailed marks a run as failed with an error message.
@@ -2659,6 +2706,8 @@ func oracleSwingbenchRunPreflightError(status oracleSwingbenchRunPreflightStatus
 		return fmt.Errorf("Oracle Swingbench run failed: Invalid SOE workload username/password. Original error: %s", cause)
 	case oracleSwingbenchRunPreflightSchemaIncomplete:
 		return fmt.Errorf("Oracle Swingbench run failed: Run requires prepared SOE schema. Please run Prepare first.")
+	case oracleSwingbenchRunPreflightCleanupInvalidated:
+		return fmt.Errorf("Oracle Swingbench run failed: Cleanup removed required SOE objects. Please run Prepare first.")
 	case oracleSwingbenchRunPreflightOK:
 		return nil
 	default:
@@ -2667,6 +2716,44 @@ func oracleSwingbenchRunPreflightError(status oracleSwingbenchRunPreflightStatus
 		}
 		return fmt.Errorf("Oracle Swingbench run failed")
 	}
+}
+
+func oracleSwingbenchHistoryInvalidatesDirectRun(runs []*execution.Run, connectionName, databaseType, tool, workloadFamily string) (bool, error) {
+	_ = tool
+	_ = workloadFamily
+
+	latestPhase := ""
+	latestAt := time.Time{}
+	for _, run := range runs {
+		if run == nil || run.Result == nil {
+			continue
+		}
+		if !strings.EqualFold(run.Result.ConnectionName, connectionName) || !strings.EqualFold(run.Result.DatabaseType, databaseType) {
+			continue
+		}
+
+		lowerMessage := strings.ToLower(strings.TrimSpace(run.Message))
+		phase := ""
+		switch {
+		case strings.Contains(lowerMessage, "phase=cleanup"):
+			phase = "cleanup"
+		case strings.Contains(lowerMessage, "phase=prepare"):
+			phase = "prepare"
+		default:
+			continue
+		}
+
+		at := run.CreatedAt
+		if run.CompletedAt != nil {
+			at = *run.CompletedAt
+		}
+		if latestAt.IsZero() || !at.Before(latestAt) {
+			latestAt = at
+			latestPhase = phase
+		}
+	}
+
+	return latestPhase == "cleanup", nil
 }
 
 func oracleSwingbenchZeroThroughputFailure(stdout string, finalResult *adapter.FinalResult) error {
@@ -2689,4 +2776,26 @@ func oracleSwingbenchZeroThroughputFailure(stdout string, finalResult *adapter.F
 	}
 
 	return fmt.Errorf("Oracle Swingbench run failed: workload never advanced beyond zero active users and zero TPS/TPM (%d stalled samples, e.g. [0/N]). Cleanup removes workload objects, so direct Run must be preceded by Prepare. Run Prepare first.", zeroUserSamples)
+}
+
+func terminateProcess(cmd *exec.Cmd, force bool) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+
+	target := cmd.Process.Pid
+	if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil && pgid > 0 {
+		target = -pgid
+	}
+
+	if err := syscall.Kill(target, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	if force {
+		time.Sleep(200 * time.Millisecond)
+		if err := syscall.Kill(target, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+	}
+	return nil
 }

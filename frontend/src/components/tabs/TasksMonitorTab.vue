@@ -385,6 +385,7 @@ const previewTask = ref(null)
 const previewConfirmable = ref(false)
 const statusPopoverOpen = ref(false)
 const logViewerOpen = ref(false)
+const pendingStopTaskId = ref('')
 const logQuery = ref('')
 const logPhase = ref('')
 const autoScroll = ref(true)
@@ -435,7 +436,8 @@ const canPreview = computed(() => !!draft.database_type && !!draft.template_id &
 const canStart = computed(() => canPreview.value && !taskStore.hasActiveTask)
 const taskBinding = computed(() => resolveTasksMonitorBinding({
   tasks: taskStore.tasks,
-  draft
+  draft,
+  pendingStopTaskId: pendingStopTaskId.value
 }))
 const canStop = computed(() => taskBinding.value.stopEnabled)
 const logViewerTask = computed(() => taskBinding.value.logViewerTask)
@@ -596,6 +598,12 @@ watch(
   }
 )
 
+watch(activeTask, (task) => {
+  if (!task || task.id !== pendingStopTaskId.value || task.status !== 'stopping') {
+    pendingStopTaskId.value = ''
+  }
+})
+
 onMounted(async () => {
   await Promise.all([templateStore.loadTemplates?.() || templateStore.fetchTemplates?.() || Promise.resolve(), connectionStore.fetchConnections(), taskStore.fetchTasks()])
   restoreDraft()
@@ -700,7 +708,15 @@ async function confirmCreateTask() {
 
 async function handleStop() {
   if (!taskBinding.value.stopTaskId) return
-  await taskStore.stopTask(taskBinding.value.stopTaskId)
+  if (taskBinding.value.stopInFlight) return
+  pendingStopTaskId.value = taskBinding.value.stopTaskId
+  try {
+    await taskStore.stopTask(taskBinding.value.stopTaskId)
+  } finally {
+    if (taskStore.activeTask?.id !== pendingStopTaskId.value || taskStore.activeTask?.status !== 'stopping') {
+      pendingStopTaskId.value = ''
+    }
+  }
 }
 
 async function openLogViewer() {
@@ -745,6 +761,10 @@ function metricCard(task, label, metric = {}, unit, stroke, fill) {
   const showOverlay = overlay.kind !== 'none'
   const overlayLabel = overlay.kind === 'prepare'
     ? 'Prepare'
+    : overlay.kind === 'stopping'
+      ? 'Stopping'
+      : overlay.kind === 'cleanup-invalidated'
+        ? 'Error'
     : overlay.kind === 'run-waiting'
       ? 'Waiting'
       : overlay.kind === 'run-error'
