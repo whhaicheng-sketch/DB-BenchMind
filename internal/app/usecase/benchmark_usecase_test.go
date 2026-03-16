@@ -4,6 +4,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,6 +372,7 @@ func containsBenchmarkUseCaseSubs(value string, subs []string) bool {
 // mockRunRepository is a mock implementation of RunRepository for testing.
 type mockRunRepository struct {
 	runs map[string]*execution.Run
+	logs map[string][]LogEntry
 }
 
 var (
@@ -381,6 +383,7 @@ var (
 func newMockRunRepository() *mockRunRepository {
 	return &mockRunRepository{
 		runs: make(map[string]*execution.Run),
+		logs: make(map[string][]LogEntry),
 	}
 }
 
@@ -425,12 +428,69 @@ func (m *mockRunRepository) GetMetricSamples(ctx context.Context, runID string) 
 }
 
 func (m *mockRunRepository) SaveLogEntry(ctx context.Context, runID string, entry LogEntry) error {
-	return nil // Ignore for mock
+	m.logs[runID] = append(m.logs[runID], entry)
+	return nil
 }
 
 func (m *mockRunRepository) Delete(ctx context.Context, id string) error {
 	delete(m.runs, id)
 	return nil
+}
+
+type successfulTestConnection struct {
+	id   string
+	name string
+}
+
+func (c *successfulTestConnection) GetID() string       { return c.id }
+func (c *successfulTestConnection) GetName() string     { return c.name }
+func (c *successfulTestConnection) SetName(name string) { c.name = name }
+func (c *successfulTestConnection) GetType() connection.DatabaseType {
+	return connection.DatabaseTypeMySQL
+}
+func (c *successfulTestConnection) Validate() error { return nil }
+func (c *successfulTestConnection) Test(ctx context.Context) (*connection.TestResult, error) {
+	return &connection.TestResult{Success: true}, nil
+}
+func (c *successfulTestConnection) GetDSN() string             { return "test-dsn" }
+func (c *successfulTestConnection) GetDSNWithPassword() string { return "test-dsn-with-password" }
+func (c *successfulTestConnection) Redact() string             { return "test-redacted" }
+func (c *successfulTestConnection) ToJSON() ([]byte, error)    { return []byte(`{}`), nil }
+
+type prepareOnlySequenceAdapter struct {
+	prepare *adapter.Command
+	cleanup *adapter.Command
+}
+
+func (a *prepareOnlySequenceAdapter) Type() adapter.AdapterType { return adapter.AdapterTypeSysbench }
+func (a *prepareOnlySequenceAdapter) BuildPrepareCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return a.prepare, nil
+}
+func (a *prepareOnlySequenceAdapter) BuildRunCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return &adapter.Command{CmdLine: "bash -lc 'exit 0'", WorkDir: config.WorkDir}, nil
+}
+func (a *prepareOnlySequenceAdapter) BuildCleanupCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return a.cleanup, nil
+}
+func (a *prepareOnlySequenceAdapter) ParseRunOutput(ctx context.Context, stdout string, stderr string) (*adapter.Result, error) {
+	return &adapter.Result{}, nil
+}
+func (a *prepareOnlySequenceAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan adapter.Sample, <-chan error, *strings.Builder) {
+	sampleCh := make(chan adapter.Sample)
+	errCh := make(chan error)
+	var buf strings.Builder
+	close(sampleCh)
+	close(errCh)
+	return sampleCh, errCh, &buf
+}
+func (a *prepareOnlySequenceAdapter) ValidateConfig(ctx context.Context, config *adapter.Config) error {
+	return nil
+}
+func (a *prepareOnlySequenceAdapter) ParseFinalResults(ctx context.Context, stdout string) (*adapter.FinalResult, error) {
+	return &adapter.FinalResult{}, nil
+}
+func (a *prepareOnlySequenceAdapter) SupportsDatabase(dbType connection.DatabaseType) bool {
+	return true
 }
 
 // TestBenchmarkUseCase_StartBenchmark tests starting a benchmark.
@@ -577,6 +637,205 @@ func TestBenchmarkUseCase_StopBenchmark_InvalidState(t *testing.T) {
 	}
 }
 
+func TestExecuteBenchmark_PrepareOnlyRunsCleanupExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	traceFile := filepath.Join(tempDir, "prepare-trace.log")
+	run := &execution.Run{
+		ID:        "run-prepare-only",
+		TaskID:    "task-prepare-only",
+		State:     execution.StatePending,
+		CreatedAt: time.Now(),
+		WorkDir:   filepath.Join(tempDir, "run-workdir"),
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	adapt := &prepareOnlySequenceAdapter{
+		cleanup: &adapter.Command{
+			CmdLine: "bash -lc 'printf \"cleanup-from-direct\\n\" >> \"" + traceFile + "\"'",
+			WorkDir: tempDir,
+		},
+		prepare: &adapter.Command{
+			CmdLine: "prepare-sequence",
+			Commands: []*adapter.Command{
+				{
+					StepName: "Cleanup Existing Environment",
+					CmdLine:  "bash -lc 'printf \"cleanup-from-sequence\\n\" >> \"" + traceFile + "\"'",
+					WorkDir:  tempDir,
+				},
+				{
+					StepName: "Init/Create",
+					CmdLine:  "bash -lc 'printf \"create\\n\" >> \"" + traceFile + "\"'",
+					WorkDir:  tempDir,
+				},
+			},
+		},
+	}
+
+	task := &execution.BenchmarkTask{
+		ID: "task-prepare-only",
+		Parameters: map[string]interface{}{
+			"time":           0,
+			"_original_time": 60,
+		},
+		Options: execution.TaskOptions{SkipCleanup: true},
+	}
+
+	uc.executeBenchmark(ctx, run, &successfulTestConnection{id: "conn-1", name: "Test Conn"}, &domaintemplate.Template{
+		ID:   "tpl-prepare-only",
+		Name: "Prepare Only",
+		Tool: domaintemplate.ToolSysbench,
+	}, adapt, task)
+
+	data, err := os.ReadFile(traceFile)
+	if err != nil {
+		t.Fatalf("ReadFile(trace) failed: %v", err)
+	}
+	lines := strings.Fields(string(data))
+	cleanupCount := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "cleanup-") {
+			cleanupCount++
+		}
+	}
+	if cleanupCount != 1 {
+		t.Fatalf("cleanup executions = %d, want 1, trace = %q", cleanupCount, string(data))
+	}
+
+	storedRun, err := runRepo.FindByID(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("FindByID() failed: %v", err)
+	}
+	if storedRun.State != execution.StateCompleted {
+		t.Fatalf("prepare-only final state = %s, want %s", storedRun.State, execution.StateCompleted)
+	}
+}
+
+func TestExecuteCommandSequence_BlocksCreateWhenCleanupVerificationFailsAndLogsReason(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	createMarker := filepath.Join(tempDir, "create.marker")
+	run := &execution.Run{
+		ID:        "run-verify-fail",
+		TaskID:    "task-verify-fail",
+		State:     execution.StatePreparing,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	err := uc.executeCommandSequence(ctx, run, &adapter.Command{
+		CmdLine: "oracle_prepare_sequence",
+		Commands: []*adapter.Command{
+			{StepName: "Cleanup Existing Environment", CmdLine: "bash -lc 'echo cleanup-complete'", WorkDir: tempDir},
+			{StepName: "Verify Cleanup State", CmdLine: "bash -lc 'echo \"SOE cleanup verification failed: residual tablespaces remain\" 1>&2; exit 1'", WorkDir: tempDir},
+			{StepName: "Create Schema", CmdLine: "bash -lc 'touch \"" + createMarker + "\"'", WorkDir: tempDir},
+		},
+	})
+
+	if err == nil {
+		t.Fatal("executeCommandSequence() expected verification failure")
+	}
+	if !strings.Contains(err.Error(), "Verify Cleanup State") {
+		t.Fatalf("error = %q, want Verify Cleanup State context", err.Error())
+	}
+	if _, statErr := os.Stat(createMarker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("create marker should not exist, stat err = %v", statErr)
+	}
+
+	logText := flattenLogEntries(runRepo.logs[run.ID])
+	if !strings.Contains(logText, "SOE cleanup verification failed: residual tablespaces remain") {
+		t.Fatalf("expected verification reason in logs, got: %s", logText)
+	}
+}
+
+func TestExecuteCommandSequence_AllowsCreateAfterCleanupVerificationPasses(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	createMarker := filepath.Join(tempDir, "create.marker")
+	run := &execution.Run{
+		ID:        "run-verify-pass",
+		TaskID:    "task-verify-pass",
+		State:     execution.StatePreparing,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	err := uc.executeCommandSequence(ctx, run, &adapter.Command{
+		CmdLine: "oracle_prepare_sequence",
+		Commands: []*adapter.Command{
+			{StepName: "Cleanup Existing Environment", CmdLine: "bash -lc 'echo cleanup-complete'", WorkDir: tempDir},
+			{StepName: "Verify Cleanup State", CmdLine: "bash -lc 'echo SOE cleanup verification passed'", WorkDir: tempDir},
+			{StepName: "Create Schema", CmdLine: "bash -lc 'touch \"" + createMarker + "\"'", WorkDir: tempDir},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("executeCommandSequence() unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(createMarker); statErr != nil {
+		t.Fatalf("create marker should exist after verification passed: %v", statErr)
+	}
+}
+
+func TestExecuteCommandSequence_CreateFailureLogsDiagnosticOutput(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	run := &execution.Run{
+		ID:        "run-create-fail",
+		TaskID:    "task-create-fail",
+		State:     execution.StatePreparing,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	err := uc.executeCommandSequence(ctx, run, &adapter.Command{
+		CmdLine: "oracle_prepare_sequence",
+		Commands: []*adapter.Command{
+			{StepName: "Cleanup Existing Environment", CmdLine: "bash -lc 'echo cleanup-complete'", WorkDir: tempDir},
+			{StepName: "Verify Cleanup State", CmdLine: "bash -lc 'echo SOE cleanup verification passed'", WorkDir: tempDir},
+			{StepName: "Create Schema", CmdLine: "bash -lc 'echo \"create stdout: started\"; echo \"ORA-01017: invalid username/password; logon denied\" 1>&2; echo \"debugf: " + filepath.Join(tempDir, "create-debug.log") + "\" 1>&2; exit 255'", WorkDir: tempDir},
+		},
+	})
+
+	if err == nil {
+		t.Fatal("executeCommandSequence() expected create failure")
+	}
+
+	logText := flattenLogEntries(runRepo.logs[run.ID])
+	for _, want := range []string{
+		"create stdout: started",
+		"ORA-01017: invalid username/password; logon denied",
+		"create-debug.log",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("expected %q in logs, got: %s", want, logText)
+		}
+	}
+}
+
 func TestTerminateProcess_KillsProcessGroupChildren(t *testing.T) {
 	tempDir := t.TempDir()
 	childPIDPath := filepath.Join(tempDir, "child.pid")
@@ -624,6 +883,17 @@ func TestTerminateProcess_KillsProcessGroupChildren(t *testing.T) {
 	if err := syscall.Kill(childPID, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("child process still alive after terminateProcess(), err = %v", err)
 	}
+}
+
+func flattenLogEntries(entries []LogEntry) string {
+	var builder strings.Builder
+	for _, entry := range entries {
+		builder.WriteString(entry.Stream)
+		builder.WriteString(":")
+		builder.WriteString(entry.Content)
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
 // TestBenchmarkUseCase_GetBenchmarkStatus tests getting benchmark status.
@@ -780,6 +1050,35 @@ func TestIsSwingbenchCommandLine(t *testing.T) {
 				t.Fatalf("isSwingbenchCommandLine(%q) = %v, want %v", tt.cmdLine, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeSwingbenchCommandParts_RewritesBundledPathsOnly(t *testing.T) {
+	parts := []string{
+		"java",
+		"-cp", "../launcher",
+		"LauncherBootstrap",
+		"-executablename", "oewizard",
+		"oewizard",
+		"-c", "oewizard.xml",
+		"-r", "results.xml",
+	}
+
+	got := normalizeSwingbenchCommandParts(parts)
+
+	wantLauncher := filepath.Join(swingbenchInstallRoot, "launcher")
+	wantConfig := filepath.Join(swingbenchBinDir, "oewizard.xml")
+	if got[2] != wantLauncher {
+		t.Fatalf("launcher path = %q, want %q", got[2], wantLauncher)
+	}
+	if got[8] != wantConfig {
+		t.Fatalf("config path = %q, want %q", got[8], wantConfig)
+	}
+	if got[10] != "results.xml" {
+		t.Fatalf("result file path = %q, want relative workdir output", got[10])
+	}
+	if parts[2] != "../launcher" || parts[8] != "oewizard.xml" {
+		t.Fatal("normalizeSwingbenchCommandParts should not mutate input slice")
 	}
 }
 

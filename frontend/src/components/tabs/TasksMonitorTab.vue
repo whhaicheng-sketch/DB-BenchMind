@@ -1489,6 +1489,7 @@ function closeLogViewer() {
   font-size: 12px;
   line-height: 1.35;
   max-width: 56ch;
+  min-height: 1.35em;
 }
 
 .status-strip-time {

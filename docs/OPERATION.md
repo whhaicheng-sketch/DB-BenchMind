@@ -84,7 +84,13 @@ DB-BenchMind 对支持的 benchmark 工具统一采用以下生命周期：
 - `Run`：仅运行 workload，允许在同一份已准备环境上重复执行。
 - `Cleanup`：彻底删除 benchmark 环境；完成后直接 `Run` 必须失败并提示先 `Prepare`。
 
-Oracle Swingbench 的 `Prepare` 会内置执行 SOE bootstrap SQL，随后串行执行 `oewizard -create`、`oewizard -generate`、`oewizard -allindexes`。Oracle `Cleanup` 会删除 `SOE` 用户、`SOE/SOE_IDX` 表空间和对应数据文件。
+Oracle Swingbench 额外约束：
+
+- `Prepare` 固定为一次 `Cleanup` 加一次 init/create 链路；不允许按 “schema 是否已存在” 探测后跳过。
+- `Cleanup` 必须是幂等清理：对象不存在、部分存在、完整存在、上次中断残留都要受控处理。
+- `Cleanup` 不能只看脚本退出码；必须在继续 `oewizard -create` 前校验 `SOE` 用户、`SOE/SOE_IDX` 表空间、会阻塞 create 的 datafile/残留对象都已清理到预期状态。
+- 如果 cleanup 校验未通过，`Prepare` 必须在 create 前失败，并把具体残留原因写入 run workspace / log viewer。
+- Oracle Swingbench 的 `Prepare` 会在 cleanup 校验通过后串行执行 SOE bootstrap SQL、`oewizard -create`、`oewizard -generate`、`oewizard -allindexes`。
 
 ---
 

@@ -52,9 +52,9 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
 
-	// Should return a command sequence with 7 steps
+	// Should return a command sequence with cleanup verification inserted before bootstrap/create.
 	assert.Equal(t, "oracle_prepare_sequence", cmd.CmdLine)
-	assert.Len(t, cmd.Commands, 7, "Prepare should have 7 steps")
+	assert.Len(t, cmd.Commands, 8, "Prepare should have 8 steps")
 
 	// Step 1: Cleanup existing environment
 	step1 := cmd.Commands[0]
@@ -65,43 +65,56 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 
 	// Step 2: Connection probe (using DBA user)
 	step2 := cmd.Commands[1]
-	assert.Equal(t, "Connection Probe", step2.StepName)
+	assert.Equal(t, "Verify Cleanup State", step2.StepName)
 	assert.Contains(t, step2.CmdLine, "sqlplus")
 	assert.Contains(t, step2.CmdLine, "sys/testpass@//localhost:1521/ORCL as sysdba")
+	verifySQLFile := strings.TrimSpace(step2.CmdLine[strings.LastIndex(step2.CmdLine, "@")+1:])
+	verifySQL, readErr := os.ReadFile(verifySQLFile)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(verifySQL), "SOE cleanup verification")
 
-	// Step 3: Bootstrap SOE user and tablespaces
+	// Step 3: Connection probe (using DBA user)
 	step3 := cmd.Commands[2]
-	assert.Equal(t, "Bootstrap SOE", step3.StepName)
+	assert.Equal(t, "Connection Probe", step3.StepName)
 	assert.Contains(t, step3.CmdLine, "sqlplus")
 	assert.Contains(t, step3.CmdLine, "sys/testpass@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, step3.CmdLine, "/tmp/db-benchmind-cts-oracle-")
 
-	// Step 4: oewizard -create
+	// Step 4: Bootstrap SOE user and tablespaces
 	step4 := cmd.Commands[3]
-	assert.Equal(t, "Create Schema", step4.StepName)
-	assert.Contains(t, step4.CmdLine, "oewizard")
-	assert.Contains(t, step4.CmdLine, "-create")
-	assert.Contains(t, step4.CmdLine, "-ts SOE")
+	assert.Equal(t, "Bootstrap SOE", step4.StepName)
+	assert.Contains(t, step4.CmdLine, "sqlplus")
+	assert.Contains(t, step4.CmdLine, "sys/testpass@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, step4.CmdLine, "/tmp/db-benchmind-cts-oracle-")
 
-	// Step 5: post-schema setup before data generation
-	step5 := cmd.Commands[4]
-	assert.Equal(t, "Post-Schema Setup", step5.StepName)
-	assert.Contains(t, step5.CmdLine, "sqlplus")
-	assert.Contains(t, step5.CmdLine, "/tmp/db-benchmind-postschema-")
-	assert.Contains(t, step5.CmdLine, "sysdba")
+	// Step 5: oewizard -create
+	step5Create := cmd.Commands[4]
+	assert.Equal(t, "Create Schema", step5Create.StepName)
+	assert.Contains(t, step5Create.CmdLine, "oewizard")
+	assert.Contains(t, step5Create.CmdLine, "-create")
+	assert.Contains(t, step5Create.CmdLine, "-ts SOE")
+	assert.Contains(t, step5Create.CmdLine, "-debugf /tmp/test/oewizard-create-debug.log")
 
-	// Step 6: oewizard -generate
+	// Step 6: post-schema setup before data generation
 	step6 := cmd.Commands[5]
-	assert.Equal(t, "Generate Data", step6.StepName)
-	assert.Contains(t, step6.CmdLine, "oewizard")
-	assert.Contains(t, step6.CmdLine, "-generate")
-	assert.Contains(t, step6.CmdLine, "-tc 32")
+	assert.Equal(t, "Post-Schema Setup", step6.StepName)
+	assert.Contains(t, step6.CmdLine, "sqlplus")
+	assert.Contains(t, step6.CmdLine, "/tmp/db-benchmind-postschema-")
+	assert.Contains(t, step6.CmdLine, "sysdba")
 
-	// Step 7: allindexes
+	// Step 7: oewizard -generate
 	step7 := cmd.Commands[6]
-	assert.Equal(t, "Build Indexes", step7.StepName)
+	assert.Equal(t, "Generate Data", step7.StepName)
 	assert.Contains(t, step7.CmdLine, "oewizard")
-	assert.Contains(t, step7.CmdLine, "-allindexes")
+	assert.Contains(t, step7.CmdLine, "-generate")
+	assert.Contains(t, step7.CmdLine, "-tc 32")
+	assert.Contains(t, step7.CmdLine, "-debugf /tmp/test/oewizard-generate-debug.log")
+
+	// Step 8: allindexes
+	step8 := cmd.Commands[7]
+	assert.Equal(t, "Build Indexes", step8.StepName)
+	assert.Contains(t, step8.CmdLine, "oewizard")
+	assert.Contains(t, step8.CmdLine, "-allindexes")
+	assert.Contains(t, step8.CmdLine, "-debugf /tmp/test/oewizard-indexes-debug.log")
 }
 
 func TestSwingbenchAdapter_PostSchemaSetupContainsDBMSLockGrant(t *testing.T) {
@@ -161,15 +174,15 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 
 	cmd, err := adapter.BuildPrepareCommand(ctx, config)
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 7)
+	require.Len(t, cmd.Commands, 8)
 
 	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[4].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[7].CmdLine, "-dba system")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_AutoElevatesSysUserToSysdba(t *testing.T) {
@@ -197,15 +210,15 @@ func TestSwingbenchAdapter_BuildPrepareCommand_AutoElevatesSysUserToSysdba(t *te
 		WorkDir: "/tmp/test-sys-auto",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 7)
+	require.Len(t, cmd.Commands, 8)
 
 	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[4].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[7].CmdLine, "-dba system")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *testing.T) {
@@ -231,7 +244,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *test
 		WorkDir: "/tmp/rebuild",
 	})
 	require.NoError(t, err)
-	require.Len(t, cmd.Commands, 7)
+	require.Len(t, cmd.Commands, 8)
 
 	first := cmd.Commands[0]
 	assert.Equal(t, "Cleanup Existing Environment", first.StepName)
@@ -242,6 +255,70 @@ func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *test
 	assert.Contains(t, string(content), "drop user SOE cascade")
 	assert.Contains(t, string(content), "drop tablespace SOE_IDX including contents and datafiles")
 	assert.Contains(t, string(content), "drop tablespace SOE including contents and datafiles")
+}
+
+func TestSwingbenchAdapter_BuildPrepareCommand_VerifiesCleanupBeforeBootstrapAndCreate(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "test-conn-verify", Name: "Oracle Verify"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "sys",
+		Password:       "manager",
+		ConnectAs:      "sysdba",
+	}
+
+	cmd, err := adapter.BuildPrepareCommand(ctx, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"scale":   1.0,
+			"threads": 4,
+		},
+		WorkDir: "/tmp/oracle-verify",
+	})
+	require.NoError(t, err)
+	require.Len(t, cmd.Commands, 8)
+
+	assert.Equal(t, "Cleanup Existing Environment", cmd.Commands[0].StepName)
+	assert.Equal(t, "Verify Cleanup State", cmd.Commands[1].StepName)
+	assert.Equal(t, "Connection Probe", cmd.Commands[2].StepName)
+	assert.Equal(t, "Bootstrap SOE", cmd.Commands[3].StepName)
+	assert.Equal(t, "Create Schema", cmd.Commands[4].StepName)
+
+	verifySQLFile := strings.TrimSpace(cmd.Commands[1].CmdLine[strings.LastIndex(cmd.Commands[1].CmdLine, "@")+1:])
+	verifySQL, readErr := os.ReadFile(verifySQLFile)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(verifySQL), "from dba_users")
+	assert.Contains(t, string(verifySQL), "from dba_tablespaces")
+	assert.Contains(t, string(verifySQL), "from dba_data_files")
+	assert.Contains(t, string(verifySQL), "raise_application_error")
+}
+
+func TestResolveOracleWizardCredentials_PrefersExplicitDBACredentialsAndReportsSource(t *testing.T) {
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "test-conn-creds", Name: "Oracle Creds"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "sys",
+		Password:       "sys-pass",
+		ConnectAs:      "sysdba",
+	}
+
+	user, pass, source := resolveOracleWizardCredentials(conn, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"dba_username": "system",
+			"dba_password": "system-pass",
+		},
+	})
+
+	assert.Equal(t, "system", user)
+	assert.Equal(t, "system-pass", pass)
+	assert.Equal(t, "dba_username/dba_password", source)
 }
 
 func TestSwingbenchAdapter_BuildCleanupCommand_DropsUserAndTablespaces(t *testing.T) {
@@ -272,6 +349,38 @@ func TestSwingbenchAdapter_BuildCleanupCommand_DropsUserAndTablespaces(t *testin
 	assert.Contains(t, string(content), "drop user SOE cascade")
 	assert.Contains(t, string(content), "drop tablespace SOE_IDX including contents and datafiles")
 	assert.Contains(t, string(content), "drop tablespace SOE including contents and datafiles")
+}
+
+func TestSwingbenchAdapter_BuildCleanupCommand_IsIdempotentForMissingOrPartialObjects(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSwingbenchAdapter()
+
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "test-conn-clean-idempotent", Name: "Oracle Cleanup Idempotent"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "sys",
+		Password:       "manager",
+		ConnectAs:      "sysdba",
+	}
+
+	cmd, err := adapter.BuildCleanupCommand(ctx, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{},
+		WorkDir:    "/tmp/cleanup-idempotent",
+	})
+	require.NoError(t, err)
+
+	sqlFile := strings.TrimSpace(cmd.CmdLine[strings.LastIndex(cmd.CmdLine, "@")+1:])
+	content, readErr := os.ReadFile(sqlFile)
+	require.NoError(t, readErr)
+	sqlText := string(content)
+
+	assert.Contains(t, sqlText, "whenever sqlerror continue")
+	assert.Contains(t, sqlText, "Drop user skipped")
+	assert.Contains(t, sqlText, "Drop tablespace SOE_IDX skipped")
+	assert.Contains(t, sqlText, "Drop tablespace SOE skipped")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_RejectsNonSysAdministrativeUser(t *testing.T) {

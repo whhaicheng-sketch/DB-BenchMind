@@ -102,17 +102,20 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	// Step 1: Full cleanup
 	cleanupCmd := a.buildCleanupSOEObjectsCommand(oracleConn, config)
 
-	// Step 2: Connection probe (using DBA user to verify database connectivity)
+	// Step 2: Cleanup verification (cleanup must leave a create-safe environment)
+	verifyCleanupCmd := a.buildCleanupVerificationCommand(oracleConn, config)
+
+	// Step 3: Connection probe (using DBA user to verify database connectivity)
 	probeCmd := a.buildConnectionProbeCommand(oracleConn, config)
 
-	// Step 3: Bootstrap SOE user and tablespaces
+	// Step 4: Bootstrap SOE user and tablespaces
 	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, config)
 
-	// Step 4-7: Split schema create, privilege setup, data generation, and index build.
-	createSchemaCmd := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
+	// Step 5-8: Split schema create, privilege setup, data generation, and index build.
+	createSchemaCmd, createDebugLog, wizardCredentialSource := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
 	postSetupCmd := a.buildPostSchemaSetupCommand(oracleConn, config)
-	generateDataCmd := a.buildOewizardGenerateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
-	buildIndexesCmd := a.buildOewizardAllIndexesCommand(oracleConn, connectionStr, scaleFloat, config)
+	generateDataCmd, generateDebugLog, _ := a.buildOewizardGenerateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
+	buildIndexesCmd, indexesDebugLog, _ := a.buildOewizardAllIndexesCommand(oracleConn, connectionStr, scaleFloat, config)
 
 	// Return command sequence
 	return &Command{
@@ -124,6 +127,12 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				WorkDir:     config.WorkDir,
 				StepName:    "Cleanup Existing Environment",
 				Description: "Dropping existing SOE user, tablespaces, and datafiles before rebuild",
+			},
+			{
+				CmdLine:     verifyCleanupCmd,
+				WorkDir:     config.WorkDir,
+				StepName:    "Verify Cleanup State",
+				Description: "SOE cleanup verification: confirming SOE user, SOE/SOE_IDX tablespaces, and related datafiles are gone before create",
 			},
 			{
 				CmdLine:     probeCmd,
@@ -141,7 +150,7 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				CmdLine:     createSchemaCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Create Schema",
-				Description: "Running oewizard create to build SOE schema structure",
+				Description: fmt.Sprintf("Running oewizard create to build SOE schema structure (DBA credentials source: %s, debug log: %s)", wizardCredentialSource, createDebugLog),
 			},
 			{
 				CmdLine:     postSetupCmd,
@@ -153,13 +162,13 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				CmdLine:     generateDataCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Generate Data",
-				Description: "Running oewizard generate to load SOE benchmark data",
+				Description: fmt.Sprintf("Running oewizard generate to load SOE benchmark data (debug log: %s)", generateDebugLog),
 			},
 			{
 				CmdLine:     buildIndexesCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Build Indexes",
-				Description: "Running oewizard allindexes to build SOE indexes",
+				Description: fmt.Sprintf("Running oewizard allindexes to build SOE indexes (debug log: %s)", indexesDebugLog),
 			},
 		},
 	}, nil
@@ -1306,22 +1315,39 @@ func splitOracleAdminUsername(username string, fallbackConnectAs string) (string
 	}
 }
 
-func resolveOracleWizardCredentials(conn *connection.OracleConnection, config *Config) (string, string) {
+func resolveOracleWizardCredentials(conn *connection.OracleConnection, config *Config) (string, string, string) {
 	username := strings.TrimSpace(conn.Username)
 	password := conn.Password
+	source := "connection credentials"
 
 	if value, ok := config.Parameters["oewizard_dba_username"].(string); ok && strings.TrimSpace(value) != "" {
 		username = strings.TrimSpace(value)
+		source = "oewizard_dba_username/oewizard_dba_password"
 	}
 	if value, ok := config.Parameters["oewizard_dba_password"].(string); ok && value != "" {
 		password = value
+		source = "oewizard_dba_username/oewizard_dba_password"
+	} else if value, ok := config.Parameters["dba_username"].(string); ok && strings.TrimSpace(value) != "" {
+		username, _ = splitOracleAdminUsername(strings.TrimSpace(value), "normal")
+		source = "dba_username/dba_password"
+		if value, ok := config.Parameters["dba_password"].(string); ok && value != "" {
+			password = value
+		}
+	} else if value, ok := config.Parameters["dba_password"].(string); ok && value != "" {
+		password = value
+		source = "dba_username/dba_password"
 	}
 
 	if strings.EqualFold(username, "sys") {
 		username = "system"
+		if source == "connection credentials" {
+			source = "connection credentials (SYS mapped to SYSTEM for oewizard)"
+		} else if source == "dba_username/dba_password" {
+			source = "dba_username/dba_password (SYS mapped to SYSTEM for oewizard)"
+		}
 	}
 
-	return username, password
+	return username, password, source
 }
 
 func lowerCaseReplaceOriginal(username, suffix string) string {
@@ -1585,12 +1611,65 @@ exit
 		checkSQL)
 }
 
+func (a *SwingbenchAdapter) buildCleanupVerificationCommand(conn *connection.OracleConnection, config *Config) string {
+	verifySQL := `
+set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
+whenever sqlerror exit sql.sqlcode rollback
+
+declare
+  v_user_count      number := 0;
+  v_tablespace_count number := 0;
+  v_datafile_count  number := 0;
+begin
+  select count(*) into v_user_count
+    from dba_users
+   where username = 'SOE';
+
+  select count(*) into v_tablespace_count
+    from dba_tablespaces
+   where tablespace_name in ('SOE', 'SOE_IDX');
+
+  select count(*) into v_datafile_count
+    from dba_data_files
+   where tablespace_name in ('SOE', 'SOE_IDX')
+      or lower(file_name) like '%soe%';
+
+  dbms_output.put_line('SOE cleanup verification: user_count=' || v_user_count
+    || ', tablespace_count=' || v_tablespace_count
+    || ', datafile_count=' || v_datafile_count);
+
+  if v_user_count > 0 or v_tablespace_count > 0 or v_datafile_count > 0 then
+    raise_application_error(
+      -20011,
+      'SOE cleanup verification failed: residual objects remain (user=' || v_user_count
+      || ', tablespaces=' || v_tablespace_count
+      || ', datafiles=' || v_datafile_count || ')'
+    );
+  end if;
+
+  dbms_output.put_line('SOE cleanup verification passed');
+end;
+/
+exit
+`
+
+	tempSQLFile, err := writeOracleTempSQL("db-benchmind-verify-cleanup-soe", verifySQL)
+	if err != nil {
+		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
+	}
+
+	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
+		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+}
+
 // buildOewizardCreateCommand builds the oewizard -create command.
 // Uses correct parameters matching the user's example.
-func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
+func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) (string, string, string) {
 	// Use system default java to avoid hardcoded path issues
 	javaPath := "java"
-	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
+	dbaUser, dbaPass, source := resolveOracleWizardCredentials(conn, config)
+	debugLog := filepath.Join(config.WorkDir, "oewizard-create-debug.log")
 
 	cmdArgs := []string{
 		javaPath,
@@ -1617,15 +1696,16 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-scale", fmt.Sprintf("%.1f", scaleFloat), // Support float scale like 0.1 for test templates
 		"-v",
 		"-debug",
-		"-debugf", "/tmp/oewizard_debug.log",
+		"-debugf", debugLog,
 	}
 
-	return strings.Join(cmdArgs, " ")
+	return strings.Join(cmdArgs, " "), debugLog, source
 }
 
-func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, threads int, config *Config) string {
+func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, threads int, config *Config) (string, string, string) {
 	javaPath := "java"
-	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
+	dbaUser, dbaPass, source := resolveOracleWizardCredentials(conn, config)
+	debugLog := filepath.Join(config.WorkDir, "oewizard-generate-debug.log")
 
 	cmdArgs := []string{
 		javaPath,
@@ -1653,15 +1733,16 @@ func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.Oracle
 		"-tc", fmt.Sprintf("%d", threads),
 		"-v",
 		"-debug",
-		"-debugf", "/tmp/oewizard_generate_debug.log",
+		"-debugf", debugLog,
 	}
 
-	return strings.Join(cmdArgs, " ")
+	return strings.Join(cmdArgs, " "), debugLog, source
 }
 
-func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) string {
+func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) (string, string, string) {
 	javaPath := "java"
-	dbaUser, dbaPass := resolveOracleWizardCredentials(conn, config)
+	dbaUser, dbaPass, source := resolveOracleWizardCredentials(conn, config)
+	debugLog := filepath.Join(config.WorkDir, "oewizard-indexes-debug.log")
 
 	cmdArgs := []string{
 		javaPath,
@@ -1688,10 +1769,10 @@ func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.Orac
 		"-scale", fmt.Sprintf("%.1f", scaleFloat),
 		"-v",
 		"-debug",
-		"-debugf", "/tmp/oewizard_indexes_debug.log",
+		"-debugf", debugLog,
 	}
 
-	return strings.Join(cmdArgs, " ")
+	return strings.Join(cmdArgs, " "), debugLog, source
 }
 
 // buildCreateTablespacesOnlyCommand creates only the tablespaces (no drop).

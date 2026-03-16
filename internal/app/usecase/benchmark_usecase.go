@@ -118,6 +118,11 @@ var (
 	}
 )
 
+const (
+	swingbenchInstallRoot = "/opt/benchtools/swingbench"
+	swingbenchBinDir      = swingbenchInstallRoot + "/bin"
+)
+
 type oracleSwingbenchRunPreflightStatus string
 
 type benchmarkRunPreflightStatus string
@@ -452,81 +457,35 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 			return
 		}
 
-		// Prepare phase (destructive rebuild: cleanup first, then prepare)
-		// For prepare-only mode, we bypass executePhase to avoid StatePrepared
-		// and go directly to StateCompleted
+		// Prepare already owns cleanup+init/create semantics inside the adapter command.
 		slog.Info("Benchmark: Executing prepare phase (prepare-only mode)", "run_id", run.ID)
-
-		// Update state to preparing before executing command
-		uc.updateState(ctx, run.ID, execution.StatePreparing)
-
-		// Prepare always rebuilds the benchmark environment from scratch.
-		slog.Info("Benchmark: Prepare phase - running cleanup first for rebuild semantics", "run_id", run.ID)
-
-		cleanupCmd, err := adapt.BuildCleanupCommand(ctx, config)
-		if err != nil {
-			slog.Warn("Benchmark: Failed to build cleanup command, continuing with prepare", "error", err, "run_id", run.ID)
-		} else {
-			// Log cleanup step
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   "=== Cleaning up existing benchmark environment before rebuild ===",
-			})
-
-			// Execute cleanup (ignore errors - tables might not exist)
-			if err := uc.executeCommand(ctx, run, cleanupCmd); err != nil {
-				slog.Debug("Benchmark: Cleanup completed (some benchmark objects may not have existed)", "run_id", run.ID)
-			} else {
-				slog.Info("Benchmark: Cleanup completed successfully", "run_id", run.ID)
-			}
-
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   "=== Starting prepare rebuild (creating schema and loading data) ===",
-			})
-		}
-
-		// Now execute prepare command
-		cmd, err := adapt.BuildPrepareCommand(ctx, config)
-		if err != nil {
-			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("build prepare command: %v", err))
-			return
-		}
-
-		if err := uc.executeCommand(ctx, run, cmd); err != nil {
-			// Prepare failed after cleanup - this is a real error
-			errMsg := err.Error()
-			slog.Error("Benchmark: Prepare command failed after cleanup", "run_id", run.ID, "error", errMsg)
-
+		if err := uc.executePhase(ctx, run, adapt, config, "prepare", execution.StatePreparing, execution.StatePrepared); err != nil {
 			uc.markAsFailed(ctx, run.ID, fmt.Sprintf("prepare: %v", err))
 			return
-		} else {
-			// Prepare completed successfully
-			msg1 := "✓ Prepare phase completed successfully"
-			msg2 := "Info: Benchmark environment rebuilt with the current parameters."
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   strings.Repeat("=", 60),
-			})
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   msg1,
-			})
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   msg2,
-			})
-			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
-				Timestamp: time.Now().Format(time.RFC3339),
-				Stream:    "info",
-				Content:   strings.Repeat("=", 60),
-			})
 		}
+
+		msg1 := "✓ Prepare phase completed successfully"
+		msg2 := "Info: Benchmark environment rebuilt with the current parameters."
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   strings.Repeat("=", 60),
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   msg1,
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   msg2,
+		})
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   strings.Repeat("=", 60),
+		})
 
 		// For prepare-only mode, mark as completed directly (bypassing StatePrepared)
 		uc.markAsCompleted(ctx, run.ID, 0)
@@ -1993,17 +1952,18 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if isSwingbenchCommandLine(cmd.CmdLine) {
+		parts = normalizeSwingbenchCommandParts(parts)
+	}
 
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// For Swingbench, set working directory to swingbench bin directory
-	// This is needed because Swingbench expects to run from its bin directory
 	if isSwingbenchCommandLine(cmd.CmdLine) {
-		execCmd.Dir = "/opt/benchtools/swingbench/bin"
+		execCmd.Dir = cmd.WorkDir
 		slog.Info("Benchmark: Setting Swingbench working directory",
 			"work_dir", execCmd.Dir,
-			"reason", "Swingbench requires running from bin directory")
+			"reason", "Swingbench logs should write to the run workspace while bundled resources use absolute install paths")
 	} else {
 		execCmd.Dir = cmd.WorkDir
 	}
@@ -2064,6 +2024,55 @@ func isSwingbenchCommandLine(cmdLine string) bool {
 		strings.Contains(lower, "oewizard") ||
 		strings.Contains(lower, "minibench") ||
 		strings.Contains(lower, "swingbench")
+}
+
+func normalizeSwingbenchCommandParts(parts []string) []string {
+	if len(parts) == 0 {
+		return nil
+	}
+
+	normalized := append([]string(nil), parts...)
+	switch normalized[0] {
+	case "./charbench", "charbench":
+		normalized[0] = filepath.Join(swingbenchBinDir, "charbench")
+	case "./minibench", "minibench":
+		normalized[0] = filepath.Join(swingbenchBinDir, "minibench")
+	case "./oewizard", "oewizard":
+		normalized[0] = filepath.Join(swingbenchBinDir, "oewizard")
+	}
+
+	for i := 0; i < len(normalized)-1; i++ {
+		switch normalized[i] {
+		case "-cp":
+			if normalized[i+1] == "../launcher" {
+				normalized[i+1] = filepath.Join(swingbenchInstallRoot, "launcher")
+			}
+		case "-c":
+			if rewritten, ok := resolveSwingbenchConfigPath(normalized[i+1]); ok {
+				normalized[i+1] = rewritten
+			}
+		}
+	}
+
+	return normalized
+}
+
+func resolveSwingbenchConfigPath(path string) (string, bool) {
+	if path == "" || filepath.IsAbs(path) {
+		return "", false
+	}
+
+	clean := filepath.Clean(path)
+	switch {
+	case clean == "oewizard.xml":
+		return filepath.Join(swingbenchBinDir, clean), true
+	case strings.HasPrefix(clean, "../configs/"):
+		return filepath.Join(swingbenchInstallRoot, strings.TrimPrefix(clean, "../")), true
+	case strings.HasPrefix(clean, "configs/"):
+		return filepath.Join(swingbenchInstallRoot, clean), true
+	default:
+		return "", false
+	}
 }
 
 func withSwingbenchResultFileHint(stdout string, tmpl *domaintemplate.Template, cmd *adapter.Command) string {
@@ -2246,17 +2255,17 @@ func (uc *BenchmarkUseCase) markAsCompleted(ctx context.Context, runID string, d
 
 	now := time.Now()
 
-	// For prepare-only mode: StatePreparing should transition to StatePrepared
-	// This is a special case because prepare-only doesn't run the full benchmark
-	if run.State == execution.StatePreparing {
-		slog.Info("Benchmark: Prepare-only mode completed, transitioning to prepared state", "run_id", runID)
-		run.State = execution.StatePrepared
+	// Prepare-only completes after the prepare chain without entering the run phase.
+	// Bypass the normal state machine so the run can terminate cleanly from preparing/prepared.
+	if run.State == execution.StatePreparing || run.State == execution.StatePrepared {
+		slog.Info("Benchmark: Prepare-only mode completed, forcing terminal completion", "run_id", runID, "current_state", run.State)
+		run.State = execution.StateCompleted
 		run.CompletedAt = &now
 		run.Duration = &duration
 		if err := uc.runRepo.Save(ctx, run); err != nil {
 			slog.Error("Benchmark: markAsCompleted failed to save", "run_id", runID, "error", err)
 		} else {
-			slog.Info("Benchmark: markAsCompleted saved successfully (prepare -> prepared)", "run_id", runID, "state", run.State)
+			slog.Info("Benchmark: markAsCompleted saved successfully (prepare-only)", "run_id", runID, "state", run.State)
 		}
 		return
 	}

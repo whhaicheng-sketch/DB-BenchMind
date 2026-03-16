@@ -43,7 +43,9 @@ Swingbench Oracle notes:
 - Prepare and cleanup are separate phases and should not be mixed into run duration semantics.
 - DB-BenchMind lifecycle semantics are unified: `prepare` always rebuilds, `run` reuses the prepared environment, and `cleanup` fully removes it.
 - Oracle Swingbench prepare requires a privileged account for schema build and post-schema grants such as `EXECUTE ON SYS.DBMS_LOCK`.
-- Oracle Swingbench prepare runs an embedded SOE bootstrap SQL before `oewizard -create`, `-generate`, and `-allindexes`; cleanup removes the `SOE` user plus `SOE/SOE_IDX` tablespaces and datafiles.
+- Oracle Swingbench prepare is strictly `cleanup` once, verify cleanup state, then bootstrap plus `oewizard -create`, `-generate`, and `-allindexes`; it must not short-circuit just because SOE already exists.
+- Oracle Swingbench cleanup is expected to be idempotent and verification-gated: after cleanup returns, DB-BenchMind must verify the `SOE` user, `SOE/SOE_IDX` tablespaces, datafiles, and other create-blocking remnants are gone before continuing.
+- `oewizard` DBA credentials must come from explicit resolved parameters and be logged clearly enough that credential failures can be distinguished from cleanup residue failures.
 
 ### HammerDB Templates
 
