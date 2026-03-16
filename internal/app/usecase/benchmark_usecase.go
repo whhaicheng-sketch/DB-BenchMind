@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -1691,6 +1692,10 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 		return fmt.Errorf("swingbench adapter not found")
 	}
 
+	if shouldCleanupResidualSwingbenchProcesses(cmd) {
+		uc.cleanupResidualSwingbenchProcesses(ctx, run.ID)
+	}
+
 	// Start the command
 	process, stdout, stderr, err := uc.startCommand(ctx, cmd)
 	if err != nil {
@@ -1715,6 +1720,10 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 
 	// Start realtime sample collection from stdout
 	sampleCh, errCh, _ := adapt.StartRealtimeCollection(ctx, mirroredStdout)
+	timeout := swingbenchNoOutputTimeoutForStep(cmd)
+	lastActivityUnix := atomic.Int64{}
+	lastActivityUnix.Store(time.Now().UnixNano())
+	lastActivityLine := ""
 
 	// Also capture stderr to log entries
 	var stderrBuf strings.Builder
@@ -1725,6 +1734,8 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 		for scanner.Scan() {
 			line := scanner.Text()
 			stderrBuf.WriteString(line + "\n")
+			lastActivityUnix.Store(time.Now().UnixNano())
+			lastActivityLine = line
 
 			uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
 				Timestamp: time.Now().Format(time.RFC3339),
@@ -1741,6 +1752,11 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 	go func() {
 		done <- process.Wait()
 	}()
+	var inactivityTicker *time.Ticker
+	if timeout > 0 {
+		inactivityTicker = time.NewTicker(5 * time.Second)
+		defer inactivityTicker.Stop()
+	}
 
 	// Collect samples and monitor for completion
 	for {
@@ -1760,6 +1776,8 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 			}
 
 			// Save sample to repository
+			lastActivityUnix.Store(time.Now().UnixNano())
+			lastActivityLine = sample.RawLine
 			metricSample := execution.MetricSample{
 				Timestamp:  sample.Timestamp,
 				Phase:      "prepare", // Swingbench prepare/cleanup phase
@@ -1801,10 +1819,22 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 			}
 			slog.Error("Benchmark: Error from sample collector", "run_id", run.ID, "error", err)
 
+		case <-tickerChan(inactivityTicker):
+			last := time.Unix(0, lastActivityUnix.Load())
+			if timeout == 0 || time.Since(last) < timeout {
+				continue
+			}
+			_ = terminateProcess(process, true)
+			line := strings.TrimSpace(lastActivityLine)
+			if line == "" {
+				return fmt.Errorf("Swingbench step %q produced no new output for %s and was terminated", cmd.StepName, timeout)
+			}
+			return fmt.Errorf("Swingbench step %q produced no new output for %s after last line %q and was terminated", cmd.StepName, timeout, line)
+
 		case <-ctx.Done():
 			slog.Info("Benchmark: Context cancelled", "run_id", run.ID)
 			if process.Process != nil {
-				process.Process.Signal(syscall.SIGKILL)
+				_ = terminateProcess(process, true)
 			}
 			return ctx.Err()
 		}
@@ -3102,4 +3132,41 @@ func terminateProcess(cmd *exec.Cmd, force bool) error {
 		}
 	}
 	return nil
+}
+
+func swingbenchNoOutputTimeoutForStep(step *adapter.Command) time.Duration {
+	if step == nil {
+		return 0
+	}
+	switch strings.TrimSpace(step.StepName) {
+	case "Create Schema", "Generate Data", "Build Indexes":
+		if isSwingbenchCommandLine(step.CmdLine) {
+			return 90 * time.Second
+		}
+	}
+	return 0
+}
+
+func shouldCleanupResidualSwingbenchProcesses(step *adapter.Command) bool {
+	if step == nil {
+		return false
+	}
+	lower := strings.ToLower(step.CmdLine)
+	return strings.Contains(lower, "launcherbootstrap") && strings.Contains(lower, "oewizard")
+}
+
+func (uc *BenchmarkUseCase) cleanupResidualSwingbenchProcesses(ctx context.Context, runID string) {
+	cmd := exec.CommandContext(ctx, "bash", "-lc", "pkill -TERM -f 'LauncherBootstrap.*oewizard|com\\.dom\\.benchmarking\\.swingbench\\.wizards\\.Wizard' >/dev/null 2>&1 || true; sleep 1; pkill -KILL -f 'LauncherBootstrap.*oewizard|com\\.dom\\.benchmarking\\.swingbench\\.wizards\\.Wizard' >/dev/null 2>&1 || true")
+	if err := cmd.Run(); err != nil {
+		slog.Warn("Benchmark: Failed to cleanup residual Swingbench processes", "run_id", runID, "error", err)
+		return
+	}
+	slog.Info("Benchmark: Cleaned up residual Swingbench processes", "run_id", runID)
+}
+
+func tickerChan(t *time.Ticker) <-chan time.Time {
+	if t == nil {
+		return nil
+	}
+	return t.C
 }

@@ -795,6 +795,65 @@ func TestCheckDiskSpace(t *testing.T) {
 	}
 }
 
+func TestSwingbenchNoOutputTimeoutForStep(t *testing.T) {
+	tests := []struct {
+		name string
+		step *adapter.Command
+		want time.Duration
+	}{
+		{
+			name: "generate data uses inactivity timeout",
+			step: &adapter.Command{StepName: "Generate Data", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
+			want: 90 * time.Second,
+		},
+		{
+			name: "create schema uses inactivity timeout",
+			step: &adapter.Command{StepName: "Create Schema", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
+			want: 90 * time.Second,
+		},
+		{
+			name: "post schema setup has no inactivity timeout",
+			step: &adapter.Command{StepName: "Post-Schema Setup", CmdLine: "sqlplus -L ..."},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := swingbenchNoOutputTimeoutForStep(tt.step); got != tt.want {
+				t.Fatalf("swingbenchNoOutputTimeoutForStep() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldCleanupResidualSwingbenchProcesses(t *testing.T) {
+	tests := []struct {
+		name string
+		step *adapter.Command
+		want bool
+	}{
+		{
+			name: "oewizard generate triggers cleanup",
+			step: &adapter.Command{StepName: "Generate Data", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
+			want: true,
+		},
+		{
+			name: "sqlplus does not trigger cleanup",
+			step: &adapter.Command{StepName: "Bootstrap SOE", CmdLine: "sqlplus -L ..."},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCleanupResidualSwingbenchProcesses(tt.step); got != tt.want {
+				t.Fatalf("shouldCleanupResidualSwingbenchProcesses() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestMarkAsFailed tests marking a run as failed.
 func TestMarkAsFailed(t *testing.T) {
 	ctx := context.Background()
