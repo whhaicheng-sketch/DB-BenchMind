@@ -83,25 +83,25 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step4.CmdLine, "-create")
 	assert.Contains(t, step4.CmdLine, "-ts SOE")
 
-	// Step 5: oewizard -generate
+	// Step 5: post-schema setup before data generation
 	step5 := cmd.Commands[4]
-	assert.Equal(t, "Generate Data", step5.StepName)
-	assert.Contains(t, step5.CmdLine, "oewizard")
-	assert.Contains(t, step5.CmdLine, "-generate")
-	assert.Contains(t, step5.CmdLine, "-tc 32")
+	assert.Equal(t, "Post-Schema Setup", step5.StepName)
+	assert.Contains(t, step5.CmdLine, "sqlplus")
+	assert.Contains(t, step5.CmdLine, "/tmp/db-benchmind-postschema-")
+	assert.Contains(t, step5.CmdLine, "sysdba")
 
-	// Step 6: allindexes
+	// Step 6: oewizard -generate
 	step6 := cmd.Commands[5]
-	assert.Equal(t, "Build Indexes", step6.StepName)
+	assert.Equal(t, "Generate Data", step6.StepName)
 	assert.Contains(t, step6.CmdLine, "oewizard")
-	assert.Contains(t, step6.CmdLine, "-allindexes")
+	assert.Contains(t, step6.CmdLine, "-generate")
+	assert.Contains(t, step6.CmdLine, "-tc 32")
 
-	// Step 7: post-schema grant/compile
+	// Step 7: allindexes
 	step7 := cmd.Commands[6]
-	assert.Equal(t, "Post-Schema Setup", step7.StepName)
-	assert.Contains(t, step7.CmdLine, "sqlplus")
-	assert.Contains(t, step7.CmdLine, "/tmp/db-benchmind-postschema-")
-	assert.Contains(t, step7.CmdLine, "sysdba")
+	assert.Equal(t, "Build Indexes", step7.StepName)
+	assert.Contains(t, step7.CmdLine, "oewizard")
+	assert.Contains(t, step7.CmdLine, "-allindexes")
 }
 
 func TestSwingbenchAdapter_PostSchemaSetupContainsDBMSLockGrant(t *testing.T) {
@@ -167,9 +167,9 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba sys as sysdba")
-	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba sys as sysdba")
+	assert.Contains(t, cmd.Commands[4].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba sys as sysdba")
-	assert.Contains(t, cmd.Commands[6].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[6].CmdLine, "-dba sys as sysdba")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_StartsWithFullCleanupStep(t *testing.T) {

@@ -49,9 +49,9 @@ func (a *SwingbenchAdapter) Type() AdapterType {
 // 2. Connection probe verification
 // 3. Bootstrap SOE user + SOE/SOE_IDX tablespaces as SYSDBA
 // 4. Run oewizard -create to build schema structure
-// 5. Run oewizard -generate to load data
-// 6. Run oewizard -allindexes to build indexes
-// 7. Grant DBMS_LOCK and recompile invalid objects
+// 5. Grant DBMS_LOCK and recompile invalid objects required by data generation
+// 6. Run oewizard -generate to load data
+// 7. Run oewizard -allindexes to build indexes
 //
 // Phase behavior:
 // - Creates SOE/SOE_IDX tablespaces (auto-detects OMF)
@@ -105,13 +105,11 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	// Step 3: Bootstrap SOE user and tablespaces
 	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, config)
 
-	// Step 4-6: Split schema create, data generation, and index build.
+	// Step 4-7: Split schema create, privilege setup, data generation, and index build.
 	createSchemaCmd := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
+	postSetupCmd := a.buildPostSchemaSetupCommand(oracleConn, config)
 	generateDataCmd := a.buildOewizardGenerateCommand(oracleConn, connectionStr, scaleFloat, threads, config)
 	buildIndexesCmd := a.buildOewizardAllIndexesCommand(oracleConn, connectionStr, scaleFloat, config)
-
-	// Step 7: Post-schema setup
-	postSetupCmd := a.buildPostSchemaSetupCommand(oracleConn, config)
 
 	// Return command sequence
 	return &Command{
@@ -143,6 +141,12 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				Description: "Running oewizard create to build SOE schema structure",
 			},
 			{
+				CmdLine:     postSetupCmd,
+				WorkDir:     config.WorkDir,
+				StepName:    "Post-Schema Setup",
+				Description: "Granting permissions and recompiling objects required before data generation",
+			},
+			{
 				CmdLine:     generateDataCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Generate Data",
@@ -153,12 +157,6 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				WorkDir:     config.WorkDir,
 				StepName:    "Build Indexes",
 				Description: "Running oewizard allindexes to build SOE indexes",
-			},
-			{
-				CmdLine:     postSetupCmd,
-				WorkDir:     config.WorkDir,
-				StepName:    "Post-Schema Setup",
-				Description: "Granting permissions and recompiling objects",
 			},
 		},
 	}, nil

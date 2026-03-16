@@ -311,6 +311,7 @@ export namespace bindings {
 	    sid?: string;
 	    service_name?: string;
 	    connect_type?: string;
+	    connect_as?: string;
 	    ssh_enabled: boolean;
 	    ssh_port?: number;
 	    ssh_username?: string;
@@ -340,6 +341,7 @@ export namespace bindings {
 	        this.sid = source["sid"];
 	        this.service_name = source["service_name"];
 	        this.connect_type = source["connect_type"];
+	        this.connect_as = source["connect_as"];
 	        this.ssh_enabled = source["ssh_enabled"];
 	        this.ssh_port = source["ssh_port"];
 	        this.ssh_username = source["ssh_username"];
