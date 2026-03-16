@@ -721,6 +721,34 @@ func TestMarkAsFailed(t *testing.T) {
 	}
 }
 
+func TestMarkAsFailed_AllowsPreparedRunToFailAfterRunPreflight(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := &BenchmarkUseCase{runRepo: runRepo}
+
+	now := time.Now()
+	run := &execution.Run{
+		ID:        "test-run-prepared",
+		TaskID:    "test-task-prepared",
+		State:     execution.StatePrepared,
+		CreatedAt: now.Add(-time.Minute),
+	}
+	runRepo.Save(ctx, run)
+
+	uc.markAsFailed(ctx, run.ID, "run: Oracle Swingbench run failed: SOE workload user does not exist")
+
+	failed, _ := runRepo.FindByID(ctx, run.ID)
+	if failed.State != execution.StateFailed {
+		t.Fatalf("State = %s, want %s", failed.State, execution.StateFailed)
+	}
+	if failed.ErrorMessage == "" {
+		t.Fatal("ErrorMessage should be populated")
+	}
+	if failed.CompletedAt == nil {
+		t.Fatal("CompletedAt should be set for prepared -> failed reconciliation")
+	}
+}
+
 // TestMarkAsCompleted tests marking a run as completed.
 func TestMarkAsCompleted(t *testing.T) {
 	ctx := context.Background()

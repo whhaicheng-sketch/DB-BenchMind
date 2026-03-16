@@ -87,6 +87,7 @@ func TestRunState_CanTransitionTo(t *testing.T) {
 
 		// Failure transitions
 		{"preparing -> failed", StatePreparing, StateFailed, true},
+		{"prepared -> failed", StatePrepared, StateFailed, true},
 		{"warming_up -> failed", StateWarmingUp, StateFailed, true},
 		{"running -> failed", StateRunning, StateFailed, true},
 

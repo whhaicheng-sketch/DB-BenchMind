@@ -188,11 +188,29 @@ func (b *TaskBinding) StopTask(taskID string) TaskActionResult {
 		b.mu.Unlock()
 		return TaskActionResult{Success: true}
 	}
+	runID := execCtx.currentRunID
+	if runID != "" && isOracleSwingbenchTaskExecution(task) {
+		b.mu.Unlock()
+		if reconciled, result := b.reconcileNonRunningOracleSwingbenchTask(taskID, runID); reconciled {
+			return result
+		}
+		b.mu.Lock()
+		task, ok = b.tasks[taskID]
+		execCtx = b.executions[taskID]
+		if !ok || execCtx == nil {
+			b.mu.Unlock()
+			return TaskActionResult{Success: true}
+		}
+		if execCtx.stopRequested || task.Status == domaintask.StatusStopping {
+			b.mu.Unlock()
+			return TaskActionResult{Success: true}
+		}
+	}
 	previousStatus := task.Status
 	task.Status = domaintask.StatusStopping
 	execCtx.stopRequested = true
 	appendTaskEvent(task, task.CurrentPhase, "Stop requested")
-	runID := execCtx.currentRunID
+	runID = execCtx.currentRunID
 	b.mu.Unlock()
 	if runID == "" {
 		return TaskActionResult{Success: true}
@@ -579,8 +597,21 @@ func (b *TaskBinding) syncTaskRunState(taskID string, phase domaintask.Phase, st
 	if task == nil || task.Status == domaintask.StatusStopping {
 		return
 	}
+	if isOracleSwingbenchTaskExecution(task) {
+		for i := len(task.PhaseHistory) - 1; i >= 0; i-- {
+			record := &task.PhaseHistory[i]
+			if record.Phase != domaintask.PhaseRun {
+				continue
+			}
+			if record.Status == "started" && task.Status == domaintask.StatusStarting && task.CurrentPhase == domaintask.PhaseNone {
+				record.StartedAt = time.Now()
+			}
+			break
+		}
+	}
 	task.Status = domaintask.StatusRunning
 	task.CurrentPhase = domaintask.PhaseRun
+	syncTaskTiming(task, time.Now())
 }
 
 func (b *TaskBinding) refreshMetricsAndLogs(taskID string, phase domaintask.Phase, runID string) {
@@ -974,6 +1005,9 @@ func syncTaskTiming(task *domaintask.ExecutionTask, now time.Time) {
 	var runMs int64
 	var cleanupMs int64
 	for _, record := range task.PhaseHistory {
+		if shouldSkipTimingForPreflight(task, record) {
+			continue
+		}
 		end := now
 		if record.EndedAt != nil {
 			end = *record.EndedAt
@@ -1010,6 +1044,16 @@ func syncTaskTiming(task *domaintask.ExecutionTask, now time.Time) {
 		TotalMs:            totalMs,
 		RunDurationInputMs: resolveRequestedRunDuration(task.ResolvedParams),
 	}
+}
+
+func shouldSkipTimingForPreflight(task *domaintask.ExecutionTask, record domaintask.PhaseRecord) bool {
+	if task == nil || record.Phase != domaintask.PhaseRun {
+		return false
+	}
+	return isOracleSwingbenchTaskExecution(task) &&
+		task.Status == domaintask.StatusStarting &&
+		task.CurrentPhase == domaintask.PhaseNone &&
+		record.Status == "started"
 }
 
 func resolveRequestedRunDuration(params map[string]interface{}) int64 {
@@ -1185,6 +1229,39 @@ func detectOracleSwingbenchRuntimeFailure(task *domaintask.ExecutionTask, run *e
 	}
 
 	return fmt.Errorf("Oracle Swingbench run failed: workload never established completed transactions and remained at 0 TPS/TPM ([0/N]).")
+}
+
+func (b *TaskBinding) reconcileNonRunningOracleSwingbenchTask(taskID, runID string) (bool, TaskActionResult) {
+	if b.benchmarkUC == nil {
+		return false, TaskActionResult{}
+	}
+
+	run, err := b.benchmarkUC.GetBenchmarkStatus(context.Background(), runID)
+	if err != nil || run == nil {
+		return false, TaskActionResult{}
+	}
+
+	switch run.State {
+	case execution.StateRunning, execution.StateWarmingUp, execution.StatePreparing:
+		return false, TaskActionResult{}
+	}
+
+	message := strings.TrimSpace(run.ErrorMessage)
+	if message == "" {
+		message = strings.TrimSpace(run.Message)
+	}
+	if message == "" {
+		message = "No active benchmark process to stop. Task already failed or never entered run."
+	} else if run.State == execution.StatePrepared || run.State == execution.StatePending {
+		message = fmt.Sprintf("No active benchmark process to stop. Task already failed or never entered run. Last benchmark state: %s. %s", run.State, message)
+	}
+
+	status := domaintask.StatusFailed
+	if run.State == execution.StateCompleted || run.State == execution.StateCancelled || run.State == execution.StateForceStopped {
+		status = domaintask.StatusStopped
+	}
+	b.completeTask(taskID, status, domaintask.PhaseNone, message)
+	return true, TaskActionResult{Success: true}
 }
 
 func preparePrivilegeHint(task *domaintask.ExecutionTask) string {

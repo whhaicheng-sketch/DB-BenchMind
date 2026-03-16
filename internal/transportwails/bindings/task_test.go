@@ -353,6 +353,28 @@ func TestSyncTaskTimingUsesRequestedRunDurationFromResolvedParams(t *testing.T) 
 	}
 }
 
+func TestSyncTaskTiming_DoesNotCountRunMsWhileOracleSwingbenchIsStillPreflighting(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 0, 30, 0, time.UTC)
+	runStarted := now.Add(-30 * time.Second)
+	task := &domaintask.ExecutionTask{
+		Status:        domaintask.StatusStarting,
+		CurrentPhase:  domaintask.PhaseNone,
+		BenchmarkTool: "swingbench",
+		ConnectionSnapshot: domaintask.ConnectionSnapshot{
+			Type: "oracle",
+		},
+		PhaseHistory: []domaintask.PhaseRecord{
+			{Phase: domaintask.PhaseRun, Status: "started", StartedAt: runStarted},
+		},
+	}
+
+	syncTaskTiming(task, now)
+
+	if got := task.Timing.RunMs; got != 0 {
+		t.Fatalf("RunMs = %d, want 0 while task is still preflighting", got)
+	}
+}
+
 func TestClassifyTaskExecutionError_OraclePreparePermission(t *testing.T) {
 	task := &domaintask.ExecutionTask{
 		ConnectionSnapshot: domaintask.ConnectionSnapshot{Type: "oracle", Username: "app_user"},
@@ -700,6 +722,60 @@ func TestTaskBindingStopTask_RollsBackStoppingStateWhenStopRequestFails(t *testi
 	}
 	if binding.executions["task-1"].stopRequested {
 		t.Fatal("stopRequested should rollback to false on stop failure")
+	}
+}
+
+func TestTaskBindingStopTask_ReconcilesPreparedOracleSwingbenchRunWithoutProcess(t *testing.T) {
+	runRepo := useTestRunRepoWithRun(&execution.Run{
+		ID:           "run-prepared",
+		State:        execution.StatePrepared,
+		ErrorMessage: "Oracle Swingbench run failed: SOE workload user does not exist. Run Prepare first or recreate Swingbench schema.",
+	})
+	benchmarkUC := &usecase.BenchmarkUseCase{}
+	*benchmarkUC = *usecase.NewBenchmarkUseCase(runRepo, nil, nil, nil)
+
+	binding := &TaskBinding{
+		benchmarkUC:   benchmarkUC,
+		activeTaskID:  "task-1",
+		tasks: map[string]*domaintask.ExecutionTask{
+			"task-1": {
+				ID:           "task-1",
+				Status:       domaintask.StatusStarting,
+				CurrentPhase: domaintask.PhaseNone,
+				BenchmarkTool: "swingbench",
+				ConnectionSnapshot: domaintask.ConnectionSnapshot{
+					Type: "oracle",
+				},
+			},
+		},
+		executions: map[string]*taskExecutionContext{
+			"task-1": {
+				currentRunID: "run-prepared",
+				logSeen:      make(map[string]int),
+			},
+		},
+	}
+
+	result := binding.StopTask("task-1")
+	if result.Error != "" {
+		t.Fatalf("StopTask() error = %q, want quick reconciliation", result.Error)
+	}
+
+	task := binding.tasks["task-1"]
+	if task.Status != domaintask.StatusFailed {
+		t.Fatalf("task status = %s, want %s", task.Status, domaintask.StatusFailed)
+	}
+	if task.CompletedAt == nil {
+		t.Fatal("CompletedAt should be set")
+	}
+	if binding.activeTaskID != "" {
+		t.Fatalf("activeTaskID = %q, want empty", binding.activeTaskID)
+	}
+	if _, ok := binding.executions["task-1"]; ok {
+		t.Fatal("stale execution context should be cleared")
+	}
+	if !containsAll(task.ErrorMessage, []string{"No active benchmark process to stop", "never entered run"}) {
+		t.Fatalf("unexpected error message: %s", task.ErrorMessage)
 	}
 }
 

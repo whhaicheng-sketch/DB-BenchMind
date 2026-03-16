@@ -45,7 +45,7 @@ func (s RunState) CanTransitionTo(target RunState) bool {
 	transitions := map[RunState][]RunState{
 		StatePending:   {StatePreparing, StateFailed, StateCancelled}, // Allow pending -> failed for early errors (e.g., SSL, connection)
 		StatePreparing: {StatePrepared, StateFailed, StateCancelled, StateTimeout},
-		StatePrepared:  {StateWarmingUp, StateCancelled},
+		StatePrepared:  {StateWarmingUp, StateFailed, StateCancelled, StateTimeout},
 		StateWarmingUp: {StateRunning, StateFailed, StateCancelled, StateTimeout},
 		StateRunning:   {StateCompleted, StateFailed, StateCancelled, StateTimeout, StateForceStopped},
 	}
