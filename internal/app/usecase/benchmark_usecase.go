@@ -128,6 +128,13 @@ var (
 	swingbenchDebugGlob       = filepath.Glob
 )
 
+var swingbenchRuntimeLinks = map[string]string{
+	"sql":      filepath.Join(swingbenchInstallRoot, "sql"),
+	"configs":  filepath.Join(swingbenchInstallRoot, "configs"),
+	"launcher": filepath.Join(swingbenchInstallRoot, "launcher"),
+	"lib":      filepath.Join(swingbenchInstallRoot, "lib"),
+}
+
 type oracleSwingbenchRunPreflightStatus string
 
 type benchmarkRunPreflightStatus string
@@ -680,6 +687,11 @@ func (uc *BenchmarkUseCase) executePhase(
 	// Update state
 	uc.updateState(ctx, run.ID, targetState)
 	slog.Info("Benchmark: Starting phase", "phase", phase, "run_id", run.ID)
+	uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Stream:    "info",
+		Content:   fmt.Sprintf("Starting phase: %s", phase),
+	})
 
 	// Load password from keyring for Oracle connections
 	// This is needed because OracleConnection.Password is not stored in JSON (security)
@@ -703,9 +715,19 @@ func (uc *BenchmarkUseCase) executePhase(
 		"phase", phase,
 		"run_id", run.ID,
 		"connection_type", conn.GetType())
+	uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Stream:    "info",
+		Content:   fmt.Sprintf("Phase connection type: %s", conn.GetType()),
+	})
 
 	var cmd *adapter.Command
 	var err error
+	uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Stream:    "info",
+		Content:   fmt.Sprintf("Building %s phase command", phase),
+	})
 
 	switch phase {
 	case "prepare":
@@ -717,13 +739,45 @@ func (uc *BenchmarkUseCase) executePhase(
 	}
 
 	if err != nil {
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "stderr",
+			Content:   fmt.Sprintf("Failed to build %s phase command: %v", phase, err),
+		})
 		return fmt.Errorf("build %s command: %w", phase, err)
+	}
+	if cmd == nil {
+		nilErr := fmt.Errorf("%s phase command builder returned nil command", phase)
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "stderr",
+			Content:   nilErr.Error(),
+		})
+		return nilErr
+	}
+	if len(cmd.Commands) > 0 {
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("%s phase command constructed successfully as sequence with %d steps", phase, len(cmd.Commands)),
+		})
+	} else {
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("%s phase command constructed successfully", phase),
+		})
 	}
 
 	slog.Info("Benchmark: Executing phase command",
 		"phase", phase,
 		"cmd", cmd.CmdLine,
 		"run_id", run.ID)
+	uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Stream:    "info",
+		Content:   fmt.Sprintf("Executing phase command: %s", cmd.CmdLine),
+	})
 
 	// Execute command
 	if err := uc.executeCommand(ctx, run, cmd); err != nil {
@@ -1351,6 +1405,11 @@ func (uc *BenchmarkUseCase) executeCommand(ctx context.Context, run *execution.R
 			"run_id", run.ID,
 			"steps", len(cmd.Commands),
 			"description", cmd.Description)
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("Executing command sequence (%d steps)", len(cmd.Commands)),
+		})
 		return uc.executeCommandSequence(ctx, run, cmd)
 	}
 
@@ -1519,15 +1578,18 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 	var sampleCh <-chan adapter.Sample
 	var errCh <-chan error
 	var stdoutBuf *strings.Builder
+	stdoutDone := make(chan struct{})
 	mirroredStdout := uc.mirrorOutputStream(ctx, run.ID, "stdout", stdout)
 	defer mirroredStdout.Close()
 
 	if adapt != nil {
 		sampleCh, errCh, stdoutBuf = adapt.StartRealtimeCollection(ctx, mirroredStdout)
+		close(stdoutDone)
 	} else {
 		// No adapter, just collect output
 		stdoutBuf = &strings.Builder{}
 		go func() {
+			defer close(stdoutDone)
 			io.Copy(stdoutBuf, mirroredStdout)
 		}()
 	}
@@ -1627,6 +1689,7 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 
 	// Wait for sample loop to finish
 	<-sampleLoopDone
+	<-stdoutDone
 	<-stderrDone
 
 	// Close pipes
@@ -1636,7 +1699,17 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 	// If command failed, return error with output
 	if processErr != nil {
 		slog.Error("Benchmark: Command failed", "run_id", run.ID, "exit_error", processErr)
-		return fmt.Errorf("command failed with exit status %v: %w", processErr, fmt.Errorf("stderr:\n%s", stderrBuf.String()))
+		var details []string
+		if stdoutBuf != nil && stdoutBuf.Len() > 0 {
+			details = append(details, fmt.Sprintf("stdout:\n%s", stdoutBuf.String()))
+		}
+		if stderrBuf.Len() > 0 {
+			details = append(details, fmt.Sprintf("stderr:\n%s", stderrBuf.String()))
+		}
+		if len(details) == 0 {
+			details = append(details, "stderr:\n")
+		}
+		return fmt.Errorf("command failed with exit status %v: %s", processErr, strings.Join(details, "\n"))
 	}
 
 	return nil
@@ -1826,6 +1899,11 @@ func (uc *BenchmarkUseCase) executeCommandSequence(ctx context.Context, run *exe
 			"total", totalSteps,
 			"step_name", stepDesc,
 			"description", step.Description)
+		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Stream:    "info",
+			Content:   fmt.Sprintf("Starting sequence step=%d/%d: %s", stepNum, totalSteps, stepDesc),
+		})
 
 		// Add separator log entry for UI
 		uc.runRepo.SaveLogEntry(ctx, run.ID, LogEntry{
@@ -1971,20 +2049,25 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	workDir := cmd.WorkDir
 	if isSwingbenchCommandLine(cmd.CmdLine) {
 		parts = normalizeSwingbenchCommandParts(parts)
+		workDir, err = prepareSwingbenchRuntimeDir(cmd.WorkDir)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("prepare swingbench runtime dir: %w", err)
+		}
 	}
 
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if isSwingbenchCommandLine(cmd.CmdLine) {
-		execCmd.Dir = cmd.WorkDir
+		execCmd.Dir = workDir
 		slog.Info("Benchmark: Setting Swingbench working directory",
 			"work_dir", execCmd.Dir,
-			"reason", "Swingbench logs should write to the run workspace while bundled resources use absolute install paths")
+			"reason", "Swingbench needs a bin-relative runtime layout while logs stay in the run workspace")
 	} else {
-		execCmd.Dir = cmd.WorkDir
+		execCmd.Dir = workDir
 	}
 
 	execCmd.Env = append(os.Environ(), cmd.Env...)
@@ -2021,6 +2104,45 @@ func (uc *BenchmarkUseCase) startCommand(ctx context.Context, cmd *adapter.Comma
 	}
 
 	return execCmd, stdout, stderr, nil
+}
+
+func prepareSwingbenchRuntimeDir(workDir string) (string, error) {
+	root := filepath.Join(workDir, "swingbench")
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", err
+	}
+
+	for name, target := range swingbenchRuntimeLinks {
+		linkPath := filepath.Join(root, name)
+		if err := ensureSwingbenchRuntimeLink(linkPath, target); err != nil {
+			return "", err
+		}
+	}
+	if err := ensureSwingbenchRuntimeLink(filepath.Join(binDir, "data"), filepath.Join(swingbenchBinDir, "data")); err != nil {
+		return "", err
+	}
+
+	return binDir, nil
+}
+
+func ensureSwingbenchRuntimeLink(linkPath, target string) error {
+	info, err := os.Lstat(linkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			currentTarget, readErr := os.Readlink(linkPath)
+			if readErr == nil && currentTarget == target {
+				return nil
+			}
+		}
+		if removeErr := os.RemoveAll(linkPath); removeErr != nil {
+			return removeErr
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	return os.Symlink(target, linkPath)
 }
 
 // captureOutput captures and saves command output.
@@ -3268,7 +3390,7 @@ func swingbenchNoOutputTimeoutForStep(step *adapter.Command) time.Duration {
 	switch strings.TrimSpace(step.StepName) {
 	case "Create Schema", "Generate Data", "Build Indexes":
 		if isSwingbenchCommandLine(step.CmdLine) {
-			return 90 * time.Second
+			return 10 * time.Minute
 		}
 	}
 	return 0

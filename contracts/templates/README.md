@@ -44,9 +44,10 @@ Swingbench Oracle notes:
 - DB-BenchMind lifecycle semantics are unified: `prepare` always rebuilds, `run` reuses the prepared environment, and `cleanup` fully removes it.
 - Oracle Swingbench cleanup is a destructive teardown of the whole SOE benchmark environment: `SOE` user, `SOE/SOE_IDX` tablespaces, related datafiles, and other create-blocking residue.
 - Oracle Swingbench prepare is strictly `cleanup` once, `Verify Cleanup State`, then bootstrap plus `oewizard -create`, `-generate`, and `-allindexes`; it must not short-circuit just because SOE already exists.
-- Oracle Swingbench bootstrap uses `sys as sysdba` and must remain semantically aligned with the validated `cts_orac.sql` flow.
+- Oracle Swingbench bootstrap must grant `EXECUTE ON DBMS_LOCK` to `SOE` before schema build. If the selected Oracle connection account cannot issue that grant, configure the connection itself as `sys` with `connect_as=sysdba` or pass `sysdba_username/sysdba_password` as an administrative override.
 - Current installed `oewizard` capability is the source of truth for command construction. In this environment it does not accept `-its`, so `SOE_IDX` is created by bootstrap rather than passed as an `oewizard` option.
 - Oracle Swingbench `oewizard` create/generate/allindexes defaults to `system` plus the current connection password, or uses explicit `dba_username/dba_password` if provided. If that account lacks the needed privileges, the prepare flow should fail with the real command/error in logs.
+- Current installed Swingbench `oewizard 2.5.0.971` rejects standalone `-allindexes`, so the final "build indexes" step is executed through `sbutil -ci`, `sbutil -code`, and `sbutil -val` to reach a run-ready SOE schema.
 - Oracle Swingbench run is workload-only and uses `charbench`; prepare/cleanup work must not leak into the run phase.
 
 ### HammerDB Templates

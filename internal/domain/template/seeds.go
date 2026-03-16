@@ -271,7 +271,7 @@ func DefaultSeedTemplates() []*Template {
 				"scale": {
 					Type:    ParameterTypeInteger,
 					Label:   "Scale",
-					Default: 1,
+					Default: 0.1,
 				},
 			},
 			Compatibility: Compatibility{

@@ -271,6 +271,7 @@ export const templateMocks = [
         frontend: 'charbench',
         configMode: 'managed',
         wizardOperation: 'generate',
+        scale: 0.1,
         userCount: 1,
         runTimeSeconds: 60,
         minThinkTime: 0,

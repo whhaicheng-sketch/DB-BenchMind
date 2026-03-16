@@ -129,24 +129,15 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	// Step 6: allindexes
 	step6Indexes := cmd.Commands[5]
 	assert.Equal(t, "Build Indexes", step6Indexes.StepName)
-	assert.Contains(t, step6Indexes.CmdLine, "oewizard")
-	assert.Contains(t, step6Indexes.CmdLine, "-cl")
+	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
 	assert.Contains(t, step6Indexes.CmdLine, "-cs //localhost:1521/ORCL")
-	assert.Contains(t, step6Indexes.CmdLine, "-dba system")
-	assert.Contains(t, step6Indexes.CmdLine, "-dbap testpass")
 	assert.Contains(t, step6Indexes.CmdLine, "-u soe")
 	assert.Contains(t, step6Indexes.CmdLine, "-p soe")
-	assert.Contains(t, step6Indexes.CmdLine, "-scale 0.1")
-	assert.Contains(t, step6Indexes.CmdLine, "-ts SOE")
-	assert.Contains(t, step6Indexes.CmdLine, "-normalfile")
-	assert.Contains(t, step6Indexes.CmdLine, "-allindexes")
-	assert.Contains(t, step6Indexes.CmdLine, "-v")
-	assert.Contains(t, step6Indexes.CmdLine, "-debugf /tmp/test/oewizard-indexes-debug.log")
-	assert.NotContains(t, step6Indexes.CmdLine, "-c oewizard.xml")
-	assert.NotContains(t, step6Indexes.CmdLine, "-version")
-	assert.NotContains(t, step6Indexes.CmdLine, "-dt")
-	assert.NotContains(t, step6Indexes.CmdLine, "-nopart")
-	assert.NotContains(t, step6Indexes.CmdLine, "-nocompress")
+	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -ci")
+	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -code")
+	assert.Contains(t, step6Indexes.CmdLine, "/opt/benchtools/swingbench/bin/sbutil -soe -cs //localhost:1521/ORCL -u soe -p soe -val")
+	assert.Contains(t, step6Indexes.Description, "sbutil")
+	assert.Contains(t, step6Indexes.Description, "sbutil-validate.log")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdministrativeSteps(t *testing.T) {
@@ -186,7 +177,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesOracleConnectAsForAllAdminist
 	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
 	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
 }
 
 func TestSwingbenchAdapter_BuildPrepareCommand_UsesDefaultSystemCredentialsForOewizard(t *testing.T) {
@@ -217,7 +208,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_UsesDefaultSystemCredentialsForOe
 	require.Len(t, cmd.Commands, 6)
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
 	assert.Contains(t, cmd.Commands[4].CmdLine, "-dba system")
-	assert.Contains(t, cmd.Commands[5].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[5].CmdLine, "/opt/benchtools/swingbench/bin/sbutil")
 	assert.Contains(t, cmd.Commands[3].CmdLine, "-dbap manager")
 }
 
@@ -300,6 +291,10 @@ func TestSwingbenchAdapter_BuildPrepareCommand_VerifiesCleanupBeforeBootstrapAnd
 	assert.Contains(t, string(verifySQL), "from dba_tablespaces")
 	assert.Contains(t, string(verifySQL), "from dba_data_files")
 	assert.Contains(t, string(verifySQL), "raise_application_error")
+	bootstrapSQLFile := strings.TrimSpace(cmd.Commands[2].CmdLine[strings.LastIndex(cmd.Commands[2].CmdLine, "@")+1:])
+	bootstrapSQL, bootstrapReadErr := os.ReadFile(bootstrapSQLFile)
+	require.NoError(t, bootstrapReadErr)
+	assert.Contains(t, string(bootstrapSQL), "grant execute on dbms_lock")
 }
 
 func TestResolveOracleWizardCredentials_PrefersExplicitDBACredentialsAndReportsSource(t *testing.T) {
@@ -408,7 +403,7 @@ func TestSwingbenchAdapter_BuildCleanupCommand_IsIdempotentForMissingOrPartialOb
 	assert.Contains(t, sqlText, "Drop tablespace SOE skipped")
 }
 
-func TestSwingbenchAdapter_BuildPrepareCommand_RejectsNonSysAdministrativeUser(t *testing.T) {
+func TestSwingbenchAdapter_BuildPrepareCommand_UsesSysdbaSemanticsForAdministrativeSteps(t *testing.T) {
 	ctx := context.Background()
 	adapter := NewSwingbenchAdapter()
 
@@ -424,7 +419,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand_RejectsNonSysAdministrativeUser(t
 		Password:    "manager",
 	}
 
-	_, err := adapter.BuildPrepareCommand(ctx, &Config{
+	cmd, err := adapter.BuildPrepareCommand(ctx, &Config{
 		Connection: conn,
 		Parameters: map[string]interface{}{
 			"scale":   0.1,
@@ -432,8 +427,53 @@ func TestSwingbenchAdapter_BuildPrepareCommand_RejectsNonSysAdministrativeUser(t
 		},
 		WorkDir: "/tmp/test-system",
 	})
+	require.NoError(t, err)
+	require.Len(t, cmd.Commands, 6)
+	assert.Contains(t, cmd.Commands[0].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[1].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[2].CmdLine, "sys/manager@//localhost:1521/ORCL as sysdba")
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dba system")
+	assert.Contains(t, cmd.Commands[3].CmdLine, "-dbap manager")
+}
+
+func TestResolveOracleAdminCredentials_MapsSystemConnectionToSysdbaSemantics(t *testing.T) {
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "test-conn-admin-map", Name: "Oracle Admin Map"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
+	}
+
+	creds, err := resolveOracleAdminCredentials(conn, &Config{Connection: conn})
+
+	require.NoError(t, err)
+	assert.Equal(t, "sys", creds.username)
+	assert.Equal(t, "manager", creds.password)
+	assert.Equal(t, "sysdba", creds.connectAs)
+	assert.Equal(t, "connection credentials", creds.source)
+}
+
+func TestResolveOracleWizardCredentials_ReportsMissingExplicitPassword(t *testing.T) {
+	conn := &connection.OracleConnection{
+		BaseConnection: connection.BaseConnection{ID: "test-conn-partial", Name: "Oracle Partial Creds"},
+		Host:           "localhost",
+		Port:           1521,
+		ServiceName:    "ORCL",
+		Username:       "system",
+		Password:       "manager",
+	}
+
+	_, _, _, err := resolveOracleWizardCredentials(conn, &Config{
+		Connection: conn,
+		Parameters: map[string]interface{}{
+			"dba_username": "system",
+		},
+	})
+
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Oracle Swingbench prepare requires SYS")
+	assert.Contains(t, err.Error(), "set dba_password")
 }
 
 // TestSwingbenchAdapter_BuildRunCommand tests building run command.

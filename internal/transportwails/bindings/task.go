@@ -873,7 +873,7 @@ func resolveParams(tmpl *domaintemplate.Template, overrides map[string]interface
 	for key, value := range overrides {
 		params[key] = value
 	}
-	for _, key := range []string{"threads", "virtual_users", "time", "duration", "tables", "table_size", "warehouses", "scale"} {
+	for _, key := range []string{"threads", "virtual_users", "time", "duration", "tables", "table_size", "warehouses"} {
 		if value, ok := params[key]; ok {
 			intValue, ok := toInt(value)
 			if !ok {
@@ -883,6 +883,27 @@ func resolveParams(tmpl *domaintemplate.Template, overrides map[string]interface
 				return nil, fmt.Errorf("%s must be positive", key)
 			}
 			params[key] = intValue
+		}
+	}
+	if value, ok := params["scale"]; ok {
+		if tmpl.Tool == domaintemplate.ToolSwingbench {
+			scaleValue, ok := toFloat(value)
+			if !ok {
+				return nil, fmt.Errorf("scale must be numeric")
+			}
+			if scaleValue <= 0 {
+				return nil, fmt.Errorf("scale must be positive")
+			}
+			params["scale"] = scaleValue
+		} else {
+			intValue, ok := toInt(value)
+			if !ok {
+				return nil, fmt.Errorf("scale must be an integer")
+			}
+			if intValue <= 0 {
+				return nil, fmt.Errorf("scale must be positive")
+			}
+			params["scale"] = intValue
 		}
 	}
 	if tmpl.Tool != domaintemplate.ToolHammerDB {
@@ -904,6 +925,21 @@ func toInt(value interface{}) (int, bool) {
 		return int(v), true
 	case float64:
 		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+func toFloat(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case int:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float64:
+		return v, true
 	default:
 		return 0, false
 	}

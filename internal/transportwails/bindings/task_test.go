@@ -206,7 +206,7 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 				"scale": {
 					Type:    domaintemplate.ParameterTypeInteger,
 					Label:   "Scale",
-					Default: 1,
+					Default: 0.1,
 				},
 			},
 			Phases: domaintemplate.PhaseSet{
@@ -232,8 +232,8 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveParams() failed: %v", err)
 		}
-		if got := params["scale"]; got != 1 {
-			t.Fatalf("scale = %v, want 1", got)
+		if got := params["scale"]; got != 0.1 {
+			t.Fatalf("scale = %v, want 0.1", got)
 		}
 		if got := params["virtual_users"]; got != 1 {
 			t.Fatalf("virtual_users = %v, want 1", got)

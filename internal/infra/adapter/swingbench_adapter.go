@@ -29,6 +29,13 @@ type SwingbenchAdapter struct {
 	OewizardPath string
 }
 
+type oracleAdminCredentials struct {
+	username  string
+	password  string
+	connectAs string
+	source    string
+}
+
 // NewSwingbenchAdapter creates a new swingbench adapter.
 func NewSwingbenchAdapter() *SwingbenchAdapter {
 	return &SwingbenchAdapter{
@@ -71,8 +78,9 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	if !ok {
 		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
 	}
-	if !strings.EqualFold(strings.TrimSpace(oracleConn.Username), "sys") {
-		return nil, fmt.Errorf("Oracle Swingbench prepare requires SYS credentials. Current username %q will fail during prepare; use SYS and provide the password", strings.TrimSpace(oracleConn.Username))
+	adminCreds, err := resolveOracleAdminCredentials(oracleConn, config)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build connection string for swingbench (not JDBC format)
@@ -98,13 +106,13 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 	}
 
 	// Step 1: Full cleanup
-	cleanupCmd := a.buildCleanupSOEObjectsCommand(oracleConn, config)
+	cleanupCmd := a.buildCleanupSOEObjectsCommand(oracleConn, adminCreds)
 
 	// Step 2: Cleanup verification (cleanup must leave a create-safe environment)
-	verifyCleanupCmd := a.buildCleanupVerificationCommand(oracleConn, config)
+	verifyCleanupCmd := a.buildCleanupVerificationCommand(oracleConn, adminCreds)
 
 	// Step 3: Bootstrap SOE user and tablespaces
-	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, config)
+	bootstrapCmd := a.buildSOEBootstrapCommand(oracleConn, adminCreds)
 
 	// Step 4-6: Build schema, generate data, and build indexes.
 	createSchemaCmd, createDebugLog, wizardCredentialSource, err := a.buildOewizardCreateCommand(oracleConn, connectionStr, scaleFloat, config)
@@ -129,19 +137,19 @@ func (a *SwingbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Con
 				CmdLine:     cleanupCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Cleanup Existing Environment",
-				Description: "Dropping existing SOE user, tablespaces, and datafiles before rebuild",
+				Description: fmt.Sprintf("Dropping existing SOE user, tablespaces, and datafiles before rebuild. Administrative credentials source: %s", adminCreds.source),
 			},
 			{
 				CmdLine:     verifyCleanupCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Verify Cleanup State",
-				Description: "SOE cleanup verification: confirming SOE user, SOE/SOE_IDX tablespaces, and related datafiles are gone before create",
+				Description: fmt.Sprintf("SOE cleanup verification: confirming SOE user, SOE/SOE_IDX tablespaces, and related datafiles are gone before create. Administrative credentials source: %s", adminCreds.source),
 			},
 			{
 				CmdLine:     bootstrapCmd,
 				WorkDir:     config.WorkDir,
 				StepName:    "Bootstrap SOE",
-				Description: "Creating SOE user and SOE/SOE_IDX tablespaces for the rebuild",
+				Description: fmt.Sprintf("Creating SOE user and SOE/SOE_IDX tablespaces for the rebuild. Administrative credentials source: %s", adminCreds.source),
 			},
 			{
 				CmdLine:     createSchemaCmd,
@@ -327,8 +335,12 @@ func (a *SwingbenchAdapter) BuildCleanupCommand(ctx context.Context, config *Con
 	if !ok {
 		return nil, fmt.Errorf("invalid connection type for swingbench: %T", conn)
 	}
+	adminCreds, err := resolveOracleAdminCredentials(oracleConn, config)
+	if err != nil {
+		return nil, err
+	}
 
-	cmdLine := a.buildCleanupSOEObjectsCommand(oracleConn, config)
+	cmdLine := a.buildCleanupSOEObjectsCommand(oracleConn, adminCreds)
 
 	return &Command{
 		CmdLine: cmdLine,
@@ -1242,41 +1254,66 @@ select 'Available tablespaces: ' || count(*) as tablespace_count from v$tablespa
 exit
 `
 
-	// Use DBA credentials if provided, otherwise use connection credentials
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	creds, err := resolveOracleAdminCredentials(conn, config)
+	if err != nil {
+		return fmt.Sprintf("echo '%s' && exit 1", strings.ReplaceAll(err.Error(), "'", ""))
+	}
 
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' <<'SQL'\n%s\nSQL",
-		username,
-		password,
+		creds.username,
+		creds.password,
 		a.buildCharbenchConnectionString(conn),
-		sqlplusConnectAsSuffix(connectAs),
+		sqlplusConnectAsSuffix(creds.connectAs),
 		probeSQL)
 }
 
-func resolveOracleAdminCredentials(conn *connection.OracleConnection, config *Config) (string, string, string) {
-	username := strings.TrimSpace(conn.Username)
-	password := conn.Password
-	connectAs := strings.ToLower(strings.TrimSpace(conn.ConnectAs))
+func resolveOracleAdminCredentials(conn *connection.OracleConnection, config *Config) (oracleAdminCredentials, error) {
+	creds := oracleAdminCredentials{
+		username:  strings.TrimSpace(conn.Username),
+		password:  conn.Password,
+		connectAs: strings.ToLower(strings.TrimSpace(conn.ConnectAs)),
+		source:    "connection credentials",
+	}
+	connectAs := creds.connectAs
 	if connectAs == "" {
 		connectAs = "normal"
 	}
+	creds.connectAs = connectAs
 
-	if sysUser, ok := config.Parameters["sysdba_username"].(string); ok && strings.TrimSpace(sysUser) != "" {
-		username = strings.TrimSpace(sysUser)
-		connectAs = "sysdba"
-	}
-	if sysPass, ok := config.Parameters["sysdba_password"].(string); ok && sysPass != "" {
-		password = sysPass
-		if connectAs == "normal" {
-			connectAs = "sysdba"
+	if config != nil {
+		sysUser, hasSysUser := config.Parameters["sysdba_username"].(string)
+		sysPass, hasSysPass := config.Parameters["sysdba_password"].(string)
+		if strings.TrimSpace(sysUser) != "" || strings.TrimSpace(sysPass) != "" {
+			if strings.TrimSpace(sysUser) == "" {
+				return oracleAdminCredentials{}, fmt.Errorf("oracle administrative credentials override requires sysdba_username")
+			}
+			if strings.TrimSpace(sysPass) == "" {
+				return oracleAdminCredentials{}, fmt.Errorf("oracle administrative credentials override requires sysdba_password")
+			}
+			username, overrideConnectAs := splitOracleAdminUsername(strings.TrimSpace(sysUser), "sysdba")
+			creds.username = username
+			creds.password = sysPass
+			creds.connectAs = overrideConnectAs
+			creds.source = "sysdba_username/sysdba_password"
+			if creds.connectAs == "" {
+				creds.connectAs = "sysdba"
+			}
+			return creds, nil
+		}
+		if hasSysUser || hasSysPass {
+			return oracleAdminCredentials{}, fmt.Errorf("oracle administrative credentials override requires both sysdba_username and sysdba_password")
 		}
 	}
 
-	if strings.EqualFold(strings.TrimSpace(username), "sys") && connectAs == "normal" {
-		connectAs = "sysdba"
+	if strings.EqualFold(strings.TrimSpace(creds.username), "sys") && creds.connectAs == "normal" {
+		creds.connectAs = "sysdba"
+	}
+	if strings.EqualFold(strings.TrimSpace(creds.username), "system") && creds.connectAs == "normal" {
+		creds.username = "sys"
+		creds.connectAs = "sysdba"
 	}
 
-	return username, password, connectAs
+	return creds, nil
 }
 
 func splitOracleAdminUsername(username string, fallbackConnectAs string) (string, string) {
@@ -1337,7 +1374,7 @@ func sqlplusConnectAsSuffix(connectAs string) string {
 	}
 }
 
-func (a *SwingbenchAdapter) buildSOEBootstrapCommand(conn *connection.OracleConnection, config *Config) string {
+func (a *SwingbenchAdapter) buildSOEBootstrapCommand(conn *connection.OracleConnection, creds oracleAdminCredentials) string {
 	bootstrapSQL := `
 set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
 whenever sqlerror exit sql.sqlcode rollback
@@ -1439,6 +1476,7 @@ begin
   execute immediate 'alter user '||v_user||' quota unlimited on '||v_ts_data;
   execute immediate 'grant create session, create table, create sequence, create procedure, create trigger, create view, create type, create synonym to '||v_user;
   execute immediate 'grant unlimited tablespace to '||v_user;
+  execute immediate 'grant execute on dbms_lock to '||v_user;
   dbms_output.put_line('Bootstrap complete.');
 end;
 /
@@ -1450,12 +1488,11 @@ exit
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
-		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+		creds.username, creds.password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(creds.connectAs), tempSQLFile)
 }
 
-func (a *SwingbenchAdapter) buildCleanupSOEObjectsCommand(conn *connection.OracleConnection, config *Config) string {
+func (a *SwingbenchAdapter) buildCleanupSOEObjectsCommand(conn *connection.OracleConnection, creds oracleAdminCredentials) string {
 	cleanupSQL := `
 set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
 whenever sqlerror continue
@@ -1510,9 +1547,8 @@ exit
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
-		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+		creds.username, creds.password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(creds.connectAs), tempSQLFile)
 }
 
 // buildSchemaExistenceCheckCommand builds a sqlplus command to check if SOE schema already exists.
@@ -1567,18 +1603,20 @@ end;
 exit
 `
 
-	// Use DBA credentials for schema check
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	creds, err := resolveOracleAdminCredentials(conn, config)
+	if err != nil {
+		return fmt.Sprintf("echo '%s' && exit 1", strings.ReplaceAll(err.Error(), "'", ""))
+	}
 
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' <<'SQL'\n%s\nSQL",
-		username,
-		password,
+		creds.username,
+		creds.password,
 		a.buildCharbenchConnectionString(conn),
-		sqlplusConnectAsSuffix(connectAs),
+		sqlplusConnectAsSuffix(creds.connectAs),
 		checkSQL)
 }
 
-func (a *SwingbenchAdapter) buildCleanupVerificationCommand(conn *connection.OracleConnection, config *Config) string {
+func (a *SwingbenchAdapter) buildCleanupVerificationCommand(conn *connection.OracleConnection, creds oracleAdminCredentials) string {
 	verifySQL := `
 set echo on feedback on verify off heading on pagesize 200 linesize 200 trimspool on serveroutput on
 whenever sqlerror exit sql.sqlcode rollback
@@ -1625,9 +1663,8 @@ exit
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
-		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+		creds.username, creds.password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(creds.connectAs), tempSQLFile)
 }
 
 // buildOewizardCreateCommand builds the hand-validated oewizard -create command.
@@ -1685,29 +1722,20 @@ func (a *SwingbenchAdapter) buildOewizardGenerateCommand(conn *connection.Oracle
 }
 
 func (a *SwingbenchAdapter) buildOewizardAllIndexesCommand(conn *connection.OracleConnection, connectionStr string, scaleFloat float64, config *Config) (string, string, string, error) {
-	dbaUser, dbaPass, source, err := resolveOracleWizardCredentials(conn, config)
+	_, _, source, err := resolveOracleWizardCredentials(conn, config)
 	if err != nil {
 		return "", "", "", err
 	}
 	debugLog := filepath.Join(config.WorkDir, "oewizard-indexes-debug.log")
-
-	cmdArgs := []string{
-		"./oewizard",
-		"-cl",
-		"-cs", connectionStr,
-		"-dba", dbaUser,
-		"-dbap", dbaPass,
-		"-u", "soe",
-		"-p", "soe",
-		"-ts", "SOE",
-		"-normalfile",
-		"-allindexes",
-		"-scale", formatSwingbenchScale(scaleFloat),
-		"-v",
-		"-debugf", debugLog,
-	}
-
-	return strings.Join(cmdArgs, " "), debugLog, source, nil
+	sbutilValidateLog := filepath.Join(config.WorkDir, "sbutil-validate.log")
+	cmdLine := fmt.Sprintf(
+		"bash -lc \"JAVA_TOOL_OPTIONS='-Doracle.jdbc.timezoneAsRegion=false -Duser.timezone=UTC' /opt/benchtools/swingbench/bin/sbutil -soe -cs %s -u soe -p soe -ci && JAVA_TOOL_OPTIONS='-Doracle.jdbc.timezoneAsRegion=false -Duser.timezone=UTC' /opt/benchtools/swingbench/bin/sbutil -soe -cs %s -u soe -p soe -code && JAVA_TOOL_OPTIONS='-Doracle.jdbc.timezoneAsRegion=false -Duser.timezone=UTC' /opt/benchtools/swingbench/bin/sbutil -soe -cs %s -u soe -p soe -val | tee %s\"",
+		connectionStr,
+		connectionStr,
+		connectionStr,
+		sbutilValidateLog,
+	)
+	return cmdLine, debugLog + ", " + sbutilValidateLog, source, nil
 }
 
 func formatSwingbenchScale(scaleFloat float64) string {
@@ -1828,9 +1856,12 @@ exit
 		return fmt.Sprintf("echo 'Failed to create temp SQL file: %v' && exit 1", err)
 	}
 	// Return command to execute the SQL file with sqlplus
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
+	creds, err := resolveOracleAdminCredentials(conn, config)
+	if err != nil {
+		return fmt.Sprintf("echo '%s' && exit 1", strings.ReplaceAll(err.Error(), "'", ""))
+	}
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
-		username, password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+		creds.username, creds.password, a.buildCharbenchConnectionString(conn), sqlplusConnectAsSuffix(creds.connectAs), tempSQLFile)
 }
 
 // buildPostSchemaSetupCommand builds the post-schema setup command.
@@ -1838,9 +1869,12 @@ exit
 func (a *SwingbenchAdapter) buildPostSchemaSetupCommand(conn *connection.OracleConnection, config *Config) string {
 	// Use DBA credentials for granting privileges
 	// For SYSDBA connection, we need to use "sys" username, not "system"
-	username, password, connectAs := resolveOracleAdminCredentials(conn, config)
-	if connectAs == "" || connectAs == "normal" {
-		connectAs = "sysdba"
+	creds, err := resolveOracleAdminCredentials(conn, config)
+	if err != nil {
+		return fmt.Sprintf("echo '%s' && exit 1", strings.ReplaceAll(err.Error(), "'", ""))
+	}
+	if creds.connectAs == "" || creds.connectAs == "normal" {
+		creds.connectAs = "sysdba"
 	}
 
 	// Build connection string for sysdba
@@ -1874,7 +1908,7 @@ exit
 
 	// Connect as SYSDBA for granting privileges
 	return fmt.Sprintf("sqlplus -L '%s/%s@%s%s' @%s",
-		username, password, connStr, sqlplusConnectAsSuffix(connectAs), tempSQLFile)
+		creds.username, creds.password, connStr, sqlplusConnectAsSuffix(creds.connectAs), tempSQLFile)
 }
 
 // buildOewizardDropCommand builds the oewizard -drop command.

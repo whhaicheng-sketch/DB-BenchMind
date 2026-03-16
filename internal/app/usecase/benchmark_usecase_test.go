@@ -496,6 +496,41 @@ func (a *prepareOnlySequenceAdapter) SupportsDatabase(dbType connection.Database
 	return true
 }
 
+type failingPrepareAdapter struct {
+	err error
+}
+
+func (a *failingPrepareAdapter) Type() adapter.AdapterType { return adapter.AdapterTypeSwingbench }
+func (a *failingPrepareAdapter) BuildPrepareCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return nil, a.err
+}
+func (a *failingPrepareAdapter) BuildRunCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return nil, errors.New("not implemented")
+}
+func (a *failingPrepareAdapter) BuildCleanupCommand(ctx context.Context, config *adapter.Config) (*adapter.Command, error) {
+	return nil, errors.New("not implemented")
+}
+func (a *failingPrepareAdapter) ParseRunOutput(ctx context.Context, stdout string, stderr string) (*adapter.Result, error) {
+	return &adapter.Result{}, nil
+}
+func (a *failingPrepareAdapter) StartRealtimeCollection(ctx context.Context, stdout io.Reader) (<-chan adapter.Sample, <-chan error, *strings.Builder) {
+	sampleCh := make(chan adapter.Sample)
+	errCh := make(chan error)
+	var buf strings.Builder
+	close(sampleCh)
+	close(errCh)
+	return sampleCh, errCh, &buf
+}
+func (a *failingPrepareAdapter) ValidateConfig(ctx context.Context, config *adapter.Config) error {
+	return nil
+}
+func (a *failingPrepareAdapter) ParseFinalResults(ctx context.Context, stdout string) (*adapter.FinalResult, error) {
+	return &adapter.FinalResult{}, nil
+}
+func (a *failingPrepareAdapter) SupportsDatabase(dbType connection.DatabaseType) bool {
+	return true
+}
+
 // TestBenchmarkUseCase_StartBenchmark tests starting a benchmark.
 func TestBenchmarkUseCase_StartBenchmark(t *testing.T) {
 	ctx := context.Background()
@@ -719,6 +754,118 @@ func TestExecuteBenchmark_PrepareOnlyRunsCleanupExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestExecutePhase_LogsPrepareCommandConstructionFailureReason(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	run := &execution.Run{
+		ID:        "run-build-prepare-fail",
+		TaskID:    "task-build-prepare-fail",
+		State:     execution.StatePending,
+		CreatedAt: time.Now(),
+		WorkDir:   t.TempDir(),
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	config := &adapter.Config{
+		Connection: &connection.OracleConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+			Host:           "localhost",
+			Port:           1521,
+			ServiceName:    "ORCL",
+			Username:       "system",
+			Password:       "manager",
+		},
+		Parameters: map[string]interface{}{},
+		WorkDir:    run.WorkDir,
+	}
+
+	err := uc.executePhase(ctx, run, &failingPrepareAdapter{
+		err: errors.New("missing sysdba_password for bootstrap override"),
+	}, config, "prepare", execution.StatePreparing, execution.StatePrepared)
+	if err == nil {
+		t.Fatal("executePhase() expected error")
+	}
+
+	logText := flattenLogEntries(runRepo.logs[run.ID])
+	for _, want := range []string{
+		"Starting phase: prepare",
+		"Building prepare phase command",
+		"Failed to build prepare phase command",
+		"missing sysdba_password for bootstrap override",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("expected %q in logs, got: %s", want, logText)
+		}
+	}
+}
+
+func TestExecutePhase_PrepareSequenceLogsExecutionMilestones(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	run := &execution.Run{
+		ID:        "run-prepare-sequence-log",
+		TaskID:    "task-prepare-sequence-log",
+		State:     execution.StatePending,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	if err := runRepo.Save(ctx, run); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	err := uc.executePhase(ctx, run, &prepareOnlySequenceAdapter{
+		prepare: &adapter.Command{
+			CmdLine: "oracle_prepare_sequence",
+			Commands: []*adapter.Command{
+				{
+					StepName: "Cleanup Existing Environment",
+					CmdLine:  "bash -lc 'echo cleanup-started'",
+					WorkDir:  tempDir,
+				},
+				{
+					StepName: "Create Schema",
+					CmdLine:  "bash -lc 'echo create-started'",
+					WorkDir:  tempDir,
+				},
+			},
+		},
+		cleanup: &adapter.Command{CmdLine: "bash -lc 'exit 0'", WorkDir: tempDir},
+	}, &adapter.Config{
+		Connection: &connection.OracleConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+			Host:           "localhost",
+			Port:           1521,
+			ServiceName:    "ORCL",
+			Username:       "system",
+			Password:       "manager",
+		},
+		Parameters: map[string]interface{}{},
+		WorkDir:    tempDir,
+	}, "prepare", execution.StatePreparing, execution.StatePrepared)
+	if err != nil {
+		t.Fatalf("executePhase() unexpected error: %v", err)
+	}
+
+	logText := flattenLogEntries(runRepo.logs[run.ID])
+	for _, want := range []string{
+		"Starting phase: prepare",
+		"Executing phase command: oracle_prepare_sequence",
+		"Executing command sequence (2 steps)",
+		"Starting sequence step=1/2: Cleanup Existing Environment",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("expected %q in logs, got: %s", want, logText)
+		}
+	}
+}
+
 func TestExecuteCommandSequence_BlocksCreateWhenCleanupVerificationFailsAndLogsReason(t *testing.T) {
 	ctx := context.Background()
 	runRepo := newMockRunRepository()
@@ -836,6 +983,37 @@ func TestExecuteCommandSequence_CreateFailureLogsDiagnosticOutput(t *testing.T) 
 		if !strings.Contains(logText, want) {
 			t.Fatalf("expected %q in logs, got: %s", want, logText)
 		}
+	}
+}
+
+func TestExecuteCommandSync_IncludesStdoutForSqlplusStyleFailures(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	run := &execution.Run{
+		ID:        "run-sqlplus-stdout-fail",
+		TaskID:    "task-sqlplus-stdout-fail",
+		State:     execution.StatePreparing,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	require.NoError(t, runRepo.Save(ctx, run))
+
+	err := uc.executeCommandSync(ctx, run, &adapter.Command{
+		StepName: "Bootstrap SOE",
+		CmdLine:  "bash -lc 'echo \"ORA-01031: insufficient privileges\"; exit 7'",
+		WorkDir:  tempDir,
+	})
+
+	require.Error(t, err)
+	assertErr := err.Error()
+	if !strings.Contains(assertErr, "ORA-01031: insufficient privileges") {
+		t.Fatalf("expected stdout diagnostics in error, got: %s", assertErr)
+	}
+	if !strings.Contains(assertErr, "stdout:") {
+		t.Fatalf("expected stdout label in error, got: %s", assertErr)
 	}
 }
 
@@ -1163,6 +1341,40 @@ func TestNormalizeSwingbenchCommandParts_InsertsDefaultOewizardConfigWhenMissing
 	}
 }
 
+func TestPrepareSwingbenchRuntimeDir_CreatesSandboxLayout(t *testing.T) {
+	workDir := t.TempDir()
+
+	runtimeDir, err := prepareSwingbenchRuntimeDir(workDir)
+	if err != nil {
+		t.Fatalf("prepareSwingbenchRuntimeDir() error = %v", err)
+	}
+
+	wantDir := filepath.Join(workDir, "swingbench", "bin")
+	if runtimeDir != wantDir {
+		t.Fatalf("runtimeDir = %q, want %q", runtimeDir, wantDir)
+	}
+
+	for _, name := range []string{"sql", "configs", "launcher", "lib"} {
+		target := filepath.Join(workDir, "swingbench", name)
+		info, statErr := os.Lstat(target)
+		if statErr != nil {
+			t.Fatalf("Lstat(%q) error = %v", target, statErr)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%q is not a symlink", target)
+		}
+	}
+
+	binData := filepath.Join(workDir, "swingbench", "bin", "data")
+	info, err := os.Lstat(binData)
+	if err != nil {
+		t.Fatalf("Lstat(%q) error = %v", binData, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%q is not a symlink", binData)
+	}
+}
+
 // TestCheckDiskSpace tests disk space checking.
 func TestCheckDiskSpace(t *testing.T) {
 	uc := &BenchmarkUseCase{}
@@ -1184,12 +1396,17 @@ func TestSwingbenchNoOutputTimeoutForStep(t *testing.T) {
 		{
 			name: "generate data uses inactivity timeout",
 			step: &adapter.Command{StepName: "Generate Data", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
-			want: 90 * time.Second,
+			want: 10 * time.Minute,
 		},
 		{
 			name: "create schema uses inactivity timeout",
 			step: &adapter.Command{StepName: "Create Schema", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
-			want: 90 * time.Second,
+			want: 10 * time.Minute,
+		},
+		{
+			name: "build indexes uses inactivity timeout",
+			step: &adapter.Command{StepName: "Build Indexes", CmdLine: "java -cp ../launcher LauncherBootstrap -executablename oewizard oewizard"},
+			want: 10 * time.Minute,
 		},
 		{
 			name: "post schema setup has no inactivity timeout",

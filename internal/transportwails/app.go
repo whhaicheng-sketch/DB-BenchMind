@@ -4,10 +4,15 @@ package transportwails
 import (
 	"context"
 	"log/slog"
+	"os/exec"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/bindings"
 )
+
+var runBenchmarkCleanup = func(ctx context.Context, cmd string) error {
+	return exec.CommandContext(ctx, "bash", "-lc", cmd).Run()
+}
 
 // App provides the main application bindings for Wails.
 type App struct {
@@ -69,7 +74,9 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) Shutdown(ctx context.Context) {
 	slog.Info("Wails App: shutdown called")
 
-	// Cleanup resources here
+	if err := runBenchmarkCleanup(ctx, benchmarkCleanupCommand()); err != nil {
+		slog.Warn("Wails App: benchmark cleanup failed during shutdown", "error", err)
+	}
 }
 
 // GetAppVersion returns the application version.
@@ -88,4 +95,11 @@ func (a *App) EmitEvent(eventName string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, eventName, data)
 	}
+}
+
+func benchmarkCleanupCommand() string {
+	return `pkill -f "build/bin/db-benchmind" >/dev/null 2>&1 || true; ` +
+		`pkill -TERM -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' >/dev/null 2>&1 || true; ` +
+		`sleep 0.5; ` +
+		`pkill -KILL -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' >/dev/null 2>&1 || true`
 }

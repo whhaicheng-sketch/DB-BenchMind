@@ -66,6 +66,27 @@ func TestDefaultSeedTemplates_SmokeTemplatesDescribeUnifiedLifecycle(t *testing.
 	}
 }
 
+func TestDefaultSeedTemplates_OracleSwingbenchTestUsesMinimalScale(t *testing.T) {
+	templates := DefaultSeedTemplates()
+
+	for _, tmpl := range templates {
+		if tmpl.ID != "tpl_test_oracle_swingbench" {
+			continue
+		}
+
+		param, ok := tmpl.Parameters["scale"]
+		if !ok {
+			t.Fatal("oracle swingbench test template missing scale parameter")
+		}
+		if param.Default != 0.1 {
+			t.Fatalf("oracle swingbench test scale default = %v, want 0.1", param.Default)
+		}
+		return
+	}
+
+	t.Fatal("oracle swingbench test template not found")
+}
+
 func containsTag(tags []string, target string) bool {
 	for _, tag := range tags {
 		if tag == target {

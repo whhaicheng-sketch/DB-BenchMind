@@ -15,8 +15,12 @@ fi
 
 echo "DISPLAY=$DISPLAY"
 
-# 停止已有进程
+# 停止已有 GUI 进程
 pkill -f "build/bin/db-benchmind" 2>/dev/null || true
+
+# 清理 DB-BenchMind 启动过的 benchmark 残留进程
+pkill -TERM -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' 2>/dev/null || true
 sleep 0.5
+pkill -KILL -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' 2>/dev/null || true
 
 exec ./build/bin/db-benchmind
