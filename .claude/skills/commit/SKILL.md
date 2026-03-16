@@ -1,11 +1,11 @@
 ---
 name: commit
-description: 在用户输入 /commit 时，检查改动、只暂存本次相关文件、生成规范提交信息，并推送到 main。
+description: 在用户输入 /commit 时，检查改动和未跟踪文件、暂存相关文件、生成规范提交信息，并推送到 main。
 ---
 
 # /commit
 
-当前项目默认只使用 `main` 分支。  
+当前项目默认只使用 `main` 分支。
 目标：检查改动 → 暂存相关文件 → 创建规范 commit → 推送到 `main`。
 
 ## 执行流程
@@ -14,7 +14,7 @@ description: 在用户输入 /commit 时，检查改动、只暂存本次相关�
 
 ```text
 /commit
-````
+```
 
 按顺序执行：
 
@@ -31,6 +31,40 @@ git log --oneline -5
 git diff --name-only HEAD
 git diff --cached --stat
 ```
+
+## 状态判断优先级
+
+检查 `git status --short` 输出，按以下优先级处理：
+
+1. **已修改文件（M）**：优先处理已跟踪的修改
+2. **未跟踪文件（??）**：如果没有已修改文件，但有未跟踪文件，必须询问用户
+3. **都没有**：才返回 "Nothing to commit"
+
+## 未跟踪文件处理
+
+当 `git status --short` 显示 `??` 开头的文件时：
+
+1. **分类未跟踪文件**：
+   - **应排除**：构建产物、二进制文件、日志、临时文件、敏感文件
+   - **应包含**：源代码、测试文件、文档、配置文件
+
+2. **排除模式**（自动跳过）：
+   ```
+   DB-BenchMind          # 二进制文件
+   artifacts/            # 构建产物/截图
+   *.log                 # 日志文件
+   *.db                  # 数据库文件
+   node_modules/         # 依赖目录
+   dist/                 # 构建输出
+   tmp/                  # 临时目录
+   .env*                 # 敏感配置
+   *.pem, *.key          # 密钥文件
+   ```
+
+3. **必须询问用户**：
+   - 如果有非排除模式的未跟踪文件
+   - 使用 `AskUserQuestion` 询问是否要提交这些文件
+   - 选项：全部提交 / 只提交代码文件 / 先查看详情
 
 ## 规则
 
@@ -115,8 +149,26 @@ git push origin main
 * `*.db`
 * `tmp/`
 * 临时测试脚本
+* 二进制文件（无扩展名的可执行文件）
+* `artifacts/`（构建产物/截图）
 
 不要为了完整而无条件修改 `.gitignore`。
+
+## 自动排除的未跟踪文件
+
+以下模式的未跟踪文件会自动排除，不询问用户：
+
+| 模式 | 说明 |
+|------|------|
+| `DB-BenchMind` | 项目二进制文件 |
+| `artifacts/` | 截图、证据等构建产物 |
+| `*.log` | 日志文件 |
+| `*.db` | 数据库文件 |
+| `node_modules/` | Node.js 依赖 |
+| `dist/`, `build/` | 构建输出目录 |
+| `.env*` | 环境变量文件 |
+| `*.pem`, `*.key` | 密钥文件 |
+| `id_rsa`, `id_ed25519` | SSH 密钥 |
 
 ## Commit 规范
 
@@ -194,18 +246,44 @@ git push origin main
 
 ## 预期行为
 
-如果没有改动，回复：
+### 判断逻辑
+
+```
+1. 检查 git status --short
+   ├── 有已修改文件（M）→ 处理已修改文件
+   ├── 没有已修改，但有未跟踪文件（??）
+   │   ├── 全是排除模式 → "Nothing to commit"
+   │   └── 有非排除文件 → 询问用户是否提交
+   └── 都没有 → "Nothing to commit"
+```
+
+### 输出格式
+
+如果没有改动且没有需要处理的未跟踪文件：
 
 ```text
 Nothing to commit
 ```
 
+如果有未跟踪文件需要处理：
+
+```text
+发现未跟踪文件：
+- docs/superpowers/plans/*.md
+- frontend/tests/*.test.mjs
+- internal/app/usecase/*_test.go
+
+（排除：artifacts/, DB-BenchMind 二进制）
+```
+
+然后使用 `AskUserQuestion` 询问用户选择。
+
 如果存在风险，暂停并说明原因。
 
 如果可以安全提交，则执行：
 
-1. 检查改动
-2. 只暂存本次相关文件
+1. 检查改动（已修改 + 未跟踪）
+2. 根据用户选择暂存相关文件
 3. 复查暂存内容
 4. 生成规范提交信息
 5. 创建 commit
