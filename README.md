@@ -53,7 +53,7 @@ make deps
 #### 3. 构建应用
 
 ```bash
-./build
+./scripts/entry/build
 ```
 
 构建完成后，可执行文件位于 `./bin/db-benchmind`。
@@ -63,17 +63,33 @@ make deps
 ⚠️ **重要：必须从项目根目录启动！**
 
 ```bash
-./start
+./scripts/entry/start
 ```
 
-根目录只有两个受支持的脚本入口：
+项目脚本统一放在根目录 `scripts/` 下，并按职责分层：
 
 ```bash
-./build   # 构建 Wails 桌面程序到 bin/db-benchmind
-./start   # 启动程序；若缺少二进制会先自动执行 ./build
+./scripts/entry/build             # 构建 Wails 桌面程序到 bin/db-benchmind
+./scripts/entry/start             # 启动程序；若缺少二进制会先自动执行 ./scripts/entry/build
+./scripts/entry/regression        # 执行自动化回归门禁
+./scripts/gates/release_gate.sh   # 发布门禁入口
 ```
 
-后续任何改动都必须至少验证 `./build` 与 `./start` 可以正常执行。
+后续任何改动都必须至少验证 `./scripts/entry/build`、`./scripts/entry/start`、`./scripts/entry/regression` 可以正常执行。
+
+## 自动化回归门禁
+
+自动化回归测试是本项目的强制发布门禁，不是建议流程。
+
+```bash
+make regression
+# 或
+make release-gate
+# 或
+./scripts/entry/regression
+```
+
+任何新增功能、功能修改、bug 修复、依赖升级、配置变更、构建脚本调整、启动流程调整和发布动作，都必须执行门禁。任一门禁失败，不允许合并，不允许发布，不允许声称任务完成。
 
 **为什么必须从项目根目录启动：**
 

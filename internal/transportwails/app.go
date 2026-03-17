@@ -98,7 +98,7 @@ func (a *App) EmitEvent(eventName string, data interface{}) {
 }
 
 func benchmarkCleanupCommand() string {
-	return `pkill -f "build/bin/db-benchmind" >/dev/null 2>&1 || true; ` +
+	return `pkill -f "bin/db-benchmind" >/dev/null 2>&1 || true; ` +
 		`pkill -TERM -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' >/dev/null 2>&1 || true; ` +
 		`sleep 0.5; ` +
 		`pkill -KILL -f 'LauncherBootstrap.*oewizard|LauncherBootstrap.*charbench|com\.dom\.benchmarking\.swingbench\.wizards\.Wizard|com\.dom\.benchmarking\.swingbench\.CharBench|(^|/)sysbench([[:space:]]|$)|(^|/)hammerdbcli([[:space:]]|$)' >/dev/null 2>&1 || true`

@@ -15,6 +15,7 @@
 6. [代码规范](#代码规范)
 7. [调试技巧](#调试技巧)
 8. [贡献指南](#贡献指南)
+9. [发布门禁](#发布门禁)
 
 ---
 
@@ -89,6 +90,58 @@ export PATH=$PATH:$(go env GOPATH)/bin
 export GO111MODULE=on
 export GOPROXY=https://goproxy.cn,direct  # 中国用户
 ```
+
+### Wails 与前端工具
+
+- Node.js 18+
+- Wails CLI v2
+- Linux 构建环境需具备 GTK / WebKit 依赖
+
+---
+
+## 发布门禁
+
+### 强制规则
+
+自动化回归测试是发布门禁：
+
+- 未跑测试，不允许声称完成
+- 测试失败，不允许合并
+- 测试失败，不允许发布
+- 新功能未补测试，不允许结束任务
+- bug 修复未补回归测试，不允许结束任务
+
+### 统一执行入口
+
+```bash
+make test-backend
+make test-frontend
+make test-smoke
+make regression
+make release-gate
+```
+
+或直接执行：
+
+```bash
+./scripts/entry/regression
+```
+
+### 强制触发场景
+
+- 新增功能
+- 修改已有逻辑
+- 修复 bug
+- 改 UI 交互
+- 改 store / 状态流
+- 改后端 usecase / domain / repository
+- 改数据库适配器
+- 改构建脚本
+- 改依赖版本
+- 改配置结构
+- 改启动流程
+- 合并高风险分支
+- 发布前验证
 
 ---
 

@@ -1,7 +1,7 @@
 # DB-BenchMind Makefile
 # DB-BenchMind Makefile
 
-.PHONY: build test lint check clean run help
+.PHONY: build test test-backend test-frontend test-smoke regression release-gate lint check clean run help
 
 # Variables
 BINARY_NAME=db-benchmind
@@ -13,14 +13,31 @@ LINT=golangci-lint
 
 ## build: Build the application
 build:
-	@echo "Building $(BINARY_NAME)..."
-	@mkdir -p $(BUILD_DIR)
-	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)/main.go
+	./scripts/entry/build
 
 ## test: Run all tests
 test:
-	@echo "Running tests..."
-	$(GO) test -v -race -cover ./...
+	$(MAKE) test-backend
+	$(MAKE) test-frontend
+
+## test-backend: Run backend release-gate test suite
+test-backend:
+	bash scripts/gates/test_backend_gate.sh
+
+## test-frontend: Run frontend release-gate test suite
+test-frontend:
+	bash scripts/gates/test_frontend_gate.sh
+
+## test-smoke: Run build/start smoke gate
+test-smoke:
+	bash scripts/gates/test_smoke_gate.sh
+
+## regression: Run the automated regression gate used for validation
+regression:
+	./scripts/entry/regression
+
+## release-gate: Mandatory release blocker suite
+release-gate: regression
 
 ## test-unit: Run unit tests only (no integration)
 test-unit:
@@ -38,7 +55,7 @@ lint:
 	$(LINT) run
 
 ## check: Run all checks (format, test, lint)
-check: format-check test lint
+check: format-check regression lint
 	@echo "All checks passed!"
 
 ## format: Format code with gofmt and goimports
@@ -61,13 +78,7 @@ clean:
 
 ## run: Build and run the application
 run: build
-	@echo "Running $(BINARY_NAME)..."
-	@echo "IMPORTANT: Must run from project root directory!"
-	@if [ "$$(pwd)" != "$$(cd "$(dirname "$(realpath "$(MAKEFILE_LIST))")" && pwd)" ]; then \
-		echo "ERROR: Must run from project root directory. Current: $$(pwd)"; \
-		exit 1; \
-	fi
-	$(BUILD_DIR)/$(BINARY_NAME) gui
+	./scripts/entry/start
 
 ## deps: Download dependencies
 deps:

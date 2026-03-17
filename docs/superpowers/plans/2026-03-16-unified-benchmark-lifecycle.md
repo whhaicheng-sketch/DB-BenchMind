@@ -101,7 +101,7 @@ Expected: PASS.
 ### Task 5: Final verification including built-in test-template coverage
 
 **Files:**
-- Test: `frontend/scripts/verify-template-test-coverage.mjs`
+- Test: `scripts/frontend/verify-template-test-coverage.mjs`
 
 - [ ] **Step 1: Run focused backend test suites**
 
@@ -110,7 +110,7 @@ Expected: PASS.
 
 - [ ] **Step 2: Run template coverage verification if dependencies are available**
 
-Run: `node frontend/scripts/verify-template-test-coverage.mjs`
+Run: `node scripts/frontend/verify-template-test-coverage.mjs`
 Expected: PASS.
 
 - [ ] **Step 3: Record any environment-dependent gaps**

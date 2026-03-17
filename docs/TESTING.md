@@ -14,6 +14,7 @@
 5. [性能测试](#性能测试)
 6. [测试覆盖率](#测试覆盖率)
 7. [CI/CD 集成](#cicd-集成)
+8. [发布门禁](#发布门禁)
 
 ---
 
@@ -39,6 +40,44 @@
 3. **独立**: 测试之间不依赖顺序
 4. **可重复**: 测试结果应该一致
 5. **清晰**: 测试名称和断言应该清楚表达意图
+
+### 门禁原则
+
+DB-BenchMind 的自动化测试不是开发建议，而是发布门禁。未通过门禁的代码不得合并、不得发布、不得验收通过。
+
+统一门禁入口：
+
+```bash
+./scripts/entry/regression
+```
+
+等价入口：
+
+```bash
+make regression
+make release-gate
+```
+
+当前强制门禁内容：
+
+- `scripts/gates/test_script_layout.sh`
+- `scripts/gates/test_build_gate.sh`
+- `scripts/gates/test_backend_gate.sh`
+- `scripts/gates/test_frontend_gate.sh`
+- `scripts/gates/test_start_cleanup.sh`
+- `scripts/gates/test_smoke_gate.sh`
+
+### 当前分层
+
+- 开发态：`make test-backend` / `make test-frontend`
+- PR 门禁：`make regression`
+- 发布前：`make release-gate`
+
+### 失败阻断规则
+
+- 任一脚本失败，返回非 0
+- 返回非 0 即阻断合并与发布
+- 新功能/bug 修复若没有新增或更新测试，视为门禁不满足
 
 ---
 

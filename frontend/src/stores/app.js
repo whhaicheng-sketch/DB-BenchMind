@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { clearPendingTaskTemplateState, queueTemplateForTaskState } from './appState.mjs'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -12,12 +13,11 @@ export const useAppStore = defineStore('app', {
     },
 
     queueTemplateForTask(payload) {
-      this.pendingTaskTemplate = payload
-      this.activeTab = 'tasks'
+      Object.assign(this, queueTemplateForTaskState(this.$state, payload))
     },
 
     clearPendingTaskTemplate() {
-      this.pendingTaskTemplate = null
+      Object.assign(this, clearPendingTaskTemplateState(this.$state))
     }
   }
 })

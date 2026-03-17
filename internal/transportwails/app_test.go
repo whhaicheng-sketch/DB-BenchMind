@@ -9,7 +9,7 @@ func TestBenchmarkCleanupCommandContainsManagedProcessPatterns(t *testing.T) {
 	cmd := benchmarkCleanupCommand()
 
 	for _, want := range []string{
-		"build/bin/db-benchmind",
+		"bin/db-benchmind",
 		"LauncherBootstrap.*oewizard",
 		"LauncherBootstrap.*charbench",
 		"com\\.dom\\.benchmarking\\.swingbench\\.wizards\\.Wizard",
