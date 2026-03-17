@@ -1,6 +1,7 @@
 # 忽略测试输出和临时文件
 Test/
 Test
+internal/app/usecase/reports/
 ls
 exports/*.txt
 *.test
