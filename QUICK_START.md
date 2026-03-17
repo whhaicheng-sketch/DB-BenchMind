@@ -1,176 +1,49 @@
-# 🚀 DB-BenchMind 启动指南
+# DB-BenchMind 快速启动
 
-## ✅ 编译成功！
+## 唯一受支持的入口
 
-可执行程序已生成：`build/db-benchmind-cli`
+项目根目录只保留两个可执行脚本：
 
----
-
-## 📋 快速启动步骤
-
-### 1️⃣ 查看版本信息
 ```bash
-./build/db-benchmind-cli version
+./build   # 构建 Wails 桌面程序到 ./bin/db-benchmind
+./start   # 启动程序；若缺少二进制会自动先执行 ./build
 ```
-**输出**: `DB-BenchMind CLI v1.0.0`
 
----
+后续任何改动都必须至少验证这两个命令可以正常执行。
 
-### 2️⃣ 查看帮助信息
+## 快速开始
+
+### 1. 进入项目根目录
+
 ```bash
-./build/benchmind-cli help
+cd /opt/project/DB-BenchMind
 ```
-**显示**: 所有可用命令和示例
 
----
+### 2. 构建程序
 
-### 3️⃣ 列出数据库连接
 ```bash
-./build/db-benchmind-cli list
-```
-**说明**: 显示所有已配置的数据库连接
-
-**预期输出**:
-```
-No connections found.
+./build
 ```
 
----
+### 3. 启动程序
 
-### 4️⃣ 检测基准测试工具
 ```bash
-./build/db-benchmind-cli detect
-```
-**说明**: 自动检测系统中的基准测试工具
-
-**预期输出**:
-```
-Detecting benchmark tools...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✓ sysbench
-  Path:    /usr/bin/sysbench
-  Version: 1.0.20
-
-✗ swingbench (not found)
-✗ hammerdb (not found)
+./start
 ```
 
----
+## 运行要求
 
-## 📂 数据存储位置
+- 必须从项目根目录执行
+- 需要可用的桌面显示环境
+- 首次运行会自动创建 `./data/` 下的数据库和运行数据
 
-程序首次运行时会自动创建：
-```
-./data/db-benchmind.db     # SQLite 数据库
-./data/*.key              # 密钥存储（文件降级）
-```
+## 说明
 
----
+- `./build` 会通过 Wails 构建桌面程序，并生成 `./bin/db-benchmind`
+- `./start` 会优先复用 `./bin/db-benchmind`；若二进制不存在，会先自动构建
+- 若启动时看到 `libEGL` 相关 warning，通常是图形环境权限告警，不等同于程序启动失败
 
-## 🎯 核心功能演示
+## 相关文档
 
-### ✅ 已实现功能
-- ✅ 查看数据库连接列表
-- ✅ 检测基准测试工具
-- ✅ 版本信息显示
-- ✅ 帮助文档
-
-### 🔄 计划中功能
-- ⏳ 添加数据库连接
-- ⏳ 测试数据库连接
-- ⏳ 运行基准测试
-- ⏳ 查看测试结果
-- ⏳ 生成测试报告
-
----
-
-## 💻 使用示例
-
-### 示例 1: 检查环境
-```bash
-# 1. 检查程序版本
-./build/db-benchmind-cli version
-
-# 2. 检测已安装的工具
-./build/db-benchmind-cli detect
-
-# 3. 查看连接（首次运行会显示空列表）
-./build/db-benchmind-cli list
-```
-
-### 示例 2: 安装缺失的工具
-```bash
-# 如果 sysbench 未安装：
-sudo apt-get install sysbench
-
-# 安装后重新检测
-./build/db-benchmind-cli detect
-```
-
----
-
-## 🔧 技术细节
-
-### 编译信息
-- **Go 版本**: 1.22.2
-- **编译命令**: `go build -o build/db-benchmind-cli ./cmd/dbenchmind-cli/`
-- **依赖**: 无外部 GUI 依赖
-
-### 架构
-- Clean Architecture + DDD 设计
-- 使用 SQLite 存储配置
-- File-based keyring 降级方案
-
-### 支持的平台
-- ✅ Linux (amd64)
-- ✅ macOS (amd64)
-- ✅ Windows (amd64，需交叉编译)
-
----
-
-## 📖 相关文档
-
-- **使用指南**: [CLI_USAGE.md](./CLI_USAGE.md)
-- **项目 README**: [README.md](./README.md)
-- **架构文档**: [.specify/steering/architecture.md](.specify/steering/architecture.md)
-
----
-
-## 🐛 常见问题
-
-### Q1: 提示 "No connections found"
-**A**: 这是正常的！程序刚初始化数据库，还没有添加连接。当前版本主要支持查看功能，添加连接功能待开发。
-
-### Q2: 显示 "✗ swingbench (not found)"
-**A**: Swingbench 和 HammerDB 需要手动下载安装：
-- Swingbench: https://www.swingbench.com
-- HammerDB: https://www.hammerdb.com
-
-### Q3: 如何添加数据库连接？
-**A**: 当前版本 CLI 仅支持查看。添加连接功能建议：
-1. 使用程序 API（需要 Go 编程）
-2. 等待 GUI 版本完成（需要系统库支持）
-3. 直接操作 SQLite 数据库
-
----
-
-## 🎉 下一步
-
-1. **立即可用**:
-   - 检测基准测试工具
-   - 查看数据库连接（需先通过其他方式添加）
-
-2. **等待更新**:
-   - 完整的 CLI 连接管理命令
-   - 基准测试执行命令
-   - 报告生成功能
-
-3. **或使用 API**:
-   - 导入 `github.com/whhaicheng/DB-BenchMind/internal/app/usecase`
-   - 调用 `ConnectionUseCase` 等接口
-
----
-
-**程序编译完成！** ✅
-
-所有核心后端功能已实现并测试通过。
+- [README.md](./README.md)
+- [CLI_USAGE.md](./CLI_USAGE.md)

@@ -53,28 +53,29 @@ make deps
 #### 3. 构建应用
 
 ```bash
-make build
+./build
 ```
 
-构建完成后，可执行文件位于 `./bin/db-benchmind`
+构建完成后，可执行文件位于 `./bin/db-benchmind`。
 
 #### 4. 运行应用
 
 ⚠️ **重要：必须从项目根目录启动！**
 
 ```bash
-# 方式1：使用 Makefile（推荐）
-make run
-
-# 方式2：直接运行（必须确保在项目根目录）
-cd /path/to/DB-Benchmind  # 必须进入项目根目录
-./bin/db-benchmind gui
-
-# 方式3：使用绝对路径（不推荐，可能导致数据文件路径错误）
-/path/to/DB-Benchmind/bin/db-benchmind gui  # ❌ 错误！会找不到 data/db-benchmind.db
+./start
 ```
 
-**为什么必须从项目根目录启动？**
+根目录只有两个受支持的脚本入口：
+
+```bash
+./build   # 构建 Wails 桌面程序到 bin/db-benchmind
+./start   # 启动程序；若缺少二进制会先自动执行 ./build
+```
+
+后续任何改动都必须至少验证 `./build` 与 `./start` 可以正常执行。
+
+**为什么必须从项目根目录启动：**
 
 - 数据库文件使用相对路径：`./data/db-benchmind.db`
 - 日志目录使用相对路径：`./data/logs/`
