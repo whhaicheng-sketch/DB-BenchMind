@@ -727,14 +727,15 @@ const getWinrmTestStatusClass = (conn) => {
 }
 
 .modal-content {
-  background-color: #1a202c;
+  background-color: #ffffff;
   border-radius: 8px;
-  max-width: 820px;
+  max-width: 800px;
   width: 90%;
   max-height: 90vh;
   overflow: visible;
   display: flex;
   flex-direction: column;
-  border: 1px solid #2d3748;
+  border: 1px solid #dcdfe6;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 </style>

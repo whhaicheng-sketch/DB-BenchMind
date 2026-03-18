@@ -30,6 +30,10 @@ export function TestSSHConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestSSHConnection'](arg1);
 }
 
+export function TestAIConnection(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestAIConnection'](arg1);
+}
+
 export function TestWinRMConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestWinRMConnection'](arg1);
 }

@@ -710,11 +710,11 @@ export namespace bindings {
 	    port: number;
 	    username: string;
 	    password: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SSHTestRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.host = source["host"];
@@ -723,7 +723,47 @@ export namespace bindings {
 	        this.password = source["password"];
 	    }
 	}
-	
+
+	export class AITestRequest {
+	    provider: string;
+	    api_host: string;
+	    api_endpoint: string;
+	    api_key: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AITestRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.api_host = source["api_host"];
+	        this.api_endpoint = source["api_endpoint"];
+	        this.api_key = source["api_key"];
+	        this.model = source["model"];
+	    }
+	}
+
+	export class AITestResult {
+	    success: boolean;
+	    latency_ms: number;
+	    message?: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AITestResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.latency_ms = source["latency_ms"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	    }
+	}
+
 	export class SystemHistoryDTO {
 	    cpu: collector.SystemMetricPoint[];
 	    disk_io: collector.SystemMetricPoint[];

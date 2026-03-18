@@ -2,9 +2,14 @@
 package bindings
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
@@ -50,6 +55,24 @@ type ConnectionDTO struct {
 	WinRMPassword string `json:"winrm_password,omitempty"` // Loaded from keyring for display
 	// SQL Server configuration
 	TrustServerCertificate bool `json:"trust_server_certificate"`
+	// AI Assistant configuration
+	AIAssistants []AIAssistantConfig `json:"ai_assistants,omitempty"`
+}
+
+// AIAssistantConfig represents AI assistant configuration for a connection.
+type AIAssistantConfig struct {
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Provider        string  `json:"provider"`
+	APIHost         string  `json:"api_host"`
+	APIEndpoint     string  `json:"api_endpoint"`
+	APIKey          string  `json:"api_key,omitempty"`
+	Model           string  `json:"model"`
+	Temperature     float64 `json:"temperature"`
+	Description     string  `json:"description"`
+	EnterAction     string  `json:"enter_action"`
+	CompareWithOthers bool  `json:"compare_with_others"`
+	Language        string  `json:"language"`
 }
 
 // ConnectionListResult represents the result of ListConnections.
@@ -121,6 +144,8 @@ type ConnectionCreateRequest struct {
 	WinRMUseHTTPS bool   `json:"winrm_use_https"`
 	WinRMUsername string `json:"winrm_username,omitempty"`
 	WinRMPassword string `json:"winrm_password,omitempty"`
+	// AI Assistant Configuration
+	AIAssistants []AIAssistantConfig `json:"ai_assistants,omitempty"`
 }
 
 // ConnectionUpdateRequest represents a request to update a connection.
@@ -149,6 +174,8 @@ type ConnectionUpdateRequest struct {
 	WinRMUseHTTPS bool   `json:"winrm_use_https"`
 	WinRMUsername string `json:"winrm_username,omitempty"`
 	WinRMPassword string `json:"winrm_password,omitempty"`
+	// AI Assistant Configuration
+	AIAssistants []AIAssistantConfig `json:"ai_assistants,omitempty"`
 }
 
 // WinRMTestRequest represents a request to test WinRM connection.
@@ -774,6 +801,23 @@ type SSHTestRequest struct {
 	Password string `json:"password"`
 }
 
+// AITestRequest represents a request to test AI API connection.
+type AITestRequest struct {
+	Provider    string  `json:"provider"`
+	APIHost     string  `json:"api_host"`
+	APIEndpoint string  `json:"api_endpoint"`
+	APIKey      string  `json:"api_key"`
+	Model       string  `json:"model"`
+}
+
+// AITestResult represents the result of AI API connection test.
+type AITestResult struct {
+	Success   bool   `json:"success"`
+	LatencyMs int64  `json:"latency_ms"`
+	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // TestSSHConnection tests an SSH connection (Wails binding).
 func (b *ConnectionBinding) TestSSHConnection(req SSHTestRequest) ConnectionTestResult {
 	ctx := context.Background()
@@ -801,5 +845,166 @@ func (b *ConnectionBinding) TestSSHConnection(req SSHTestRequest) ConnectionTest
 	return ConnectionTestResult{
 		Success:   success,
 		LatencyMs: latencyMs,
+	}
+}
+
+// TestAIConnection tests an AI API connection (Wails binding).
+// This is a standalone test that only verifies AI API connectivity.
+// It does NOT test database or SSH connections.
+func (b *ConnectionBinding) TestAIConnection(req AITestRequest) AITestResult {
+	ctx := context.Background()
+	startTime := time.Now()
+
+	slog.Info("TestAIConnection called",
+		"provider", req.Provider,
+		"api_host", req.APIHost,
+		"model", req.Model)
+
+	// Validate required fields
+	if req.Provider == "" {
+		return AITestResult{
+			Success: false,
+			Error:   "Provider is required",
+		}
+	}
+	if req.APIHost == "" {
+		return AITestResult{
+			Success: false,
+			Error:   "API Host is required",
+		}
+	}
+	if req.APIKey == "" {
+		return AITestResult{
+			Success: false,
+			Error:   "API Key is required",
+		}
+	}
+	if req.Model == "" {
+		return AITestResult{
+			Success: false,
+			Error:   "Model is required",
+		}
+	}
+
+	// Build the full API URL
+	apiURL := req.APIHost
+	if req.APIEndpoint != "" {
+		apiURL = apiURL + req.APIEndpoint
+	} else {
+		// Default endpoint based on provider
+		switch req.Provider {
+		case "openai":
+			apiURL = apiURL + "/v1/chat/completions"
+		case "deepseek":
+			apiURL = apiURL + "/v1/chat/completions"
+		case "anthropic":
+			apiURL = apiURL + "/v1/messages"
+		default:
+			apiURL = apiURL + "/v1/chat/completions"
+		}
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Build minimal test request body
+	testBody := map[string]interface{}{
+		"model": req.Model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Hi"},
+		},
+		"max_tokens": 5,
+	}
+
+	bodyBytes, err := json.Marshal(testBody)
+	if err != nil {
+		slog.Error("TestAIConnection: failed to marshal request", "error", err)
+		return AITestResult{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to build request: %v", err),
+		}
+	}
+
+	// Create request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		slog.Error("TestAIConnection: failed to create request", "error", err)
+		return AITestResult{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to create request: %v", err),
+		}
+	}
+
+	// Set headers
+	httpReq.Header.Set("Content-Type", "application/json")
+	switch req.Provider {
+	case "openai", "deepseek":
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	case "anthropic":
+		httpReq.Header.Set("x-api-key", req.APIKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+	default:
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	}
+
+	// Send request
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		latencyMs := time.Since(startTime).Milliseconds()
+		slog.Error("TestAIConnection: request failed", "error", err, "latency_ms", latencyMs)
+		return AITestResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("Connection failed: %v", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	latencyMs := time.Since(startTime).Milliseconds()
+
+	// Read response
+	respBody, _ := io.ReadAll(resp.Body)
+
+	// Check status code
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		slog.Info("TestAIConnection success",
+			"provider", req.Provider,
+			"status", resp.StatusCode,
+			"latency_ms", latencyMs)
+		return AITestResult{
+			Success:   true,
+			LatencyMs: latencyMs,
+			Message:   fmt.Sprintf("AI API connected successfully (%dms)", latencyMs),
+		}
+	}
+
+	// Parse error response
+	var errResp struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	json.Unmarshal(respBody, &errResp)
+
+	errMsg := errResp.Error.Message
+	if errMsg == "" {
+		errMsg = errResp.Message
+	}
+	if errMsg == "" {
+		errMsg = fmt.Sprintf("API returned status %d", resp.StatusCode)
+	}
+
+	slog.Error("TestAIConnection: API error",
+		"status", resp.StatusCode,
+		"error", errMsg,
+		"latency_ms", latencyMs)
+
+	return AITestResult{
+		Success:   false,
+		LatencyMs: latencyMs,
+		Error:     errMsg,
 	}
 }

@@ -160,7 +160,9 @@ export const useConnectionStore = defineStore('connection', {
           trust_server_certificate: connectionData.trust_server_certificate ?? true,
           // Oracle specific fields
           sid: connectionData.sid || '',
-          service_name: connectionData.service_name || ''
+          service_name: connectionData.service_name || '',
+          // AI Assistant Configuration
+          ai_assistants: connectionData.ai_assistants || []
         })
 
         // Handle error from result
@@ -217,7 +219,9 @@ export const useConnectionStore = defineStore('connection', {
           // Oracle specific fields
           sid: connectionData.sid || '',
           service_name: connectionData.service_name || '',
-          connect_type: connectionData.connect_type || ''
+          connect_type: connectionData.connect_type || '',
+          // AI Assistant Configuration
+          ai_assistants: connectionData.ai_assistants || []
         })
 
         // Handle error from result
