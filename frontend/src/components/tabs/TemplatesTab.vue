@@ -34,10 +34,10 @@
       <div class="confirm-modal">
         <div class="confirm-title">Delete Template</div>
         <p class="confirm-body">
-          Delete editable template "{{ templateStore.deleteCandidate.name }}"? This cannot be undone.
+          Delete template "{{ templateStore.deleteCandidate.name }}"? This action cannot be undone.
         </p>
         <div class="confirm-actions">
-          <button class="btn btn-ghost" @click="templateStore.cancelDeleteTemplate()">Cancel</button>
+          <button class="btn" @click="templateStore.cancelDeleteTemplate()">Cancel</button>
           <button class="btn btn-danger" @click="templateStore.confirmDeleteTemplate()">Delete</button>
         </div>
       </div>
@@ -83,37 +83,38 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spacing-md);
   min-height: 0;
 }
 
+/* Notice Banner */
 .notice-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .notice-info {
-  background: rgba(66, 153, 225, 0.12);
-  border-color: rgba(66, 153, 225, 0.3);
-  color: #90cdf4;
+  background: var(--info-bg);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
 }
 
 .notice-success {
-  background: rgba(72, 187, 120, 0.12);
-  border-color: rgba(72, 187, 120, 0.28);
-  color: #9ae6b4;
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .notice-warning {
-  background: rgba(237, 137, 54, 0.12);
-  border-color: rgba(237, 137, 54, 0.28);
-  color: #f6ad55;
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
 }
 
 .notice-dismiss {
@@ -121,66 +122,81 @@ onMounted(async () => {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
 }
 
+.notice-dismiss:hover {
+  opacity: 1;
+}
+
+/* Confirm Modal */
 .confirm-overlay {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(2, 6, 23, 0.72);
+  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: var(--spacing-lg);
 }
 
 .confirm-modal {
   width: min(460px, 100%);
-  border-radius: 14px;
-  border: 1px solid #334155;
-  background: #111827;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-modal);
+  padding: var(--spacing-lg);
 }
 
 .confirm-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #f8fafc;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .confirm-body {
-  margin-top: 10px;
-  color: #cbd5e1;
+  margin-top: var(--spacing-sm);
+  color: var(--text-secondary);
   line-height: 1.6;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .confirm-actions {
-  margin-top: 18px;
+  margin-top: var(--spacing-lg);
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--spacing-sm);
 }
 
 .btn {
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all var(--transition-fast);
 }
 
-.btn-ghost {
-  background: #0f172a;
-  color: #cbd5e1;
+.btn:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-dark);
 }
 
 .btn-danger {
-  background: rgba(127, 29, 29, 0.2);
-  border-color: rgba(248, 113, 113, 0.28);
-  color: #fca5a5;
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background-color: var(--danger);
+  border-color: var(--danger);
+  color: white;
 }
 </style>

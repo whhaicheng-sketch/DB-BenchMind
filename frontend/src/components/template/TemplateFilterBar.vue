@@ -6,7 +6,7 @@
         :value="filters.search"
         class="field-input"
         type="text"
-        placeholder="Search templates, tools, workload, tags"
+        placeholder="Search templates..."
         @input="$emit('filter-change', { key: 'search', value: $event.target.value })"
       >
     </label>
@@ -58,7 +58,7 @@
       </div>
     </label>
 
-    <button class="reset-btn" @click="$emit('reset')">Reset Filters</button>
+    <button class="reset-btn" @click="$emit('reset')">Reset</button>
   </div>
 </template>
 
@@ -92,100 +92,104 @@ defineEmits(['filter-change', 'reset'])
 <style scoped>
 .filter-bar {
   display: grid;
-  grid-template-columns: minmax(260px, 1.6fr) repeat(3, minmax(150px, 0.85fr)) auto;
-  gap: 10px;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(140px, 0.8fr)) auto;
+  gap: var(--spacing-sm);
   align-items: end;
-  padding: 12px;
-  border: 1px solid #2d3748;
-  border-radius: 12px;
-  background: #111827;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-primary);
 }
 
 .search-box,
 .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .field-label {
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .field-input,
 .field-select {
   width: 100%;
-  min-height: 38px;
-  padding: 9px 12px;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  background: #1e293b;
-  color: #e2e8f0;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
 }
 
 .field-select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
-    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
-  background-position:
-    calc(100% - 18px) calc(50% - 3px),
-    calc(100% - 12px) calc(50% - 3px);
-  background-size: 6px 6px, 6px 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23909399' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  padding-right: 34px;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
 }
 
 .field-select option {
-  background: #1e293b;
-  color: #e2e8f0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .field-input:focus,
 .field-select:focus {
-  border-color: #4299e1;
+  border-color: var(--border-focus);
   outline: none;
+}
+
+.field-input::placeholder {
+  color: var(--text-placeholder);
 }
 
 .filter-pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--spacing-xs);
 }
 
 .reset-btn {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid #334155;
-  background: #0f172a;
-  color: #cbd5e0;
-  font-size: 13px;
-  font-weight: 600;
+  min-height: 32px;
+  padding: 0 var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .reset-btn:hover {
-  border-color: #4299e1;
-  color: #fff;
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-light);
 }
 
-@media (max-width: 1320px) {
+@media (max-width: 1200px) {
   .filter-bar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 900px) {
   .filter-bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 680px) {
   .filter-bar {
     grid-template-columns: 1fr;
   }

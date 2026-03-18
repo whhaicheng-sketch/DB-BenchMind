@@ -266,9 +266,9 @@ onUnmounted(() => {
 
 <style scoped>
 .impact-trend-chart {
-  background-color: #1a2332;
-  border: 1px solid #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 16px 20px;
 }
 
@@ -282,7 +282,7 @@ onUnmounted(() => {
 .chart-title {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -296,7 +296,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #a0aec0;
+  color: var(--text-muted);
 }
 
 .legend-color {
@@ -306,11 +306,11 @@ onUnmounted(() => {
 }
 
 .legend-item.success .legend-color {
-  background-color: #48bb78;
+  background-color: var(--success);
 }
 
 .legend-item.error .legend-color {
-  background-color: #f56565;
+  background-color: var(--danger);
 }
 
 .chart-container {
@@ -325,7 +325,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #718096;
+  color: var(--text-muted);
   gap: 12px;
 }
 
@@ -341,13 +341,13 @@ onUnmounted(() => {
 }
 
 .grid-line {
-  stroke: #2a3a4a;
+  stroke: var(--border-light);
   stroke-width: 1;
   stroke-dasharray: 4, 4;
 }
 
 .axis-label {
-  fill: #718096;
+  fill: var(--text-muted);
   font-size: 10px;
 }
 
@@ -358,19 +358,19 @@ onUnmounted(() => {
 }
 
 .success-line {
-  stroke: #48bb78;
+  stroke: var(--success);
 }
 
 .success-area {
-  fill: rgba(72, 187, 120, 0.1);
+  fill: rgba(103, 194, 58, 0.1);
 }
 
 .error-line {
-  stroke: #f56565;
+  stroke: var(--danger);
 }
 
 .marker-line {
-  stroke: #ecc94b;
+  stroke: var(--warning);
   stroke-width: 1;
   stroke-dasharray: 3, 3;
   opacity: 0.6;
@@ -381,18 +381,18 @@ onUnmounted(() => {
 }
 
 .marker-dot.info {
-  fill: #4299e1;
+  fill: var(--primary);
 }
 
 .marker-dot.warn {
-  fill: #ecc94b;
+  fill: var(--warning);
 }
 
 .marker-dot.error {
-  fill: #f56565;
+  fill: var(--danger);
 }
 
 .marker-dot.success {
-  fill: #48bb78;
+  fill: var(--success);
 }
 </style>

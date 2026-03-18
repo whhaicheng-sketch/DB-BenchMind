@@ -116,27 +116,27 @@ function formatNumber(value) {
 }
 
 .summary-card {
-  background-color: #1a2332;
-  border: 1px solid #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 16px 20px;
-  transition: border-color 0.2s;
+  transition: border-color var(--transition-fast);
 }
 
 .summary-card:hover {
-  border-color: #3a4a5a;
+  border-color: var(--border-dark);
 }
 
 .summary-card.passed {
-  border-left: 3px solid #48bb78;
+  border-left: 3px solid var(--success);
 }
 
 .summary-card.failed {
-  border-left: 3px solid #f56565;
+  border-left: 3px solid var(--danger);
 }
 
 .summary-card.pending {
-  border-left: 3px solid #ecc94b;
+  border-left: 3px solid var(--warning);
 }
 
 .card-header {
@@ -153,7 +153,7 @@ function formatNumber(value) {
 .card-title {
   font-size: 12px;
   font-weight: 600;
-  color: #a0aec0;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -168,13 +168,13 @@ function formatNumber(value) {
 .card-value .value {
   font-size: 28px;
   font-weight: 700;
-  color: #e2e8f0;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
 }
 
 .card-value .unit {
   font-size: 14px;
-  color: #718096;
+  color: var(--text-muted);
 }
 
 .consistency-value {
@@ -182,20 +182,20 @@ function formatNumber(value) {
 }
 
 .summary-card.passed .consistency-value {
-  color: #48bb78;
+  color: var(--success);
 }
 
 .summary-card.failed .consistency-value {
-  color: #f56565;
+  color: var(--danger);
 }
 
 .summary-card.pending .consistency-value {
-  color: #ecc94b;
+  color: var(--warning);
 }
 
 .card-description {
   font-size: 12px;
-  color: #718096;
+  color: var(--text-muted);
 }
 
 .card-stats {
@@ -209,28 +209,28 @@ function formatNumber(value) {
   justify-content: space-between;
   align-items: center;
   padding: 6px 10px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
 }
 
 .stat-row.success {
-  border-left: 2px solid #48bb78;
+  border-left: 2px solid var(--success);
 }
 
 .stat-row.error {
-  border-left: 2px solid #f56565;
+  border-left: 2px solid var(--danger);
 }
 
 .stat-label {
   font-size: 13px;
-  color: #a0aec0;
+  color: var(--text-muted);
 }
 
 .stat-value {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
 }
 
 @media (max-width: 1200px) {

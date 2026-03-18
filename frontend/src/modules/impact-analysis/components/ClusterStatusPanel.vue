@@ -141,9 +141,9 @@ const formatLastSwitchTime = computed(() => {
 
 <style scoped>
 .cluster-status-panel {
-  background-color: #1a2332;
-  border: 1px solid #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 16px 20px;
 }
 
@@ -157,7 +157,7 @@ const formatLastSwitchTime = computed(() => {
 .panel-title {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -170,18 +170,18 @@ const formatLastSwitchTime = computed(() => {
 }
 
 .status-badge.healthy {
-  background-color: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 .status-badge.warning {
-  background-color: rgba(236, 201, 75, 0.2);
-  color: #f6e05e;
+  background-color: var(--warning-bg);
+  color: var(--warning);
 }
 
 .status-badge.critical {
-  background-color: rgba(245, 101, 101, 0.2);
-  color: #fc8181;
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
 .status-grid {
@@ -195,8 +195,8 @@ const formatLastSwitchTime = computed(() => {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
 }
 
 .item-icon {
@@ -206,16 +206,16 @@ const formatLastSwitchTime = computed(() => {
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
+  background-color: var(--bg-hover);
+  border-radius: var(--radius-sm);
 }
 
 .item-icon.primary {
-  background-color: rgba(66, 153, 225, 0.2);
+  background-color: var(--primary-light);
 }
 
 .item-icon.secondary {
-  background-color: rgba(160, 174, 192, 0.2);
+  background-color: var(--bg-secondary);
 }
 
 .item-content {
@@ -227,15 +227,15 @@ const formatLastSwitchTime = computed(() => {
 
 .item-label {
   font-size: 11px;
-  color: #718096;
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
 .item-value {
   font-size: 13px;
   font-weight: 500;
-  color: #e2e8f0;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
 }
 
 .node-status {
@@ -247,30 +247,30 @@ const formatLastSwitchTime = computed(() => {
 }
 
 .node-status.online {
-  background-color: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 .node-status.offline {
-  background-color: rgba(245, 101, 101, 0.2);
-  color: #fc8181;
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
 .node-status.unknown {
-  background-color: rgba(160, 174, 192, 0.2);
-  color: #a0aec0;
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .nodes-detail {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #2a3a4a;
+  border-top: 1px solid var(--border-light);
 }
 
 .nodes-title {
   font-size: 12px;
   font-weight: 600;
-  color: #a0aec0;
+  color: var(--text-muted);
   margin: 0 0 12px 0;
   text-transform: uppercase;
 }
@@ -286,8 +286,8 @@ const formatLastSwitchTime = computed(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
 }
 
 .node-info {
@@ -298,31 +298,31 @@ const formatLastSwitchTime = computed(() => {
 
 .node-ip {
   font-size: 12px;
-  color: #e2e8f0;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
 }
 
 .node-role {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .node-role.primary {
-  background-color: rgba(66, 153, 225, 0.2);
-  color: #63b3ed;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 .node-role.secondary {
-  background-color: rgba(160, 174, 192, 0.2);
-  color: #a0aec0;
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .node-role.unknown {
-  background-color: rgba(160, 174, 192, 0.1);
-  color: #718096;
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .node-status-badge {
@@ -334,17 +334,17 @@ const formatLastSwitchTime = computed(() => {
 }
 
 .node-status-badge.online {
-  background-color: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 .node-status-badge.offline {
-  background-color: rgba(245, 101, 101, 0.2);
-  color: #fc8181;
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
 .node-status-badge.unknown {
-  background-color: rgba(160, 174, 192, 0.2);
-  color: #a0aec0;
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
 }
 </style>

@@ -18,7 +18,7 @@
             <span v-if="filter.count > 0" class="filter-count">{{ filter.count }}</span>
           </button>
         </div>
-        <button class="btn btn-primary btn-add" @click="showAddModal = true">
+        <button class="btn btn-primary" @click="showAddModal = true">
           + Add Connection
         </button>
       </div>
@@ -41,26 +41,27 @@
             v-for="conn in group.connections"
             :key="conn.id"
             class="connection-row"
+            :class="{ selected: selectedId === conn.id }"
             @click="selectConnection(conn)"
           >
-            <!-- Left: Name + Info + SSH/WinRM 标志(内联显示) -->
+            <!-- Left: Name + Info + SSH/WinRM flags -->
             <div class="conn-main">
               <div class="conn-name">{{ conn.name }}</div>
               <div class="conn-host">
                 {{ conn.host }}:{{ conn.port }}
-                <span v-if="conn.ssh_enabled" class="tag tag-ssh tag-inline">SSH</span>
-                <span v-if="conn.winrm_enabled" class="tag tag-winrm tag-inline">WinRM</span>
+                <span v-if="conn.ssh_enabled" class="tag tag-ssh">SSH</span>
+                <span v-if="conn.winrm_enabled" class="tag tag-winrm">WinRM</span>
               </div>
             </div>
 
-            <!-- Tags(只显示非默认数据库名) -->
+            <!-- Tags -->
             <div class="conn-tags">
               <span v-if="shouldShowDatabaseTag(conn)" class="tag tag-db">{{ conn.database }}</span>
             </div>
 
             <!-- Right: Actions -->
             <div class="conn-actions">
-              <!-- Test Button with Status -->
+              <!-- Test Button -->
               <button
                 class="btn-action btn-test"
                 :class="{
@@ -71,34 +72,28 @@
                 @click.stop="testConnection(conn)"
                 :disabled="connectionStore.isTestingById(conn.id)"
               >
-                <span v-if="connectionStore.isTestingById(conn.id)">⟳ Testing...</span>
+                <span v-if="connectionStore.isTestingById(conn.id)" class="spinner-sm"></span>
                 <span v-else>Test</span>
               </button>
-              <button class="btn-action btn-edit" @click.stop="editConnection(conn)">Edit</button>
-              <button class="btn-action btn-more" @click.stop="toggleMoreMenu(conn)">
-                ⋮
-              </button>
+              <button class="btn-action" @click.stop="editConnection(conn)">Edit</button>
+              <button class="btn-action btn-more" @click.stop="toggleMoreMenu(conn)">⋮</button>
               <!-- More Menu -->
               <div v-if="moreMenuId === conn.id" class="more-menu">
-                <button class="menu-item danger" @click.stop="deleteConnection(conn)">Delete</button>
+                <button class="menu-item menu-item-danger" @click.stop="deleteConnection(conn)">Delete</button>
               </div>
-              <!-- Test Result Message -->
-              <!-- Only show test results if they have been tested -->
+              <!-- Test Result -->
               <div class="conn-test-result">
-                <!-- DB Test result (triggered by Test button) - only show if tested -->
                 <span v-if="connectionStore.getTestResultById(conn.id)"
                       :class="getDbTestStatusClass(conn)">
                   DB: {{ getDbTestStatusText(conn) }}
                 </span>
-                <!-- SSH Test result (only shown if SSH enabled AND tested) -->
                 <span v-if="conn.ssh_enabled && connectionStore.getSSHTestResultById(conn.id)"
-                      style="margin-left: 10px;"
+                      class="result-spacing"
                       :class="getSshTestStatusClass(conn)">
                   SSH: {{ getSshTestStatusText(conn) }}
                 </span>
-                <!-- WinRM Test result (only shown if WinRM enabled AND tested) -->
                 <span v-if="conn.winrm_enabled && connectionStore.getWinRMTestResultById(conn.id)"
-                      style="margin-left: 10px;"
+                      class="result-spacing"
                       :class="getWinrmTestStatusClass(conn)">
                   WinRM: {{ getWinrmTestStatusText(conn) }}
                 </span>
@@ -108,7 +103,7 @@
         </div>
 
         <!-- Empty State -->
-        <div v-else class="empty-state">
+        <div v-else class="empty-state-inline">
           <span class="empty-text">No {{ group.label }} connections</span>
           <button class="btn-link" @click="addConnectionOfType(group.type)">
             Add {{ group.label }} Connection
@@ -117,11 +112,12 @@
       </template>
 
       <!-- No connections at all -->
-      <div v-if="totalConnections === 0" class="no-connections">
-        <div class="no-connections-icon">🔌</div>
-        <p>No database connections configured</p>
+      <div v-if="totalConnections === 0" class="empty-state">
+        <div class="empty-state-icon">🔌</div>
+        <p class="empty-state-title">No database connections</p>
+        <p class="empty-state-description">Create your first database connection to get started.</p>
         <button class="btn btn-primary" @click="showAddModal = true">
-          + Add Your First Connection
+          + Add Connection
         </button>
       </div>
     </div>
@@ -161,10 +157,10 @@ const filters = computed(() => {
   const groups = connectionGroups.value
   return [
     { label: 'All', value: 'all', count: connectionStore.connections.length },
-    { label: '🐬 MySQL', value: 'mysql', count: groups.find(g => g.type === 'mysql')?.connections.length || 0 },
-    { label: '🐘 PostgreSQL', value: 'postgresql', count: groups.find(g => g.type === 'postgresql')?.connections.length || 0 },
-    { label: '🔴 Oracle', value: 'oracle', count: groups.find(g => g.type === 'oracle')?.connections.length || 0 },
-    { label: '🔷 SQL Server', value: 'sqlserver', count: groups.find(g => g.type === 'sqlserver')?.connections.length || 0 }
+    { label: 'MySQL', value: 'mysql', count: groups.find(g => g.type === 'mysql')?.connections.length || 0 },
+    { label: 'PostgreSQL', value: 'postgresql', count: groups.find(g => g.type === 'postgresql')?.connections.length || 0 },
+    { label: 'Oracle', value: 'oracle', count: groups.find(g => g.type === 'oracle')?.connections.length || 0 },
+    { label: 'SQL Server', value: 'sqlserver', count: groups.find(g => g.type === 'sqlserver')?.connections.length || 0 }
   ]
 })
 
@@ -220,9 +216,6 @@ const selectConnection = (conn) => {
 const testConnection = async (conn) => {
   selectedId.value = conn.id
   selectedConnection.value = conn
-
-  // Only run database connection test (direct connection)
-  // SSH and WinRM tests are handled separately via dedicated test buttons
   await connectionStore.testConnectionById(conn.id)
 }
 
@@ -238,20 +231,12 @@ const deleteConnection = async (conn) => {
   moreMenuId.value = null
 }
 
-// 判断是否应该显示数据库名标签
-// 只显示非默认数据库名（PostgreSQL 默认 "postgres" 不显示)
 const shouldShowDatabaseTag = (conn) => {
   if (!conn.database) return false
-  // PostgreSQL 默认数据库名是"postgres"， 不显示
   if (conn.type === 'postgresql' && conn.database === 'postgres') return false
-  // 其他数据库类型： 如果数据库名是默认值， 也不显示
-  // MySQL 默认为空
   if (conn.type === 'mysql' && !conn.database) return false
-  // Oracle 默认 SID/Service Name 可能是 "orcl" 或 "XE"
   if (conn.type === 'oracle' && (conn.database === 'orcl' || conn.database === 'XE')) return false
-  // SQL Server 默认为空
   if (conn.type === 'sqlserver' && !conn.database) return false
-  // 其他情况显示
   return true
 }
 
@@ -276,8 +261,6 @@ const handleSaved = () => {
 }
 
 // Helper functions for test status display
-// All helpers only return OK/FAIL, called only when result exists (v-if ensures this)
-
 const getDbTestStatusText = (conn) => {
   const result = connectionStore.getTestResultById(conn.id)
   if (!result) return ''
@@ -287,7 +270,7 @@ const getDbTestStatusText = (conn) => {
 const getDbTestStatusClass = (conn) => {
   const result = connectionStore.getTestResultById(conn.id)
   if (!result) return ''
-  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
+  return result.success ? 'result-success' : 'result-error'
 }
 
 const getSshTestStatusText = (conn) => {
@@ -299,7 +282,7 @@ const getSshTestStatusText = (conn) => {
 const getSshTestStatusClass = (conn) => {
   const result = connectionStore.getSSHTestResultById(conn.id)
   if (!result) return ''
-  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
+  return result.success ? 'result-success' : 'result-error'
 }
 
 const getWinrmTestStatusText = (conn) => {
@@ -311,7 +294,7 @@ const getWinrmTestStatusText = (conn) => {
 const getWinrmTestStatusClass = (conn) => {
   const result = connectionStore.getWinRMTestResultById(conn.id)
   if (!result) return ''
-  return result.success ? 'conn-test-result--success' : 'conn-test-result--error'
+  return result.success ? 'result-success' : 'result-error'
 }
 </script>
 
@@ -327,11 +310,11 @@ const getWinrmTestStatusClass = (conn) => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #2d3748;
-  margin-bottom: 20px;
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: var(--spacing-lg);
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--spacing-md);
 }
 
 .header-left {
@@ -341,73 +324,71 @@ const getWinrmTestStatusClass = (conn) => {
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: var(--font-size-title);
   font-weight: 600;
-  color: #f7fafc;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .page-subtitle {
-  font-size: 14px;
-  color: #718096;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
   margin: 0;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-md);
   flex-wrap: wrap;
 }
 
+/* Filter Group */
 .filter-group {
   display: flex;
-  gap: 4px;
-  background: #1a202c;
-  padding: 4px;
-  border-radius: 8px;
+  gap: 2px;
+  background-color: var(--bg-secondary);
+  padding: 3px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
 }
 
 .filter-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 5px 10px;
   background: transparent;
   border: none;
-  border-radius: 6px;
-  color: #a0aec0;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: none;
 }
 
 .filter-btn:hover {
-  background: #2d3748;
-  color: #e2e8f0;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .filter-btn.active {
-  background: #2d3748;
-  color: #4299e1;
+  background-color: var(--bg-primary);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .filter-count {
-  background: #4a5568;
-  padding: 2px 6px;
+  background-color: var(--bg-tertiary);
+  padding: 1px 5px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .filter-btn.active .filter-count {
-  background: #4299e1;
-  color: white;
-}
-
-/* Main Button */
-.btn-add {
-  font-weight: 600;
-  padding: 10px 20px;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 /* Connection List Container */
@@ -420,25 +401,25 @@ const getWinrmTestStatusClass = (conn) => {
 .group-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 0 8px;
-  color: #a0aec0;
-  font-size: 13px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
   font-weight: 500;
-  border-bottom: 1px solid #2d3748;
-  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: var(--spacing-sm);
 }
 
 .group-icon {
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .group-name {
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .group-count {
-  color: #718096;
+  color: var(--text-muted);
   font-weight: 400;
 }
 
@@ -447,22 +428,28 @@ const getWinrmTestStatusClass = (conn) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .connection-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  background: #1a202c;
-  border-radius: 6px;
+  gap: var(--spacing-md);
+  padding: 10px var(--spacing-md);
+  background-color: var(--bg-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color var(--transition-fast);
 }
 
 .connection-row:hover {
-  background: #242d3c;
+  background-color: var(--bg-hover);
+}
+
+.connection-row.selected {
+  background-color: var(--bg-selected);
+  border-color: var(--primary);
 }
 
 .conn-main {
@@ -472,138 +459,149 @@ const getWinrmTestStatusClass = (conn) => {
 
 .conn-name {
   font-weight: 500;
-  color: #e2e8f0;
-  font-size: 14px;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .conn-host {
-  font-size: 12px;
-  color: #718096;
-  font-family: monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-family: var(--font-family-mono);
 }
 
 /* Tags */
 .conn-tags {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
 .tag {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
 }
 
 .tag-ssh {
-  background: rgba(66, 153, 225, 0.2);
-  color: #63b3ed;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 .tag-winrm {
-  background: rgba(237, 137, 54, 0.2);
-  color: #ed8936;
-}
-
-.tag-ssl {
-  background: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+  background-color: var(--warning-bg);
+  color: var(--warning);
 }
 
 .tag-db {
-  background: rgba(160, 174, 192, 0.2);
-  color: #a0aec0;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
 }
 
 /* Actions */
 .conn-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   position: relative;
 }
 
 .btn-action {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.15s;
-  background: #2d3748;
-  color: #a0aec0;
+  transition: all var(--transition-fast);
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
 }
 
 .btn-action:hover {
-  background: #4a5568;
-  color: #e2e8f0;
+  background-color: var(--bg-secondary);
+  border-color: var(--border-dark);
+  color: var(--text-primary);
+}
+
+.btn-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-test {
-  color: #68d391;
+  color: var(--success);
 }
 
-.btn-test:hover {
-  background: rgba(72, 187, 120, 0.2);
-}
-
-.btn-edit {
-  color: #63b3ed;
-}
-
-.btn-edit:hover {
-  background: rgba(66, 153, 225, 0.2);
+.btn-test:hover:not(:disabled) {
+  background-color: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .btn-more {
-  padding: 6px 10px;
-  font-size: 16px;
+  padding: 4px 8px;
   font-weight: bold;
 }
 
 /* Test button states */
 .btn-testing {
-  color: #63b3ed;
-  animation: pulse 1s infinite;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .btn-test-success {
-  color: #68d391;
+  color: var(--success);
+  border-color: var(--success);
 }
 
 .btn-test-error {
-  color: #fc8181;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* Test result display */
 .conn-test-result {
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  margin-left: 8px;
+  font-size: var(--font-size-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  margin-left: var(--spacing-sm);
   max-width: 200px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.conn-test-result--success {
-  background: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+.result-success {
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
-.conn-test-result--error {
-  background: rgba(229, 62, 62, 0.2);
-  color: #fc8181;
+.result-error {
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.result-spacing {
+  margin-left: var(--spacing-sm);
 }
 
 /* More Menu */
@@ -611,61 +609,64 @@ const getWinrmTestStatusClass = (conn) => {
   position: absolute;
   top: 100%;
   right: 0;
-  background: #1a202c;
-  border: 1px solid #2d3748;
-  border-radius: 6px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 4px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
+  min-width: 100px;
 }
 
 .menu-item {
   display: block;
   width: 100%;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border: none;
   background: transparent;
-  color: #a0aec0;
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .menu-item:hover {
-  background: #2d3748;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
-.menu-item.danger {
-  color: #fc8181;
+.menu-item-danger {
+  color: var(--danger);
 }
 
-.menu-item.danger:hover {
-  background: rgba(229, 62, 62, 0.2);
+.menu-item-danger:hover {
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
-/* Empty State */
-.empty-state {
+/* Empty States */
+.empty-state-inline {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: #1a202c;
-  border-radius: 6px;
-  margin-bottom: 8px;
+  gap: var(--spacing-md);
+  padding: 8px var(--spacing-md);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
 }
 
 .empty-text {
-  font-size: 13px;
-  color: #718096;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
   flex: 1;
 }
 
 .btn-link {
   background: none;
   border: none;
-  color: #4299e1;
-  font-size: 12px;
+  color: var(--primary);
+  font-size: var(--font-size-sm);
   cursor: pointer;
   padding: 4px 8px;
 }
@@ -674,42 +675,34 @@ const getWinrmTestStatusClass = (conn) => {
   text-decoration: underline;
 }
 
-/* No Connections */
-.no-connections {
+.empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: #718096;
+  color: var(--text-muted);
+  text-align: center;
 }
 
-.no-connections-icon {
+.empty-state-icon {
   font-size: 48px;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
+  opacity: 0.5;
 }
 
-.no-connections p {
-  margin-bottom: 20px;
-}
-
-/* Buttons */
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
+.empty-state-title {
+  font-size: var(--font-size-lg);
   font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
 }
 
-.btn-primary {
-  background-color: #4299e1;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #3182ce;
+.empty-state-description {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  margin-bottom: var(--spacing-lg);
+  max-width: 400px;
 }
 
 /* Modal */
@@ -719,7 +712,7 @@ const getWinrmTestStatusClass = (conn) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -727,15 +720,15 @@ const getWinrmTestStatusClass = (conn) => {
 }
 
 .modal-content {
-  background-color: #ffffff;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-lg);
   max-width: 800px;
   width: 90%;
   max-height: 90vh;
   overflow: visible;
   display: flex;
   flex-direction: column;
-  border: 1px solid #dcdfe6;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-modal);
 }
 </style>

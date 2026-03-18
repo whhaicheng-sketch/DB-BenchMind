@@ -142,8 +142,9 @@ onMounted(() => {
 .log-panel {
   display: flex;
   flex-direction: column;
-  background-color: #1a202c;
-  border-radius: 6px;
+  background-color: #fafbfc;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -151,15 +152,15 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background-color: #1e2a3a;
-  border-bottom: 1px solid #2a3a44;
+  padding: 6px 12px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .log-title {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
-  color: #a0aec0;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -170,42 +171,45 @@ onMounted(() => {
 }
 
 .control-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 4px;
-  background-color: #2a3a4a;
-  color: #718096;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-primary);
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
-  font-size: 14px;
+  transition: all var(--transition-fast);
+  font-size: var(--font-size-sm);
 }
 
 .control-btn:hover {
-  background-color: #3a4a5a;
-  color: #e2e8f0;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-dark);
 }
 
 .control-btn.active {
-  background-color: #2d4a5a;
-  color: #63b3ed;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
 }
 
 .icon-scroll,
 .icon-clear {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1;
 }
 
 .log-container {
   flex: 1;
   overflow-y: auto;
-  font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
-  font-size: 12px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
   line-height: 1.5;
+  background-color: #282c34;
 }
 
 .log-content {
@@ -215,30 +219,30 @@ onMounted(() => {
 .log-line {
   white-space: pre-wrap;
   word-break: break-all;
-  color: #a0aec0;
-  padding: 2px 0;
+  color: #abb2bf;
+  padding: 1px 0;
 }
 
 .log-line.error {
-  color: #fc8181;
+  color: #e06c75;
 }
 
 .log-line.warning {
-  color: #f6ad55;
+  color: #e5c07b;
 }
 
 .log-line.success {
-  color: #68d391;
+  color: #98c379;
 }
 
 .log-line.info {
-  color: #63b3ed;
+  color: #61afef;
 }
 
 .log-empty {
   padding: 20px;
   text-align: center;
-  color: #4a5568;
+  color: #5c6370;
   font-style: italic;
 }
 
@@ -248,15 +252,15 @@ onMounted(() => {
 }
 
 .log-container::-webkit-scrollbar-track {
-  background: #1a202c;
+  background: #21252b;
 }
 
 .log-container::-webkit-scrollbar-thumb {
-  background: #3a4a5a;
+  background: #4b5263;
   border-radius: 4px;
 }
 
 .log-container::-webkit-scrollbar-thumb:hover {
-  background: #4a5a6a;
+  background: #5c6370;
 }
 </style>

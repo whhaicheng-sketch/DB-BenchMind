@@ -188,9 +188,9 @@ function resetAnalysis() {
   justify-content: space-between;
   gap: 20px;
   padding: 16px 20px;
-  background-color: #1a2332;
-  border: 1px solid #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   margin-bottom: 20px;
 }
 
@@ -224,7 +224,7 @@ function resetAnalysis() {
 .toolbar-label {
   font-size: 11px;
   font-weight: 600;
-  color: #a0aec0;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -249,14 +249,14 @@ function resetAnalysis() {
 
 .info-label {
   font-size: 12px;
-  color: #718096;
+  color: var(--text-muted);
 }
 
 .info-value {
   font-size: 13px;
   font-weight: 500;
-  color: #e2e8f0;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
 }
 
 .config-group {
@@ -281,7 +281,7 @@ function resetAnalysis() {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #e2e8f0;
+  color: var(--text-primary);
   cursor: pointer;
 }
 
@@ -294,18 +294,19 @@ function resetAnalysis() {
 .form-select,
 .form-input {
   padding: 8px 12px;
-  background-color: #0f1724;
-  border: 1px solid #2a3a4a;
-  border-radius: 4px;
-  color: #e2e8f0;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 13px;
-  transition: border-color 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .form-select:focus,
 .form-input:focus {
   outline: none;
-  border-color: #4299e1;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
 }
 
 .form-select.small,
@@ -317,6 +318,7 @@ function resetAnalysis() {
 .form-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  background-color: var(--bg-secondary);
 }
 
 .toolbar-actions {
@@ -330,12 +332,12 @@ function resetAnalysis() {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .btn-icon {
@@ -343,30 +345,36 @@ function resetAnalysis() {
 }
 
 .btn-start {
-  background-color: #48bb78;
+  background-color: var(--success);
+  border-color: var(--success);
   color: white;
 }
 
 .btn-start:hover:not(:disabled) {
-  background-color: #38a169;
+  background-color: var(--success-hover);
+  border-color: var(--success-hover);
 }
 
 .btn-stop {
-  background-color: #f56565;
+  background-color: var(--danger);
+  border-color: var(--danger);
   color: white;
 }
 
 .btn-stop:hover {
-  background-color: #e53e3e;
+  background-color: var(--danger-hover);
+  border-color: var(--danger-hover);
 }
 
 .btn-reset {
-  background-color: #4a5568;
-  color: white;
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
 }
 
 .btn-reset:hover {
-  background-color: #3a4558;
+  background-color: var(--bg-hover);
+  border-color: var(--border-dark);
 }
 
 .btn:disabled {

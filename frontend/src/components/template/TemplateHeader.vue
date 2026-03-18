@@ -20,9 +20,9 @@ defineEmits(['create'])
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #2d3748;
-  gap: 16px;
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-light);
+  gap: var(--spacing-md);
   flex-wrap: wrap;
 }
 
@@ -33,14 +33,16 @@ defineEmits(['create'])
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: var(--font-size-title);
   font-weight: 600;
-  color: #f7fafc;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 .page-subtitle {
-  font-size: 14px;
-  color: #718096;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
   max-width: 680px;
+  margin: 0;
 }
 </style>

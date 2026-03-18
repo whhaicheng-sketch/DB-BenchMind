@@ -2,7 +2,7 @@
 /**
  * App.vue
  * Main application component with Tab navigation.
- * Follows Fyne framework layout with tabs.
+ * Navicat-style light desktop tool theme.
  */
 import { ref, onMounted, onUnmounted, onErrorCaptured } from 'vue'
 import { useMonitorStore } from './stores/monitor'
@@ -65,8 +65,8 @@ onUnmounted(async () => {
 <template>
   <div class="app-container">
     <!-- Global error modal -->
-    <div v-if="showError" class="global-error-overlay" @click.self="dismissError">
-      <div class="global-error-modal">
+    <div v-if="showError" class="error-overlay" @click.self="dismissError">
+      <div class="error-modal">
         <div class="error-header">
           <span class="error-icon">⚠️</span>
           <span class="error-title">Error</span>
@@ -79,13 +79,13 @@ onUnmounted(async () => {
           </details>
         </div>
         <div class="error-footer">
-          <button class="btn-dismiss" @click="dismissError">Dismiss</button>
+          <button class="btn btn-primary" @click="dismissError">Dismiss</button>
         </div>
       </div>
     </div>
 
     <!-- Tab Navigation -->
-    <div class="tab-navigation">
+    <div class="tab-nav">
       <div class="tab-list">
         <button
           v-for="tab in navigationTabs"
@@ -111,6 +111,10 @@ onUnmounted(async () => {
 </template>
 
 <style>
+/* ============================================================
+   App Layout - Navicat-style Light Theme
+   ============================================================ */
+
 * {
   margin: 0;
   padding: 0;
@@ -128,85 +132,97 @@ html, body, #app {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: #1b2636;
-  color: #e2e8f0;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
 }
 
-/* Tab Navigation */
-.tab-navigation {
-  background-color: #0f1724;
-  border-bottom: 1px solid #2a3a4a;
+/* ============================================================
+   Tab Navigation - Desktop Tool Style
+   ============================================================ */
+.tab-nav {
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
   padding: 0 16px;
+  flex-shrink: 0;
 }
 
 .tab-list {
   display: flex;
-  gap: 4px;
+  gap: 0;
   overflow-x: auto;
+  height: var(--tab-height);
 }
 
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: 6px;
+  padding: 0 16px;
+  height: 100%;
   background: transparent;
   border: none;
-  color: #a0aec0;
-  font-size: 14px;
-  cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: none;
   white-space: nowrap;
 }
 
 .tab-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
 }
 
 .tab-item.active {
-  color: #4299e1;
-  border-bottom-color: #4299e1;
-  background-color: rgba(66, 153, 225, 0.1);
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background-color: transparent;
 }
 
 .tab-icon {
-  font-size: 16px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .tab-label {
   font-weight: 500;
 }
 
-/* Tab Content */
+/* ============================================================
+   Tab Content
+   ============================================================ */
 .tab-content {
   flex: 1;
   overflow: auto;
-  padding: 20px;
+  padding: var(--spacing-lg);
+  background-color: var(--bg-app);
 }
 
-/* Error Modal */
-.global-error-overlay {
+/* ============================================================
+   Error Modal - Light Theme
+   ============================================================ */
+.error-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
 }
 
-.global-error-modal {
-  background-color: #2a3a4a;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+.error-modal {
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
   max-width: 500px;
   width: 90%;
-  border: 1px solid #e53e3e;
+  border: 1px solid var(--danger-border);
 }
 
 .error-header {
@@ -214,8 +230,8 @@ html, body, #app {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  border-bottom: 1px solid #3a4a5a;
-  background-color: rgba(229, 62, 62, 0.1);
+  border-bottom: 1px solid var(--border-light);
+  background-color: var(--danger-bg);
 }
 
 .error-icon {
@@ -223,9 +239,9 @@ html, body, #app {
 }
 
 .error-title {
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
-  color: #e53e3e;
+  color: var(--danger);
 }
 
 .error-body {
@@ -233,51 +249,39 @@ html, body, #app {
 }
 
 .error-message {
-  font-size: 14px;
-  color: #e2e8f0;
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 
 .error-details {
-  font-size: 11px;
-  color: #718096;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .error-details summary {
   cursor: pointer;
   margin-bottom: 8px;
+  color: var(--text-secondary);
 }
 
 .error-details pre {
-  background-color: #1e2a3a;
+  background-color: var(--bg-secondary);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
   overflow-y: auto;
+  font-family: var(--font-family-mono);
+  border: 1px solid var(--border-light);
 }
 
 .error-footer {
   padding: 12px 16px;
-  border-top: 1px solid #3a4a5a;
+  border-top: 1px solid var(--border-light);
   display: flex;
   justify-content: flex-end;
-}
-
-.btn-dismiss {
-  padding: 8px 16px;
-  background-color: #e53e3e;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.btn-dismiss:hover {
-  background-color: #c53030;
 }
 </style>

@@ -157,9 +157,9 @@ const handleFieldInput = () => {
 
 <style scoped>
 .section-card {
-  border: 1px solid #1f2937;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
   padding: 16px;
 }
 
@@ -172,12 +172,12 @@ const handleFieldInput = () => {
 
 .section-title {
   font-size: 16px;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .section-subtitle {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -199,15 +199,15 @@ const handleFieldInput = () => {
 
 .field-label {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .field-input {
   min-height: 40px;
-  border-radius: 8px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   padding: 10px 12px;
 }
 
@@ -216,8 +216,8 @@ select.field-input {
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
-    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--primary) 50%),
+    linear-gradient(135deg, var(--primary) 50%, transparent 50%);
   background-position:
     calc(100% - 18px) calc(50% - 3px),
     calc(100% - 12px) calc(50% - 3px);
@@ -227,23 +227,24 @@ select.field-input {
 }
 
 select.field-input option {
-  background: #1e293b;
-  color: #e2e8f0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .field-input.invalid {
-  border-color: #f87171;
-  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.25);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-bg);
 }
 
 .field-input:disabled {
   opacity: 0.72;
   cursor: not-allowed;
+  background-color: var(--bg-secondary);
 }
 
 .field-error {
   font-size: 11px;
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 .textarea {

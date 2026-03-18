@@ -17,7 +17,7 @@
       <!-- Page Header -->
       <div class="page-header">
         <div class="header-left">
-          <h2 class="page-title">Impact Analysis</h2>
+          <h1 class="page-title">Impact Analysis</h1>
           <p class="page-subtitle">
             Real-time analysis for MySQL high availability PoC. Monitor RTO, business interruption, and data consistency during failover scenarios.
           </p>
@@ -66,15 +66,15 @@ function handleNavigate(tab) {
   align-items: center;
   justify-content: center;
   height: 100%;
-  gap: 16px;
-  color: #a0aec0;
+  gap: var(--spacing-md);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #2a3a4a;
-  border-top-color: #4299e1;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -93,19 +93,19 @@ function handleNavigate(tab) {
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: var(--font-size-title);
   font-weight: 600;
-  color: #e2e8f0;
-  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
 }
 
 .page-subtitle {
-  font-size: 14px;
-  color: #718096;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.5;
 }

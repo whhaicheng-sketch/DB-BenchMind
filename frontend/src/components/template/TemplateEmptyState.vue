@@ -40,56 +40,73 @@ defineEmits(['primary', 'secondary'])
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-sm);
 }
 
 .empty-icon {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(66, 153, 225, 0.16);
-  color: #93c5fd;
-  font-size: 12px;
-  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 20px;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
 }
 
 .empty-title {
-  font-size: 20px;
-  color: #f8fafc;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 .empty-description {
-  color: #94a3b8;
+  color: var(--text-muted);
   line-height: 1.6;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
+  margin: 0;
 }
 
 .empty-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--spacing-sm);
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 6px;
+  margin-top: var(--spacing-sm);
 }
 
 .btn {
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .btn-primary {
-  background: #3182ce;
-  border-color: #3182ce;
-  color: #fff;
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .btn-secondary {
-  background: #111827;
-  color: #cbd5e0;
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-dark);
+  color: var(--text-primary);
 }
 </style>

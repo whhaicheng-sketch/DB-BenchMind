@@ -142,41 +142,41 @@ watch(() => props.modelValue, (newVal) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
-  background-color: #1e2a3a;
-  border: 1px solid #3a4a5a;
-  border-radius: 6px;
+  padding: 8px 12px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .dropdown-trigger:hover {
-  border-color: #4299e1;
+  border-color: var(--primary);
 }
 
 .dropdown-trigger.open {
-  border-color: #4299e1;
+  border-color: var(--primary);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
 
 .trigger-text {
   flex: 1;
-  color: #e2e8f0;
-  font-size: 14px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .trigger-text.placeholder {
-  color: #718096;
+  color: var(--text-placeholder);
 }
 
 .trigger-arrow {
-  color: #718096;
+  color: var(--text-muted);
   font-size: 10px;
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast);
   margin-left: 8px;
 }
 
@@ -189,74 +189,79 @@ watch(() => props.modelValue, (newVal) => {
   top: 100%;
   left: 0;
   right: 0;
-  background-color: #1e2a3a;
-  border: 1px solid #4299e1;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--primary);
   border-top: none;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   max-height: 250px;
   overflow-y: auto;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-dropdown);
 }
 
 .dropdown-item {
-  padding: 10px 12px;
+  padding: 8px 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--transition-fast);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
 }
 
 .dropdown-item:hover {
-  background-color: #2a3a4a;
+  background-color: var(--bg-hover);
 }
 
 .dropdown-item.selected {
-  background-color: #2d4a5a;
+  background-color: var(--bg-selected);
 }
 
 .item-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .item-name {
-  color: #e2e8f0;
-  font-size: 14px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 
 .item-type {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   text-transform: uppercase;
   font-weight: 600;
 }
 
 .item-type.mysql {
-  background-color: #00758f33;
+  background-color: #e6f4f8;
   color: #00758f;
 }
 
 .item-type.postgresql {
-  background-color: #33679133;
-  color: #699eca;
+  background-color: #e8f0f8;
+  color: #336791;
 }
 
 .item-type.oracle {
-  background-color: #f8000033;
-  color: #ff6b6b;
+  background-color: #ffeaea;
+  color: #c73030;
 }
 
 .item-type.sqlserver {
-  background-color: #cc292733;
+  background-color: #ffebe8;
   color: #cc2927;
 }
 
 .item-info {
-  font-size: 12px;
-  color: #718096;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -265,8 +270,8 @@ watch(() => props.modelValue, (newVal) => {
 .dropdown-empty {
   padding: 20px;
   text-align: center;
-  color: #718096;
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .loading-indicator {
@@ -276,10 +281,10 @@ watch(() => props.modelValue, (newVal) => {
   right: 0;
   padding: 8px;
   text-align: center;
-  color: #4299e1;
-  font-size: 12px;
-  background-color: #1e2a3a;
-  border: 1px solid #3a4a5a;
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-top: none;
 }
 
@@ -289,11 +294,11 @@ watch(() => props.modelValue, (newVal) => {
   left: 0;
   right: 0;
   padding: 8px;
-  color: #fc8181;
-  font-size: 12px;
-  background-color: #1e2a3a;
-  border: 1px solid #e53e3e;
+  color: var(--danger);
+  font-size: var(--font-size-xs);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--danger);
   border-top: none;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 </style>

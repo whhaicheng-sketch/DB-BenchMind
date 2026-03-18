@@ -87,54 +87,56 @@ const templateStore = useTemplateStore()
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid #2d3748;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-primary);
   overflow: hidden;
 }
 
 .panel-header {
-  padding: 16px;
-  border-bottom: 1px solid #1f2937;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-light);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 16px;
+  gap: var(--spacing-md);
   flex-wrap: wrap;
+  background-color: var(--bg-secondary);
 }
 
 .panel-title {
-  font-size: 18px;
+  font-size: var(--font-size-base);
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 .panel-subtitle {
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 12px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .table-head {
   min-width: 540px;
   display: grid;
   grid-template-columns: minmax(280px, 1.4fr) minmax(280px, 1fr) 140px 150px;
-  gap: 14px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .list-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  padding: var(--spacing-sm);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 2px;
 }
 
 .state-wrap {
@@ -142,7 +144,7 @@ const templateStore = useTemplateStore()
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--spacing-lg);
 }
 
 @media (max-width: 920px) {

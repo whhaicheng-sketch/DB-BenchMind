@@ -213,8 +213,9 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background-color: #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 .chart-header {
   display: flex;
@@ -224,7 +225,7 @@ onUnmounted(() => {
 .chart-label {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 .chart-value {
   font-size: 20px;
@@ -232,24 +233,24 @@ onUnmounted(() => {
 }
 .chart-unit {
   font-size: 12px;
-  color: #718096;
+  color: var(--text-muted);
   margin-left: 4px;
 }
 .chart-stats {
   display: flex;
   gap: 12px;
   font-size: 11px;
-  color: #a0aec0;
+  color: var(--text-muted);
 }
 .stat {
   padding: 4px 8px;
-  background-color: #1e2a3a;
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-xs);
 }
 .bar-chart {
   height: 24px;
-  background-color: #1e2a3a;
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-xs);
 }
 .sparkline-section {
   display: flex;
@@ -259,12 +260,12 @@ onUnmounted(() => {
 }
 .sparkline-label {
   font-size: 10px;
-  color: #718096;
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 .sparkline-chart {
   height: 40px;
-  background-color: #1e2a3a;
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-xs);
 }
 </style>

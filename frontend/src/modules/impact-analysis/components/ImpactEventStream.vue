@@ -74,9 +74,9 @@ watch(() => props.events.length, async () => {
 
 <style scoped>
 .impact-event-stream {
-  background-color: #1a2332;
-  border: 1px solid #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -88,20 +88,20 @@ watch(() => props.events.length, async () => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #2a3a4a;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .stream-title {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .event-count {
   font-size: 12px;
-  color: #718096;
-  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  background-color: var(--bg-secondary);
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -118,7 +118,7 @@ watch(() => props.events.length, async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #718096;
+  color: var(--text-muted);
   gap: 12px;
 }
 
@@ -138,30 +138,30 @@ watch(() => props.events.length, async () => {
   align-items: flex-start;
   gap: 12px;
   padding: 10px 12px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
   border-left: 3px solid transparent;
-  transition: background-color 0.2s;
+  transition: background-color var(--transition-fast);
 }
 
 .event-item:hover {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: var(--bg-hover);
 }
 
 .event-item.info {
-  border-left-color: #4299e1;
+  border-left-color: var(--primary);
 }
 
 .event-item.warn {
-  border-left-color: #ecc94b;
+  border-left-color: var(--warning);
 }
 
 .event-item.error {
-  border-left-color: #f56565;
+  border-left-color: var(--danger);
 }
 
 .event-item.success {
-  border-left-color: #48bb78;
+  border-left-color: var(--success);
 }
 
 .event-icon {
@@ -171,8 +171,8 @@ watch(() => props.events.length, async () => {
   align-items: center;
   justify-content: center;
   font-size: 16px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
+  background-color: var(--bg-hover);
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -191,25 +191,25 @@ watch(() => props.events.length, async () => {
 .event-type {
   font-size: 13px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .event-time {
   font-size: 11px;
-  color: #718096;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-muted);
+  font-family: var(--font-family-mono);
 }
 
 .event-message {
   font-size: 12px;
-  color: #a0aec0;
+  color: var(--text-secondary);
   line-height: 1.4;
   word-break: break-word;
 }
 
 .event-level-badge {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
@@ -217,23 +217,23 @@ watch(() => props.events.length, async () => {
 }
 
 .event-level-badge.info {
-  background-color: rgba(66, 153, 225, 0.2);
-  color: #63b3ed;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 .event-level-badge.warn {
-  background-color: rgba(236, 201, 75, 0.2);
-  color: #f6e05e;
+  background-color: var(--warning-bg);
+  color: var(--warning);
 }
 
 .event-level-badge.error {
-  background-color: rgba(245, 101, 101, 0.2);
-  color: #fc8181;
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
 .event-level-badge.success {
-  background-color: rgba(72, 187, 120, 0.2);
-  color: #68d391;
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 /* Scrollbar styling */
@@ -246,11 +246,11 @@ watch(() => props.events.length, async () => {
 }
 
 .stream-container::-webkit-scrollbar-thumb {
-  background-color: #3a4a5a;
+  background-color: var(--border-color);
   border-radius: 3px;
 }
 
 .stream-container::-webkit-scrollbar-thumb:hover {
-  background-color: #4a5a6a;
+  background-color: var(--border-dark);
 }
 </style>

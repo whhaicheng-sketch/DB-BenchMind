@@ -1,6 +1,9 @@
 <template>
   <div class="toolbar">
-    <button class="btn btn-primary" @click="$emit('create')">New Template</button>
+    <button class="btn btn-primary" @click="$emit('create')">
+      <span class="btn-icon">+</span>
+      <span>New Template</span>
+    </button>
   </div>
 </template>
 
@@ -11,28 +14,43 @@ defineEmits(['create'])
 <style scoped>
 .toolbar {
   display: flex;
-  gap: 10px;
+  gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
 
 .btn {
-  border: 1px solid #3a4a5a;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.btn:hover {
+  border-color: var(--border-dark);
+  background-color: var(--bg-secondary);
 }
 
 .btn-primary {
-  background: #3182ce;
-  border-color: #3182ce;
-  color: #f7fafc;
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: white;
 }
 
 .btn-primary:hover {
-  background: #2b6cb0;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
+.btn-icon {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
 </style>

@@ -59,13 +59,13 @@ function goToConnections() {
 .empty-title {
   font-size: 24px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 
 .empty-description {
   font-size: 15px;
-  color: #a0aec0;
+  color: var(--text-muted);
   max-width: 400px;
   margin-bottom: 24px;
   line-height: 1.6;
@@ -76,28 +76,30 @@ function goToConnections() {
 }
 
 .btn {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 6px;
+  padding: 10px 20px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .btn-primary {
-  background-color: #4299e1;
+  background-color: var(--primary);
+  border-color: var(--primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: #3182ce;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .empty-help {
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 20px 28px;
   text-align: left;
   max-width: 400px;
@@ -106,7 +108,7 @@ function goToConnections() {
 .empty-help h4 {
   font-size: 14px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 
@@ -118,7 +120,7 @@ function goToConnections() {
 
 .empty-help li {
   font-size: 13px;
-  color: #a0aec0;
+  color: var(--text-muted);
   padding: 6px 0;
   padding-left: 20px;
   position: relative;
@@ -128,6 +130,6 @@ function goToConnections() {
   content: '•';
   position: absolute;
   left: 0;
-  color: #4299e1;
+  color: var(--primary);
 }
 </style>

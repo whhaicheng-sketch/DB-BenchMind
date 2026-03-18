@@ -2,7 +2,7 @@
 /**
  * Sidebar.vue
  * Left sidebar control panel for DB-BenchMind.
- * Contains connection selector, template selector, parameters, controls, and logs.
+ * Navicat-style light theme.
  */
 import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
@@ -167,14 +167,10 @@ onUnmounted(() => {
 <template>
   <div class="sidebar">
     <!-- Connection Section -->
-    <div class="section">
+    <div class="sidebar-section">
       <div class="section-header">
         <h3 class="section-title">Connection</h3>
-        <div class="section-actions">
-          <button class="action-btn" @click="openCreateConnectionModal" title="Add Connection">
-            +
-          </button>
-        </div>
+        <button class="btn-add" @click="openCreateConnectionModal" title="Add Connection">+</button>
       </div>
       <ConnectionList
         v-model="selectedConnectionId"
@@ -182,27 +178,9 @@ onUnmounted(() => {
         @connection-selected="handleConnectionSelected"
       />
       <div v-if="selectedConnection" class="connection-actions">
-        <button
-          class="btn-small"
-          @click="handleTestConnection"
-          :disabled="connectionStore.loading"
-        >
-          Test
-        </button>
-        <button
-          class="btn-small"
-          @click="openEditConnectionModal"
-          :disabled="isRunning"
-        >
-          Edit
-        </button>
-        <button
-          class="btn-small btn-danger"
-          @click="handleDeleteConnection"
-          :disabled="isRunning"
-        >
-          Delete
-        </button>
+        <button class="btn btn-small" @click="handleTestConnection" :disabled="connectionStore.loading">Test</button>
+        <button class="btn btn-small" @click="openEditConnectionModal" :disabled="isRunning">Edit</button>
+        <button class="btn btn-small btn-danger" @click="handleDeleteConnection" :disabled="isRunning">Delete</button>
       </div>
       <!-- Test result display -->
       <div v-if="connectionStore.testResult" class="test-result" :class="connectionStore.testResult.success ? 'success' : 'error'">
@@ -221,8 +199,10 @@ onUnmounted(() => {
     </div>
 
     <!-- Template Section -->
-    <div class="section">
-      <h3 class="section-title">Template</h3>
+    <div class="sidebar-section">
+      <div class="section-header">
+        <h3 class="section-title">Template</h3>
+      </div>
       <TemplateList
         v-model="selectedTemplateId"
         :disabled="isRunning"
@@ -236,8 +216,10 @@ onUnmounted(() => {
     </div>
 
     <!-- Parameters Section -->
-    <div class="section">
-      <h3 class="section-title">Parameters</h3>
+    <div class="sidebar-section">
+      <div class="section-header">
+        <h3 class="section-title">Parameters</h3>
+      </div>
       <!-- Dynamic template parameters -->
       <template v-if="templateParams.length > 0">
         <div v-for="param in templateParams" :key="param.name" class="form-group">
@@ -246,7 +228,7 @@ onUnmounted(() => {
           <select
             v-if="param.options && param.options.length > 0"
             v-model="paramValues[param.name]"
-            class="text-input"
+            class="select"
             :disabled="isRunning"
             @change="templateStore.setParamValue(param.name, paramValues[param.name])"
           >
@@ -257,7 +239,7 @@ onUnmounted(() => {
             v-else-if="param.type === 'int' || param.type === 'number'"
             v-model.number="paramValues[param.name]"
             type="number"
-            class="text-input"
+            class="input"
             :min="param.min"
             :max="param.max"
             :disabled="isRunning"
@@ -268,7 +250,7 @@ onUnmounted(() => {
             v-else
             v-model="paramValues[param.name]"
             type="text"
-            class="text-input"
+            class="input"
             :disabled="isRunning"
             @change="templateStore.setParamValue(param.name, paramValues[param.name])"
           />
@@ -278,72 +260,37 @@ onUnmounted(() => {
       <template v-else>
         <div class="form-group">
           <label>Threads:</label>
-          <input
-            v-model="threads"
-            type="number"
-            class="text-input"
-            :disabled="isRunning"
-          />
+          <input v-model="threads" type="number" class="input" :disabled="isRunning" />
         </div>
         <div class="form-group">
           <label>Duration (s):</label>
-          <input
-            v-model="duration"
-            type="number"
-            class="text-input"
-            :disabled="isRunning"
-          />
+          <input v-model="duration" type="number" class="input" :disabled="isRunning" />
         </div>
         <div class="form-group">
           <label>Warmup (s):</label>
-          <input
-            v-model="rampup"
-            type="number"
-            class="text-input"
-            :disabled="isRunning"
-          />
+          <input v-model="rampup" type="number" class="input" :disabled="isRunning" />
         </div>
       </template>
     </div>
 
     <!-- Control Panel -->
-    <div class="section control-panel">
-      <h3 class="section-title">Control</h3>
-      <div class="button-group">
-        <button
-          class="btn btn-prepare"
-          @click="handlePrepare"
-          :disabled="isRunning || !selectedConnectionId || !selectedTemplateId"
-        >
-          Prepare
-        </button>
-        <button
-          class="btn btn-run"
-          @click="handleRun"
-          :disabled="isRunning || !selectedConnectionId || !selectedTemplateId"
-        >
-          Run
-        </button>
-        <button
-          class="btn btn-stop"
-          @click="handleStop"
-          :disabled="!isRunning"
-        >
-          Stop
-        </button>
-        <button
-          class="btn btn-cleanup"
-          @click="handleCleanup"
-          :disabled="isRunning || !selectedConnectionId || !selectedTemplateId"
-        >
-          Cleanup
-        </button>
+    <div class="sidebar-section control-panel">
+      <div class="section-header">
+        <h3 class="section-title">Control</h3>
+      </div>
+      <div class="button-grid">
+        <button class="btn" @click="handlePrepare" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Prepare</button>
+        <button class="btn btn-success" @click="handleRun" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Run</button>
+        <button class="btn btn-danger" @click="handleStop" :disabled="!isRunning">Stop</button>
+        <button class="btn" @click="handleCleanup" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Cleanup</button>
       </div>
     </div>
 
     <!-- Status Section -->
-    <div class="section status-section">
-      <h3 class="section-title">Status</h3>
+    <div class="sidebar-section status-section">
+      <div class="section-header">
+        <h3 class="section-title">Status</h3>
+      </div>
       <div class="status-row">
         <span class="status-label">Status:</span>
         <span :class="['status-value', currentState]">
@@ -368,12 +315,8 @@ onUnmounted(() => {
     </div>
 
     <!-- Log Section -->
-    <div class="section log-section">
-      <LogPanel
-        max-height="200px"
-        :auto-scroll="true"
-        :max-lines="200"
-      />
+    <div class="sidebar-section log-section">
+      <LogPanel max-height="200px" :auto-scroll="true" :max-lines="200" />
     </div>
 
     <!-- Connection Modal -->
@@ -392,115 +335,102 @@ onUnmounted(() => {
 
 <style scoped>
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: 280px;
+  min-width: 280px;
   height: 100%;
-  background-color: #1e2a3a;
-  padding: 16px;
+  background-color: var(--bg-secondary);
+  padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spacing-md);
   overflow-y: auto;
+  border-right: 1px solid var(--border-color);
 }
 
-.section {
-  background-color: #2a3a4a;
-  border-radius: 8px;
-  padding: 12px;
+/* Section */
+.sidebar-section {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .section-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
-  color: #a0aec0;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0;
 }
 
-.section-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.action-btn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 4px;
-  background-color: #3a4a5a;
-  color: #a0aec0;
-  font-size: 16px;
+.btn-add {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
 }
 
-.action-btn:hover {
-  background-color: #4a5a6a;
-  color: #e2e8f0;
+.btn-add:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
+/* Connection Actions */
 .connection-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-light);
 }
 
 .btn-small {
-  padding: 4px 12px;
-  border: none;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  background-color: #3a4a5a;
-  color: #a0aec0;
-  transition: all 0.2s ease;
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
 }
 
-.btn-small:hover:not(:disabled) {
-  background-color: #4a5a6a;
-  color: #e2e8f0;
+.btn-danger {
+  color: var(--danger);
 }
 
-.btn-small:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
 }
 
-.btn-small.btn-danger {
-  background-color: #742a2a;
-  color: #fc8181;
-}
-
-.btn-small.btn-danger:hover:not(:disabled) {
-  background-color: #9a2a2a;
-}
-
+/* Test Result */
 .test-result {
-  margin-top: 12px;
-  padding: 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
 }
 
 .test-result.success {
-  background-color: #1a3a2a;
-  border: 1px solid #2d5a3a;
+  background-color: var(--success-bg);
+  border: 1px solid var(--success-border);
 }
 
 .test-result.error {
-  background-color: #3a1a1a;
-  border: 1px solid #5a2d2d;
+  background-color: var(--danger-bg);
+  border: 1px solid var(--danger-border);
 }
 
 .result-header {
@@ -511,32 +441,26 @@ onUnmounted(() => {
 }
 
 .result-icon {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
-.test-result.success .result-icon {
-  color: #68d391;
+.test-result.success .result-icon,
+.test-result.success .result-status {
+  color: var(--success);
 }
 
-.test-result.error .result-icon {
-  color: #fc8181;
+.test-result.error .result-icon,
+.test-result.error .result-status {
+  color: var(--danger);
 }
 
 .result-status {
   font-weight: 600;
 }
 
-.test-result.success .result-status {
-  color: #68d391;
-}
-
-.test-result.error .result-status {
-  color: #fc8181;
-}
-
 .result-details {
-  color: #a0aec0;
-  font-size: 11px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 
 .result-details div {
@@ -545,36 +469,13 @@ onUnmounted(() => {
 
 .result-error {
   margin-top: 4px;
-  color: #fc8181;
-  font-size: 11px;
+  color: var(--danger);
   word-break: break-all;
 }
 
-.select-input,
-.text-input {
-  width: 100%;
-  padding: 8px 12px;
-  background-color: #1e2a3a;
-  border: 1px solid #3a4a5a;
-  border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 14px;
-}
-
-.select-input:focus,
-.text-input:focus {
-  outline: none;
-  border-color: #4299e1;
-}
-
-.select-input:disabled,
-.text-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
+/* Form */
 .form-group {
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .form-group:last-child {
@@ -583,78 +484,49 @@ onUnmounted(() => {
 
 .form-group label {
   display: block;
-  font-size: 12px;
-  color: #a0aec0;
-  margin-bottom: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin-bottom: 2px;
 }
 
-.button-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+.input,
+.select {
+  width: 100%;
+  padding: 4px 8px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  height: 26px;
 }
 
-.btn {
-  padding: 10px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--border-focus);
 }
 
-.btn:disabled {
-  opacity: 0.5;
+.input:disabled,
+.select:disabled {
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
-.btn-prepare {
-  background-color: #4a5568;
-  color: #fff;
+/* Control Panel */
+.button-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xs);
 }
 
-.btn-prepare:hover:not(:disabled) {
-  background-color: #5a6578;
+.control-panel .btn {
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
 }
 
-.btn-run {
-  background-color: #48bb78;
-  color: #fff;
-}
-
-.btn-run:hover:not(:disabled) {
-  background-color: #38a169;
-}
-
-.btn-stop {
-  background-color: #e53e3e;
-  color: #fff;
-}
-
-.btn-stop:hover:not(:disabled) {
-  background-color: #c53030;
-}
-
-.btn-cleanup {
-  background-color: #4a5568;
-  color: #fff;
-}
-
-.btn-cleanup:hover:not(:disabled) {
-  background-color: #5a6578;
-}
-
-.template-info {
-  margin-top: 8px;
-}
-
-.template-description {
-  font-size: 12px;
-  color: #718096;
-  font-style: italic;
-}
-
+/* Status Section */
 .status-section {
   flex-shrink: 0;
 }
@@ -662,76 +534,57 @@ onUnmounted(() => {
 .status-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .status-label {
-  color: #a0aec0;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .status-value {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
-.status-value.idle {
-  color: #a0aec0;
-}
-
-.status-value.running {
-  color: #48bb78;
-}
-
-.status-value.preparing {
-  color: #ecc94b;
-}
-
-.status-value.warming_up {
-  color: #f6ad55;
-}
-
-.status-value.completed {
-  color: #68d391;
-}
-
-.status-value.failed {
-  color: #fc8181;
-}
-
+.status-value.idle { color: var(--text-muted); }
+.status-value.running { color: var(--success); }
+.status-value.preparing { color: var(--warning); }
+.status-value.warming_up { color: var(--warning); }
+.status-value.completed { color: var(--success); }
+.status-value.failed { color: var(--danger); }
 .status-value.cancelled,
 .status-value.timeout,
-.status-value.force_stopped {
-  color: #f6ad55;
-}
+.status-value.force_stopped { color: var(--warning); }
 
 .result-summary {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #3a4a5a;
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-light);
 }
 
 .result-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .result-item .result-label {
-  color: #718096;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .result-item .result-value {
-  color: #e2e8f0;
-  font-size: 14px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
+/* Log Section */
 .log-section {
   flex: 1;
-  min-height: 150px;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
 }
@@ -740,14 +593,14 @@ onUnmounted(() => {
   flex: 1;
 }
 
-/* Modal styles */
+/* Modal */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -755,12 +608,27 @@ onUnmounted(() => {
 }
 
 .modal-content {
-  background-color: #2a3a4a;
-  border-radius: 8px;
-  padding: 20px;
-  width: 400px;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  width: auto;
   max-width: 90vw;
   max-height: 90vh;
-  overflow-y: auto;
+  overflow: visible;
+  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--border-color);
+}
+
+/* Template Info */
+.template-info {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-light);
+}
+
+.template-description {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-style: italic;
 }
 </style>

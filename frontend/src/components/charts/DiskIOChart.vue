@@ -85,8 +85,9 @@ const writeColor = '#1976D2'
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background-color: #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .diskio-header {
@@ -98,7 +99,7 @@ const writeColor = '#1976D2'
 .diskio-label {
   font-size: 14px;
   font-weight: 600;
-  color: #2196F3;
+  color: var(--primary);
 }
 
 .diskio-content {
@@ -115,7 +116,7 @@ const writeColor = '#1976D2'
 
 .io-label {
   font-size: 12px;
-  color: #a0aec0;
+  color: var(--text-muted);
 }
 
 .io-value {
@@ -132,18 +133,18 @@ const writeColor = '#1976D2'
 
 .sparkline-label {
   font-size: 10px;
-  color: #718096;
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
 .sparkline-placeholder {
   height: 40px;
-  background-color: #1e2a3a;
-  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-xs);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #4a5568;
+  color: var(--text-muted);
 }
 </style>

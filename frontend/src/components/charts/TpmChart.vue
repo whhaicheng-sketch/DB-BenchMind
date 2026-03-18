@@ -119,28 +119,28 @@ const statusInfo = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background-color: #2a3a4a;
-  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
   min-height: 120px;
 }
 
 .empty-label {
   font-size: 14px;
   font-weight: 600;
-  color: #dc5050;
+  color: var(--danger);
   margin-bottom: 8px;
 }
 
 .empty-value {
   font-size: 24px;
   font-weight: 600;
-  color: #718096;
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 
 .empty-hint {
   font-size: 12px;
-  color: #4a5568;
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -160,18 +160,18 @@ const statusInfo = computed(() => {
 }
 
 .status-stable {
-  background-color: rgba(76, 175, 80, 0.2);
-  color: #4CAF50;
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 .status-fluctuating {
-  background-color: rgba(255, 193, 7, 0.2);
-  color: #FFC107;
+  background-color: var(--warning-bg);
+  color: var(--warning);
 }
 
 .status-sawtooth {
-  background-color: rgba(244, 67, 54, 0.2);
-  color: #F44336;
+  background-color: var(--danger-bg);
+  color: var(--danger);
 }
 
 .status-icon {

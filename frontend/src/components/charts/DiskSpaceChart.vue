@@ -100,10 +100,10 @@ const color = '#9C27B0'
 }
 
 .disk-separator {
-  color: #4a5568;
+  color: var(--text-muted);
 }
 
 .disk-total {
-  color: #718096;
+  color: var(--text-muted);
 }
 </style>
