@@ -5,6 +5,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -167,12 +168,28 @@ func (uc *ConnectionUseCase) UpdateConnection(ctx context.Context, conn connecti
 
 // DeleteConnection deletes a connection (REQ-CONN-009).
 // Returns an error if connection not found.
-// Also removes password from keyring.
+// Also removes password and AI API keys from keyring.
 func (uc *ConnectionUseCase) DeleteConnection(ctx context.Context, id string) error {
-	// Check if connection exists
-	_, err := uc.repo.FindByID(ctx, id)
+	// Get connection first to access AI assistants for cleanup
+	conn, err := uc.repo.FindByID(ctx, id)
 	if err != nil {
 		return err
+	}
+
+	// Collect all keyring keys to delete
+	keysToDelete := []string{
+		id,            // DB password
+		id + ":ssh",   // SSH password
+		id + ":winrm", // WinRM password
+	}
+
+	// Collect AI API keys for all assistants
+	if conn != nil {
+		for _, assistant := range conn.GetAIAssistants() {
+			if assistant.ID != "" {
+				keysToDelete = append(keysToDelete, id+":ai:"+assistant.ID)
+			}
+		}
 	}
 
 	// Delete from repository
@@ -180,10 +197,14 @@ func (uc *ConnectionUseCase) DeleteConnection(ctx context.Context, id string) er
 		return fmt.Errorf("delete connection: %w", err)
 	}
 
-	// Remove password from keyring (best effort, ignore if not found)
-	_ = uc.keyring.Delete(ctx, id)
-	_ = uc.keyring.Delete(ctx, id+":ssh")
-	_ = uc.keyring.Delete(ctx, id+":winrm")
+	// Remove all keys from keyring (best effort, ignore errors)
+	for _, key := range keysToDelete {
+		_ = uc.keyring.Delete(ctx, key)
+	}
+
+	slog.Info("Connection deleted with keyring cleanup",
+		"id", id,
+		"keys_cleaned", len(keysToDelete))
 
 	return nil
 }
@@ -303,6 +324,11 @@ func (uc *ConnectionUseCase) SetAIAPIKey(ctx context.Context, connID, assistantI
 // GetAIAPIKey retrieves an AI assistant API key from keyring.
 func (uc *ConnectionUseCase) GetAIAPIKey(ctx context.Context, connID, assistantID string) (string, error) {
 	return uc.keyring.Get(ctx, connID+":ai:"+assistantID)
+}
+
+// DeleteAIAPIKey removes an AI assistant API key from keyring.
+func (uc *ConnectionUseCase) DeleteAIAPIKey(ctx context.Context, connID, assistantID string) error {
+	return uc.keyring.Delete(ctx, connID+":ai:"+assistantID)
 }
 
 // DeletePassword removes a password from keyring.

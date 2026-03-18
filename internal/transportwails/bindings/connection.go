@@ -2,17 +2,13 @@
 package bindings
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
+	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/bindings/aiprovider"
 )
 
 // ConnectionBinding provides Wails bindings for connection management.
@@ -547,6 +543,13 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) Connec
 	}
 
 	// Update AI assistants (common to all connection types)
+	// First, collect old assistant IDs for cleanup
+	oldAssistantIDs := make(map[string]bool)
+	for _, a := range existing.GetAIAssistants() {
+		oldAssistantIDs[a.ID] = true
+	}
+
+	// Set new assistants
 	switch c := existing.(type) {
 	case *connection.MySQLConnection:
 		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
@@ -557,6 +560,22 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) Connec
 	case *connection.SQLServerConnection:
 		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
 	}
+
+	// Clean up API keys for removed assistants
+	newAssistantIDs := make(map[string]bool)
+	for _, a := range req.AIAssistants {
+		newAssistantIDs[a.ID] = true
+	}
+	for oldID := range oldAssistantIDs {
+		if !newAssistantIDs[oldID] {
+			if err := b.uc.DeleteAIAPIKey(ctx, req.ID, oldID); err != nil {
+				slog.Warn("Failed to delete old AI API key", "assistant_id", oldID, "error", err)
+			} else {
+				slog.Info("Cleaned up old AI API key", "connection_id", req.ID, "assistant_id", oldID)
+			}
+		}
+	}
+
 	// Store AI API keys in keyring
 	for _, a := range req.AIAssistants {
 		if a.APIKey != "" {
@@ -961,158 +980,25 @@ func (b *ConnectionBinding) TestSSHConnection(req SSHTestRequest) ConnectionTest
 // It does NOT test database or SSH connections.
 func (b *ConnectionBinding) TestAIConnection(req AITestRequest) AITestResult {
 	ctx := context.Background()
-	startTime := time.Now()
 
 	slog.Info("TestAIConnection called",
 		"provider", req.Provider,
 		"api_host", req.APIHost,
 		"model", req.Model)
 
-	// Validate required fields
-	if req.Provider == "" {
-		return AITestResult{
-			Success: false,
-			Error:   "Provider is required",
-		}
-	}
-	if req.APIHost == "" {
-		return AITestResult{
-			Success: false,
-			Error:   "API Host is required",
-		}
-	}
-	if req.APIKey == "" {
-		return AITestResult{
-			Success: false,
-			Error:   "API Key is required",
-		}
-	}
-	if req.Model == "" {
-		return AITestResult{
-			Success: false,
-			Error:   "Model is required",
-		}
-	}
-
-	// Build the full API URL
-	apiURL := req.APIHost
-	if req.APIEndpoint != "" {
-		apiURL = apiURL + req.APIEndpoint
-	} else {
-		// Default endpoint based on provider
-		switch req.Provider {
-		case "openai":
-			apiURL = apiURL + "/v1/chat/completions"
-		case "deepseek":
-			apiURL = apiURL + "/v1/chat/completions"
-		case "anthropic":
-			apiURL = apiURL + "/v1/messages"
-		default:
-			apiURL = apiURL + "/v1/chat/completions"
-		}
-	}
-
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
-	// Build minimal test request body
-	testBody := map[string]interface{}{
-		"model": req.Model,
-		"messages": []map[string]string{
-			{"role": "user", "content": "Hi"},
-		},
-		"max_tokens": 5,
-	}
-
-	bodyBytes, err := json.Marshal(testBody)
-	if err != nil {
-		slog.Error("TestAIConnection: failed to marshal request", "error", err)
-		return AITestResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to build request: %v", err),
-		}
-	}
-
-	// Create request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		slog.Error("TestAIConnection: failed to create request", "error", err)
-		return AITestResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to create request: %v", err),
-		}
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	switch req.Provider {
-	case "openai", "deepseek":
-		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
-	case "anthropic":
-		httpReq.Header.Set("x-api-key", req.APIKey)
-		httpReq.Header.Set("anthropic-version", "2023-06-01")
-	default:
-		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
-	}
-
-	// Send request
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		latencyMs := time.Since(startTime).Milliseconds()
-		slog.Error("TestAIConnection: request failed", "error", err, "latency_ms", latencyMs)
-		return AITestResult{
-			Success:   false,
-			LatencyMs: latencyMs,
-			Error:     fmt.Sprintf("Connection failed: %v", err),
-		}
-	}
-	defer resp.Body.Close()
-
-	latencyMs := time.Since(startTime).Milliseconds()
-
-	// Read response
-	respBody, _ := io.ReadAll(resp.Body)
-
-	// Check status code
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		slog.Info("TestAIConnection success",
-			"provider", req.Provider,
-			"status", resp.StatusCode,
-			"latency_ms", latencyMs)
-		return AITestResult{
-			Success:   true,
-			LatencyMs: latencyMs,
-			Message:   fmt.Sprintf("AI API connected successfully (%dms)", latencyMs),
-		}
-	}
-
-	// Parse error response
-	var errResp struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Message string `json:"message"`
-	}
-	json.Unmarshal(respBody, &errResp)
-
-	errMsg := errResp.Error.Message
-	if errMsg == "" {
-		errMsg = errResp.Message
-	}
-	if errMsg == "" {
-		errMsg = fmt.Sprintf("API returned status %d", resp.StatusCode)
-	}
-
-	slog.Error("TestAIConnection: API error",
-		"status", resp.StatusCode,
-		"error", errMsg,
-		"latency_ms", latencyMs)
+	// Delegate to aiprovider package
+	result := aiprovider.TestConnection(ctx, aiprovider.TestRequest{
+		Provider:    req.Provider,
+		APIHost:     req.APIHost,
+		APIEndpoint: req.APIEndpoint,
+		APIKey:      req.APIKey,
+		Model:       req.Model,
+	})
 
 	return AITestResult{
-		Success:   false,
-		LatencyMs: latencyMs,
-		Error:     errMsg,
+		Success:   result.Success,
+		LatencyMs: result.LatencyMs,
+		Message:   result.Message,
+		Error:     result.Error,
 	}
 }

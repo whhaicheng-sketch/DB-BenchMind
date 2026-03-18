@@ -135,10 +135,7 @@ const formData = ref({
       api_key: '',
       model: 'deepseek-chat',
       temperature: 0.7,
-      description: '',
-      enter_action: 'send',
-      compare_with_others: false,
-      language: 'zh-CN'
+      description: ''
     }
   ],
   selectedAssistantId: 'default'
@@ -181,47 +178,6 @@ const selectedAssistant = computed(() => {
 // ============================================================
 // AI Provider Options
 // ============================================================
-// Track previous provider for smart defaults
-const previousProvider = ref({})
-
-// Update assistant defaults when provider changes
-// Rules:
-// 1. If field is empty → auto-fill
-// 2. If field equals old provider's default → can replace
-// 3. If user manually modified → don't override
-const onProviderChange = (assistant) => {
-  const newProvider = aiProviders.find(p => p.value === assistant.provider)
-  if (!newProvider) return
-
-  const assistantId = assistant.id
-  const oldProviderValue = previousProvider.value[assistantId]
-  const oldProvider = aiProviders.find(p => p.value === oldProviderValue)
-
-  // Helper: check if should update field
-  const shouldUpdate = (currentValue, oldDefault, newDefault) => {
-    // Rule 1: Empty field - always fill
-    if (!currentValue || currentValue.trim() === '') return true
-    // Rule 2: Matches old default - can replace
-    if (oldProvider && currentValue === oldDefault) return true
-    // Rule 3: User modified - don't override
-    return false
-  }
-
-  // Apply smart defaults
-  if (shouldUpdate(assistant.api_host, oldProvider?.host, newProvider.host)) {
-    assistant.api_host = newProvider.host
-  }
-  if (shouldUpdate(assistant.api_endpoint, oldProvider?.endpoint, newProvider.endpoint)) {
-    assistant.api_endpoint = newProvider.endpoint
-  }
-  if (shouldUpdate(assistant.model, oldProvider?.model, newProvider.model)) {
-    assistant.model = newProvider.model
-  }
-
-  // Remember current provider for next change
-  previousProvider.value[assistantId] = assistant.provider
-}
-
 const aiProviders = [
   { value: 'deepseek', label: 'DeepSeek', host: 'https://api.deepseek.com', endpoint: '/v1/chat/completions', model: 'deepseek-chat' },
   { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: 'qwen-turbo' },
@@ -234,16 +190,6 @@ const aiProviders = [
   { value: 'anthropic', label: 'Anthropic Claude', host: 'https://api.anthropic.com', endpoint: '/v1/messages', model: 'claude-3-sonnet-20240229' },
   { value: 'xai', label: 'xAI Grok', host: 'https://api.x.ai', endpoint: '/v1/chat/completions', model: 'grok-beta' },
   { value: 'ollama', label: 'Ollama (本地)', host: 'http://localhost:11434', endpoint: '/api/chat', model: 'llama2' }
-]
-
-const enterActions = [
-  { value: 'send', label: '发送消息' },
-  { value: 'newline', label: '换行' }
-]
-
-const languages = [
-  { value: 'zh-CN', label: '简体中文' },
-  { value: 'en-US', label: 'English' }
 ]
 
 // ============================================================
@@ -261,6 +207,11 @@ watch(selectedType, (newType) => {
     formData.value.database = schema.defaultDatabase
     showTypeSelection.value = false
   }
+})
+
+// Close provider dropdown when switching tabs
+watch(activeTab, () => {
+  showProviderDropdown.value = false
 })
 
 // Watch for host changes to sync SSH host (only if not manually modified)
@@ -383,8 +334,20 @@ const handleSave = async () => {
   saving.value = true
 
   try {
+    // Sync provider-linked values to assistants before saving
+    const syncedAssistants = formData.value.ai_assistants.map(assistant => {
+      const providerInfo = getProviderInfo(assistant.provider)
+      return {
+        ...assistant,
+        api_host: providerInfo.host,
+        api_endpoint: providerInfo.endpoint,
+        model: assistant.model || providerInfo.model
+      }
+    })
+
     const payload = {
       ...formData.value,
+      ai_assistants: syncedAssistants,
       // Map Oracle connect_type to appropriate field
       service_name: formData.value.type === 'oracle' && formData.value.connect_type === 'service_name'
         ? formData.value.database : '',
@@ -451,10 +414,7 @@ const resetForm = () => {
         api_key: '',
         model: 'deepseek-chat',
         temperature: 0.7,
-        description: '',
-        enter_action: 'send',
-        compare_with_others: false,
-        language: 'zh-CN'
+        description: ''
       }
     ],
     selectedAssistantId: 'default'
@@ -470,6 +430,7 @@ const resetForm = () => {
   aiTestResult.value = null
   aiTestStatus.value = 'idle'
   sshHostManuallyModified.value = false
+  showProviderDropdown.value = false
 }
 
 // ============================================================
@@ -570,11 +531,13 @@ const handleTestSSH = async () => {
 // ============================================================
 const handleTestAI = async () => {
   const assistant = selectedAssistant.value
-  if (!assistant.api_host || !assistant.api_key) {
+  const providerInfo = getProviderInfo(assistant.provider)
+
+  if (!providerInfo.host || !assistant.api_key) {
     aiTestStatus.value = 'error'
     aiTestResult.value = {
       success: false,
-      error: '请填写 API 主机和 API 密钥'
+      error: '请填写 API 密钥'
     }
     return
   }
@@ -584,13 +547,13 @@ const handleTestAI = async () => {
   aiTestResult.value = null
 
   try {
-    // Build AI test request
+    // Build AI test request using provider-linked values
     const testRequest = {
-      provider: assistant.provider || 'deepseek',
-      api_host: assistant.api_host,
-      api_endpoint: assistant.api_endpoint || '/v1/chat/completions',
+      provider: assistant.provider,
+      api_host: providerInfo.host,
+      api_endpoint: providerInfo.endpoint,
       api_key: assistant.api_key,
-      model: assistant.model || 'deepseek-chat'
+      model: assistant.model || providerInfo.model
     }
 
     // Call real backend AI test - completely independent from DB/SSH tests
@@ -612,23 +575,35 @@ const handleTestAI = async () => {
 // ============================================================
 // AI Assistant Management
 // ============================================================
-const addAssistant = () => {
+const showProviderDropdown = ref(false)
+
+const addAssistant = (providerValue) => {
+  const provider = aiProviders.find(p => p.value === providerValue)
+  if (!provider) return
+
   const newId = `assistant_${Date.now()}`
   formData.value.ai_assistants.push({
     id: newId,
-    name: '新助手',
-    provider: 'openai',
-    api_host: 'https://api.openai.com',
-    api_endpoint: '/v1/chat/completions',
+    name: provider.label,
+    provider: providerValue,
+    api_host: provider.host,
+    api_endpoint: provider.endpoint,
     api_key: '',
-    model: 'gpt-4',
+    model: provider.model,
     temperature: 0.7,
-    description: '',
-    enter_action: 'send',
-    compare_with_others: false,
-    language: 'zh-CN'
+    description: ''
   })
   formData.value.selectedAssistantId = newId
+  showProviderDropdown.value = false
+}
+
+const toggleProviderDropdown = () => {
+  showProviderDropdown.value = !showProviderDropdown.value
+}
+
+// Get provider display info
+const getProviderInfo = (providerValue) => {
+  return aiProviders.find(p => p.value === providerValue) || aiProviders[0]
 }
 
 const removeAssistant = (id) => {
@@ -917,7 +892,20 @@ const syncSshHostFromDb = () => {
                 </div>
               </div>
               <div class="ai-config__sidebar-actions">
-                <button class="ai-config__action-btn" @click="addAssistant" title="添加助手">+</button>
+                <div class="ai-config__add-wrapper">
+                  <button class="ai-config__action-btn" @click="toggleProviderDropdown" title="添加助手">+</button>
+                  <!-- Provider Dropdown -->
+                  <div v-if="showProviderDropdown" class="ai-config__provider-dropdown">
+                    <div
+                      v-for="p in aiProviders"
+                      :key="p.value"
+                      class="ai-config__provider-option"
+                      @click="addAssistant(p.value)"
+                    >
+                      {{ p.label }}
+                    </div>
+                  </div>
+                </div>
                 <button
                   class="ai-config__action-btn"
                   :class="{ 'ai-config__action-btn--disabled': formData.ai_assistants.length <= 1 }"
@@ -929,7 +917,7 @@ const syncSshHostFromDb = () => {
             </div>
 
             <!-- Right: Config Form -->
-            <div class="ai-config__main">
+            <div class="ai-config__main" @click="showProviderDropdown = false">
               <template v-if="selectedAssistant">
                 <!-- Basic Config Section -->
                 <div class="ai-config__section">
@@ -940,23 +928,17 @@ const syncSshHostFromDb = () => {
 
                   <div class="ai-config__row">
                     <label class="ai-config__label">AI 提供商</label>
-                    <select
-                      v-model="selectedAssistant.provider"
-                      class="ai-config__select"
-                      @change="onProviderChange(selectedAssistant)"
-                    >
-                      <option v-for="p in aiProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
-                    </select>
+                    <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).label }}</div>
                   </div>
 
                   <div class="ai-config__row">
                     <label class="ai-config__label">API 主机</label>
-                    <input v-model="selectedAssistant.api_host" type="text" class="ai-config__input" />
+                    <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).host }}</div>
                   </div>
 
                   <div class="ai-config__row">
                     <label class="ai-config__label">API 端点</label>
-                    <input v-model="selectedAssistant.api_endpoint" type="text" class="ai-config__input" />
+                    <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).endpoint }}</div>
                   </div>
 
                   <div class="ai-config__row">
@@ -1021,34 +1003,6 @@ const syncSshHostFromDb = () => {
                   </div>
                 </div>
 
-                <!-- UI Settings Section -->
-                <div class="ai-config__section ai-config__section--bordered">
-                  <div class="ai-config__section-title">AI 助手 UI</div>
-                  <div class="ai-config__row">
-                    <label class="ai-config__label">按下回车键时执行的操作</label>
-                    <select v-model="selectedAssistant.enter_action" class="ai-config__select">
-                      <option v-for="a in enterActions" :key="a.value" :value="a.value">{{ a.label }}</option>
-                    </select>
-                  </div>
-                  <div class="ai-config__row ai-config__row--checkbox">
-                    <label class="ai-config__checkbox">
-                      <input type="checkbox" v-model="selectedAssistant.compare_with_others" />
-                      <span>与其他助手比较</span>
-                    </label>
-                  </div>
-                </div>
-
-                <!-- Language Section -->
-                <div class="ai-config__section ai-config__section--bordered">
-                  <div class="ai-config__section-title">询问 AI</div>
-                  <div class="ai-config__row">
-                    <label class="ai-config__label">语言</label>
-                    <select v-model="selectedAssistant.language" class="ai-config__select">
-                      <option v-for="l in languages" :key="l.value" :value="l.value">{{ l.label }}</option>
-                    </select>
-                  </div>
-                </div>
-
                 <!-- Test Button -->
                 <div class="ai-config__test-area">
                   <button
@@ -1081,9 +1035,9 @@ const syncSshHostFromDb = () => {
     <!-- Footer Actions -->
     <div class="conn-editor__footer">
       <div class="conn-editor__footer-left">
-        <!-- General tab: Test DB button -->
+        <!-- General tab: Test DB button (hidden during type selection) -->
         <button
-          v-if="activeTab === 'general'"
+          v-if="activeTab === 'general' && !showTypeSelection"
           type="button"
           class="conn-editor__btn conn-editor__btn--test"
           :class="{
@@ -1661,6 +1615,58 @@ const syncSshHostFromDb = () => {
 .ai-config__action-btn--disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Provider Dropdown */
+.ai-config__add-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.ai-config__provider-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 4px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-bottom: 4px;
+}
+
+.ai-config__provider-option {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-config__provider-option:hover {
+  background-color: #ecf5ff;
+  color: var(--primary);
+}
+
+/* Readonly Field */
+.ai-config__readonly {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 26px;
+  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Right Main Config Area */
