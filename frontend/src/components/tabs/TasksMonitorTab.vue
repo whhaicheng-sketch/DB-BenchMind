@@ -2,7 +2,7 @@
   <div class="tasks-monitor-tab">
     <div class="tab-header">
       <div>
-        <h2>Tasks &amp; Monitor</h2>
+        <h2>Performance Analysis</h2>
         <p class="page-subtitle">Template / Connection 选择、Preview、单任务执行、实时指标和 tail 风格日志都在这个工作台完成。</p>
       </div>
       <div class="top-controls">

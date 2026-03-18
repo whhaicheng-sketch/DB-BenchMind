@@ -14,6 +14,7 @@ import ConnectionsTab from './components/tabs/ConnectionsTab.vue'
 import TemplatesTab from './components/tabs/TemplatesTab.vue'
 import TasksMonitorTab from './components/tabs/TasksMonitorTab.vue'
 import HistoryTab from './components/tabs/HistoryTab.vue'
+import ImpactAnalysisTab from './components/tabs/ImpactAnalysisTab.vue'
 
 // Global error state
 const globalError = ref(null)
@@ -104,6 +105,7 @@ onUnmounted(async () => {
       <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
       <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
       <HistoryTab v-else-if="appStore.activeTab === 'history'" />
+      <ImpactAnalysisTab v-else-if="appStore.activeTab === 'impact-analysis'" />
     </div>
   </div>
 </template>

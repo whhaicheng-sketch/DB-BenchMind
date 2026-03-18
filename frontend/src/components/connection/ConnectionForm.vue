@@ -181,12 +181,59 @@ const selectedAssistant = computed(() => {
 // ============================================================
 // AI Provider Options
 // ============================================================
+// Track previous provider for smart defaults
+const previousProvider = ref({})
+
+// Update assistant defaults when provider changes
+// Rules:
+// 1. If field is empty → auto-fill
+// 2. If field equals old provider's default → can replace
+// 3. If user manually modified → don't override
+const onProviderChange = (assistant) => {
+  const newProvider = aiProviders.find(p => p.value === assistant.provider)
+  if (!newProvider) return
+
+  const assistantId = assistant.id
+  const oldProviderValue = previousProvider.value[assistantId]
+  const oldProvider = aiProviders.find(p => p.value === oldProviderValue)
+
+  // Helper: check if should update field
+  const shouldUpdate = (currentValue, oldDefault, newDefault) => {
+    // Rule 1: Empty field - always fill
+    if (!currentValue || currentValue.trim() === '') return true
+    // Rule 2: Matches old default - can replace
+    if (oldProvider && currentValue === oldDefault) return true
+    // Rule 3: User modified - don't override
+    return false
+  }
+
+  // Apply smart defaults
+  if (shouldUpdate(assistant.api_host, oldProvider?.host, newProvider.host)) {
+    assistant.api_host = newProvider.host
+  }
+  if (shouldUpdate(assistant.api_endpoint, oldProvider?.endpoint, newProvider.endpoint)) {
+    assistant.api_endpoint = newProvider.endpoint
+  }
+  if (shouldUpdate(assistant.model, oldProvider?.model, newProvider.model)) {
+    assistant.model = newProvider.model
+  }
+
+  // Remember current provider for next change
+  previousProvider.value[assistantId] = assistant.provider
+}
+
 const aiProviders = [
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'azure', label: 'Azure OpenAI' },
-  { value: 'custom', label: 'Custom' }
+  { value: 'deepseek', label: 'DeepSeek', host: 'https://api.deepseek.com', endpoint: '/v1/chat/completions', model: 'deepseek-chat' },
+  { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: 'qwen-turbo' },
+  { value: 'doubao', label: '字节跳动 豆包', host: 'https://ark.cn-beijing.volces.com/api/v3', endpoint: '/chat/completions', model: 'doubao-pro-32k' },
+  { value: 'glm', label: '智谱 GLM', host: 'https://open.bigmodel.cn/api/paas/v4', endpoint: '/chat/completions', model: 'glm-4-flash' },
+  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.chat', endpoint: '/v1/chat/completions', model: 'abab6.5s-chat' },
+  { value: 'moonshot', label: 'Moonshot Kimi', host: 'https://api.moonshot.cn', endpoint: '/v1/chat/completions', model: 'moonshot-v1-8k' },
+  { value: 'openai', label: 'OpenAI ChatGPT', host: 'https://api.openai.com', endpoint: '/v1/chat/completions', model: 'gpt-4' },
+  { value: 'gemini', label: 'Google Gemini', host: 'https://generativelanguage.googleapis.com', endpoint: '/v1beta/models/gemini-pro:generateContent', model: 'gemini-pro' },
+  { value: 'anthropic', label: 'Anthropic Claude', host: 'https://api.anthropic.com', endpoint: '/v1/messages', model: 'claude-3-sonnet-20240229' },
+  { value: 'xai', label: 'xAI Grok', host: 'https://api.x.ai', endpoint: '/v1/chat/completions', model: 'grok-beta' },
+  { value: 'ollama', label: 'Ollama (本地)', host: 'http://localhost:11434', endpoint: '/api/chat', model: 'llama2' }
 ]
 
 const enterActions = [
@@ -853,165 +900,176 @@ const syncSshHostFromDb = () => {
 
         <!-- ==================== AI Assistant Tab ==================== -->
         <div v-show="activeTab === 'ai'" class="conn-editor__panel conn-editor__panel--ai">
-          <div class="ai-assistant">
+          <div class="ai-config">
             <!-- Left: Assistant List -->
-            <div class="ai-assistant__list">
-              <div class="ai-assistant__list-header">
-                <span>AI 助手列表</span>
-                <button class="ai-assistant__add-btn" @click="addAssistant" title="添加助手">+</button>
-              </div>
-              <div class="ai-assistant__list-items">
+            <div class="ai-config__sidebar">
+              <div class="ai-config__sidebar-header">AI 助手</div>
+              <div class="ai-config__list">
                 <div
                   v-for="assistant in formData.ai_assistants"
                   :key="assistant.id"
-                  class="ai-assistant__item"
-                  :class="{ 'ai-assistant__item--active': formData.selectedAssistantId === assistant.id }"
+                  class="ai-config__list-item"
+                  :class="{ 'ai-config__list-item--active': formData.selectedAssistantId === assistant.id }"
                   @click="selectAssistant(assistant.id)"
+                  :title="assistant.name"
                 >
-                  <span class="ai-assistant__item-name">{{ assistant.name }}</span>
-                  <button
-                    v-if="formData.ai_assistants.length > 1"
-                    class="ai-assistant__item-remove"
-                    @click.stop="removeAssistant(assistant.id)"
-                    title="删除助手"
-                  >-</button>
+                  {{ assistant.name }}
                 </div>
+              </div>
+              <div class="ai-config__sidebar-actions">
+                <button class="ai-config__action-btn" @click="addAssistant" title="添加助手">+</button>
+                <button
+                  class="ai-config__action-btn"
+                  :class="{ 'ai-config__action-btn--disabled': formData.ai_assistants.length <= 1 }"
+                  @click="removeAssistant(selectedAssistant?.id)"
+                  :disabled="formData.ai_assistants.length <= 1"
+                  title="删除助手"
+                >−</button>
               </div>
             </div>
 
-            <!-- Right: Assistant Config -->
-            <div class="ai-assistant__config">
+            <!-- Right: Config Form -->
+            <div class="ai-config__main">
               <template v-if="selectedAssistant">
-                <div class="conn-form">
-                  <!-- Name -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">AI 助手名称</label>
-                    <input v-model="selectedAssistant.name" type="text" class="conn-form__input" placeholder="助手名称" />
+                <!-- Basic Config Section -->
+                <div class="ai-config__section">
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">AI 助手名称</label>
+                    <input v-model="selectedAssistant.name" type="text" class="ai-config__input" />
                   </div>
 
-                  <!-- Provider -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">AI 提供商</label>
-                    <select v-model="selectedAssistant.provider" class="conn-form__select">
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">AI 提供商</label>
+                    <select
+                      v-model="selectedAssistant.provider"
+                      class="ai-config__select"
+                      @change="onProviderChange(selectedAssistant)"
+                    >
                       <option v-for="p in aiProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
                     </select>
                   </div>
 
-                  <!-- API Host -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">API 主机</label>
-                    <input v-model="selectedAssistant.api_host" type="text" class="conn-form__input" placeholder="https://api.example.com" />
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">API 主机</label>
+                    <input v-model="selectedAssistant.api_host" type="text" class="ai-config__input" />
                   </div>
 
-                  <!-- API Endpoint -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">API 端点</label>
-                    <input v-model="selectedAssistant.api_endpoint" type="text" class="conn-form__input" placeholder="/v1/chat/completions" />
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">API 端点</label>
+                    <input v-model="selectedAssistant.api_endpoint" type="text" class="ai-config__input" />
                   </div>
 
-                  <!-- API Key -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">API 密钥</label>
-                    <div class="conn-form__password">
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">
+                      API 密钥
+                      <span class="ai-config__help" title="API 密钥用于身份验证，请妥善保管">?</span>
+                    </label>
+                    <div class="ai-config__key-field">
                       <input
                         v-model="selectedAssistant.api_key"
                         :type="showApiKey[selectedAssistant.id] ? 'text' : 'password'"
-                        class="conn-form__input"
+                        class="ai-config__input ai-config__key-input"
                         placeholder="sk-..."
                       />
-                      <button type="button" class="conn-form__password-toggle" @click="toggleApiKeyVisibility(selectedAssistant.id)">
-                        {{ showApiKey[selectedAssistant.id] ? '隐藏' : '显示' }}
+                      <button
+                        type="button"
+                        class="ai-config__key-toggle"
+                        @click="toggleApiKeyVisibility(selectedAssistant.id)"
+                        :title="showApiKey[selectedAssistant.id] ? '隐藏密钥' : '显示密钥'"
+                      >
+                        <span v-if="showApiKey[selectedAssistant.id]">🔒</span>
+                        <span v-else>👁</span>
                       </button>
                     </div>
                   </div>
 
-                  <!-- Model -->
-                  <div class="conn-form__row conn-form__row--inline">
-                    <div class="conn-form__field">
-                      <label class="conn-form__label">模型</label>
-                      <input v-model="selectedAssistant.model" type="text" class="conn-form__input" placeholder="gpt-4" />
-                    </div>
-                    <button type="button" class="conn-form__model-btn" title="选择模型">...</button>
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">模型</label>
+                    <input v-model="selectedAssistant.model" type="text" class="ai-config__input" />
                   </div>
 
-                  <!-- Temperature -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">温度 (Temperature)</label>
-                    <div class="conn-form__slider">
-                      <input
-                        v-model.number="selectedAssistant.temperature"
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        class="conn-form__range"
-                      />
-                      <span class="conn-form__slider-value">{{ selectedAssistant.temperature }}</span>
+                  <div class="ai-config__row ai-config__row--temp">
+                    <label class="ai-config__label">温度</label>
+                    <div class="ai-config__temp-control">
+                      <div class="ai-config__temp-labels">
+                        <span>0.0 更有确定性</span>
+                        <span>1.0 平衡</span>
+                        <span>2.0 更有创造性</span>
+                      </div>
+                      <div class="ai-config__temp-slider">
+                        <input
+                          v-model.number="selectedAssistant.temperature"
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          class="ai-config__range"
+                        />
+                        <span class="ai-config__temp-value">{{ selectedAssistant.temperature.toFixed(1) }}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <!-- Description -->
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">说明</label>
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">说明</label>
                     <textarea
                       v-model="selectedAssistant.description"
-                      class="conn-form__textarea"
-                      placeholder="助手描述（可选）"
+                      class="ai-config__textarea"
                       rows="2"
+                      placeholder="（可选）"
                     ></textarea>
                   </div>
+                </div>
 
-                  <!-- AI UI Settings -->
-                  <div class="conn-form__section-title">AI 助手 UI</div>
-
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">按下回车键时执行的操作</label>
-                    <select v-model="selectedAssistant.enter_action" class="conn-form__select">
+                <!-- UI Settings Section -->
+                <div class="ai-config__section ai-config__section--bordered">
+                  <div class="ai-config__section-title">AI 助手 UI</div>
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">按下回车键时执行的操作</label>
+                    <select v-model="selectedAssistant.enter_action" class="ai-config__select">
                       <option v-for="a in enterActions" :key="a.value" :value="a.value">{{ a.label }}</option>
                     </select>
                   </div>
-
-                  <div class="conn-form__row conn-form__row--checkbox">
-                    <label class="conn-form__checkbox">
+                  <div class="ai-config__row ai-config__row--checkbox">
+                    <label class="ai-config__checkbox">
                       <input type="checkbox" v-model="selectedAssistant.compare_with_others" />
                       <span>与其他助手比较</span>
                     </label>
                   </div>
+                </div>
 
-                  <div class="conn-form__section-title">询问 AI</div>
-
-                  <div class="conn-form__row">
-                    <label class="conn-form__label">语言</label>
-                    <select v-model="selectedAssistant.language" class="conn-form__select">
+                <!-- Language Section -->
+                <div class="ai-config__section ai-config__section--bordered">
+                  <div class="ai-config__section-title">询问 AI</div>
+                  <div class="ai-config__row">
+                    <label class="ai-config__label">语言</label>
+                    <select v-model="selectedAssistant.language" class="ai-config__select">
                       <option v-for="l in languages" :key="l.value" :value="l.value">{{ l.label }}</option>
                     </select>
                   </div>
+                </div>
 
-                  <!-- Test Button -->
-                  <div class="conn-form__row conn-form__row--test">
-                    <button
-                      type="button"
-                      class="conn-form__test-btn"
-                      :class="{
-                        'conn-form__test-btn--testing': aiTestStatus === 'testing',
-                        'conn-form__test-btn--success': aiTestStatus === 'success',
-                        'conn-form__test-btn--error': aiTestStatus === 'error'
-                      }"
-                      :disabled="aiTesting"
-                      @click="handleTestAI"
-                    >
-                      <span v-if="aiTestStatus === 'testing'" class="spinner"></span>
-                      <span v-else-if="aiTestStatus === 'success'" class="icon-success">✓</span>
-                      <span v-else-if="aiTestStatus === 'error'" class="icon-error">✗</span>
-                      <span>{{ aiTesting ? '测试中...' : '测试连接' }}</span>
-                    </button>
-                  </div>
-
-                  <!-- AI Test Result -->
-                  <div v-if="aiTestResult" class="conn-form__test-result" :class="aiTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
-                    <span v-if="aiTestResult.success">{{ aiTestResult.message || '连接成功' }}</span>
-                    <span v-else>{{ aiTestResult.error }}</span>
-                  </div>
+                <!-- Test Button -->
+                <div class="ai-config__test-area">
+                  <button
+                    type="button"
+                    class="ai-config__test-btn"
+                    :class="{
+                      'ai-config__test-btn--testing': aiTestStatus === 'testing',
+                      'ai-config__test-btn--success': aiTestStatus === 'success',
+                      'ai-config__test-btn--error': aiTestStatus === 'error'
+                    }"
+                    :disabled="aiTesting"
+                    @click="handleTestAI"
+                  >
+                    <span v-if="aiTestStatus === 'testing'" class="spinner"></span>
+                    <span v-else-if="aiTestStatus === 'success'">✓</span>
+                    <span v-else-if="aiTestStatus === 'error'">✗</span>
+                    测试连接
+                  </button>
+                  <span v-if="aiTestResult" class="ai-config__test-result" :class="aiTestResult.success ? 'ai-config__test-result--success' : 'ai-config__test-result--error'">
+                    {{ aiTestResult.success ? (aiTestResult.message || '连接成功') : aiTestResult.error }}
+                  </span>
                 </div>
               </template>
             </div>
@@ -1517,87 +1575,77 @@ const syncSshHostFromDb = () => {
   border: 1px solid var(--error);
 }
 
-/* AI Assistant Layout */
-.ai-assistant {
+/* ============================================================
+   AI Config - Desktop Tool Style
+   ============================================================ */
+
+.ai-config {
   display: flex;
-  min-height: 400px;
+  min-height: 420px;
+  background-color: var(--bg-primary);
 }
 
-.ai-assistant__list {
-  width: 180px;
+/* Left Sidebar - Assistant List */
+.ai-config__sidebar {
+  width: 140px;
   border-right: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
 }
 
-.ai-assistant__list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  font-size: 12px;
+.ai-config__sidebar-header {
+  padding: 8px 10px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   border-bottom: 1px solid var(--border-color);
 }
 
-.ai-assistant__add-btn {
-  width: 24px;
-  height: 24px;
-  background-color: var(--primary);
-  border: none;
-  border-radius: 4px;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.ai-assistant__add-btn:hover {
-  background-color: var(--primary-hover);
-}
-
-.ai-assistant__list-items {
+.ai-config__list {
   flex: 1;
   overflow-y: auto;
+  padding: 4px 0;
 }
 
-.ai-assistant__item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.ai-assistant__item:hover {
-  background-color: #e9ecf0;
-}
-
-.ai-assistant__item--active {
-  background-color: #ecf5ff;
-  border-left: 3px solid var(--primary);
-}
-
-.ai-assistant__item-name {
-  font-size: 13px;
+.ai-config__list-item {
+  padding: 6px 12px;
+  font-size: 12px;
   color: var(--text-primary);
+  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border-left: 2px solid transparent;
+  transition: none;
 }
 
-.ai-assistant__item-remove {
-  width: 20px;
-  height: 20px;
-  background-color: transparent;
+.ai-config__list-item:hover {
+  background-color: #e8eaed;
+}
+
+.ai-config__list-item--active {
+  background-color: #fff;
+  border-left-color: var(--primary);
+  color: var(--primary);
+}
+
+.ai-config__sidebar-actions {
+  display: flex;
+  border-top: 1px solid var(--border-color);
+  padding: 4px;
+  gap: 4px;
+}
+
+.ai-config__action-btn {
+  flex: 1;
+  height: 26px;
+  background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-muted);
+  border-radius: 2px;
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
   display: flex;
@@ -1605,16 +1653,302 @@ const syncSshHostFromDb = () => {
   justify-content: center;
 }
 
-.ai-assistant__item-remove:hover {
-  background-color: var(--error-bg);
-  border-color: var(--error);
-  color: var(--error);
+.ai-config__action-btn:hover:not(.ai-config__action-btn--disabled) {
+  background-color: #e8eaed;
+  color: var(--text-primary);
 }
 
-.ai-assistant__config {
+.ai-config__action-btn--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Right Main Config Area */
+.ai-config__main {
   flex: 1;
-  padding: 20px;
+  padding: 12px 16px;
   overflow-y: auto;
+}
+
+/* Section */
+.ai-config__section {
+  margin-bottom: 12px;
+}
+
+.ai-config__section--bordered {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-config__section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Form Row */
+.ai-config__row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  min-height: 26px;
+}
+
+.ai-config__row--temp {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.ai-config__row--checkbox {
+  padding-left: 100px;
+}
+
+/* Label */
+.ai-config__label {
+  width: 100px;
+  min-width: 100px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  line-height: 26px;
+}
+
+.ai-config__help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: help;
+}
+
+/* Input */
+.ai-config__input {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.ai-config__input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.ai-config__input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Select */
+.ai-config__select {
+  flex: 1;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ai-config__select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Textarea */
+.ai-config__textarea {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  resize: none;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.ai-config__textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* API Key Field */
+.ai-config__key-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.ai-config__key-input {
+  border-radius: 2px 0 0 2px;
+  flex: 1;
+}
+
+.ai-config__key-toggle {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 2px 2px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-config__key-toggle:hover {
+  background-color: #e8eaed;
+  color: var(--text-primary);
+}
+
+/* Temperature Control */
+.ai-config__temp-control {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-config__temp-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+
+.ai-config__temp-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-config__range {
+  flex: 1;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.ai-config__range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ai-config__range::-webkit-slider-thumb:hover {
+  background: var(--primary-hover);
+}
+
+.ai-config__temp-value {
+  min-width: 28px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: right;
+  font-family: monospace;
+}
+
+/* Checkbox */
+.ai-config__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ai-config__checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Test Button Area */
+.ai-config__test-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-config__test-btn {
+  padding: 6px 16px;
+  font-size: 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: none;
+}
+
+.ai-config__test-btn:hover:not(:disabled) {
+  background-color: #e8eaed;
+}
+
+.ai-config__test-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-config__test-btn--testing {
+  color: var(--primary);
+}
+
+.ai-config__test-btn--success {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.ai-config__test-btn--error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.ai-config__test-result {
+  font-size: 11px;
+}
+
+.ai-config__test-result--success {
+  color: var(--success);
+}
+
+.ai-config__test-result--error {
+  color: var(--error);
 }
 
 /* Footer */

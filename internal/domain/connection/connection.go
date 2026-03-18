@@ -53,6 +53,12 @@ type Connection interface {
 
 	// ToJSON serializes the connection to JSON (without password).
 	ToJSON() ([]byte, error)
+
+	// GetAIAssistants returns the AI assistant configurations.
+	GetAIAssistants() []AIAssistantConfig
+
+	// SetAIAssistants sets the AI assistant configurations.
+	SetAIAssistants(assistants []AIAssistantConfig)
 }
 
 // TestResult represents the result of a connection test.
@@ -108,12 +114,29 @@ func toString(v interface{}) string {
 	return "<?>"
 }
 
+// AIAssistantConfig represents AI assistant configuration for a connection.
+type AIAssistantConfig struct {
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Provider        string  `json:"provider"`
+	APIHost         string  `json:"api_host"`
+	APIEndpoint     string  `json:"api_endpoint"`
+	APIKey          string  `json:"-"` // Stored in keyring, not serialized
+	Model           string  `json:"model"`
+	Temperature     float64 `json:"temperature"`
+	Description     string  `json:"description,omitempty"`
+	EnterAction     string  `json:"enter_action"`
+	CompareWithOthers bool   `json:"compare_with_others"`
+	Language        string  `json:"language"`
+}
+
 // BaseConnection contains common fields for all connection types.
 type BaseConnection struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string              `json:"id"`
+	Name          string              `json:"name"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	AIAssistants  []AIAssistantConfig `json:"ai_assistants,omitempty"`
 }
 
 // GetID returns the connection ID.
@@ -129,5 +152,16 @@ func (b *BaseConnection) GetName() string {
 // SetName sets the connection name.
 func (b *BaseConnection) SetName(name string) {
 	b.Name = name
+	b.UpdatedAt = time.Now()
+}
+
+// GetAIAssistants returns the AI assistant configurations.
+func (b *BaseConnection) GetAIAssistants() []AIAssistantConfig {
+	return b.AIAssistants
+}
+
+// SetAIAssistants sets the AI assistant configurations.
+func (b *BaseConnection) SetAIAssistants(assistants []AIAssistantConfig) {
+	b.AIAssistants = assistants
 	b.UpdatedAt = time.Now()
 }

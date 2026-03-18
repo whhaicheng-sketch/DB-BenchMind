@@ -295,6 +295,16 @@ func (uc *ConnectionUseCase) GetWinRMPassword(ctx context.Context, connID string
 	return uc.keyring.Get(ctx, connID+":winrm")
 }
 
+// SetAIAPIKey saves an AI assistant API key to keyring.
+func (uc *ConnectionUseCase) SetAIAPIKey(ctx context.Context, connID, assistantID, apiKey string) error {
+	return uc.keyring.Set(ctx, connID+":ai:"+assistantID, apiKey)
+}
+
+// GetAIAPIKey retrieves an AI assistant API key from keyring.
+func (uc *ConnectionUseCase) GetAIAPIKey(ctx context.Context, connID, assistantID string) (string, error) {
+	return uc.keyring.Get(ctx, connID+":ai:"+assistantID)
+}
+
 // DeletePassword removes a password from keyring.
 func (uc *ConnectionUseCase) DeletePassword(ctx context.Context, connID string) error {
 	return uc.keyring.Delete(ctx, connID)

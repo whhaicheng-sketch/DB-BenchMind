@@ -10,13 +10,13 @@ export function GetConnection(arg1:string):Promise<bindings.ConnectionDTO>;
 
 export function ListConnections():Promise<bindings.ConnectionListResult>;
 
+export function TestAIConnection(arg1:bindings.AITestRequest):Promise<bindings.AITestResult>;
+
 export function TestConnection(arg1:string):Promise<bindings.ConnectionTestResult>;
 
 export function TestConnectionDirect(arg1:bindings.ConnectionCreateRequest):Promise<bindings.ConnectionTestResult>;
 
 export function TestSSHConnection(arg1:bindings.SSHTestRequest):Promise<bindings.ConnectionTestResult>;
-
-export function TestAIConnection(arg1:bindings.AITestRequest):Promise<bindings.AITestResult>;
 
 export function TestWinRMConnection(arg1:bindings.WinRMTestRequest):Promise<bindings.ConnectionTestResult>;
 

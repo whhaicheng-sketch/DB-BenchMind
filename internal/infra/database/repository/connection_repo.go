@@ -173,6 +173,30 @@ func (r *SQLiteConnectionRepository) serializeConnection(conn connection.Connect
 		"updated_at": time.Now().Format(time.RFC3339),
 	}
 
+	// Serialize AI assistants (common to all connection types)
+	if assistants := conn.GetAIAssistants(); len(assistants) > 0 {
+		// Convert AIAssistantConfig to serializable format (exclude API keys)
+		assistantData := make([]map[string]interface{}, len(assistants))
+		for i, a := range assistants {
+			assistantData[i] = map[string]interface{}{
+				"id":                a.ID,
+				"name":              a.Name,
+				"provider":          a.Provider,
+				"api_host":          a.APIHost,
+				"api_endpoint":      a.APIEndpoint,
+				"model":             a.Model,
+				"temperature":       a.Temperature,
+				"description":       a.Description,
+				"enter_action":      a.EnterAction,
+				"compare_with_others": a.CompareWithOthers,
+				"language":          a.Language,
+				// Note: API key is NOT serialized, stored in keyring
+			}
+		}
+		data["ai_assistants"] = assistantData
+		slog.Info("Repository: Serializing AI assistants", "conn_id", conn.GetID(), "count", len(assistants))
+	}
+
 	// Add type-specific fields
 	switch c := conn.(type) {
 	case *connection.MySQLConnection:
@@ -308,11 +332,39 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 	createdAt, _ := time.Parse(time.RFC3339, getString(data, "created_at"))
 	updatedAt, _ := time.Parse(time.RFC3339, getString(data, "updated_at"))
 
+	// Parse AI assistants (common to all connection types)
+	var aiAssistants []connection.AIAssistantConfig
+	if assistantsData, ok := data["ai_assistants"].([]interface{}); ok {
+		aiAssistants = make([]connection.AIAssistantConfig, 0, len(assistantsData))
+		for _, item := range assistantsData {
+			if a, ok := item.(map[string]interface{}); ok {
+				aiAssistants = append(aiAssistants, connection.AIAssistantConfig{
+					ID:                getString(a, "id"),
+					Name:              getString(a, "name"),
+					Provider:          getString(a, "provider"),
+					APIHost:           getString(a, "api_host"),
+					APIEndpoint:       getString(a, "api_endpoint"),
+					Model:             getString(a, "model"),
+					Temperature:       getFloat64(a, "temperature"),
+					Description:       getString(a, "description"),
+					EnterAction:       getString(a, "enter_action"),
+					CompareWithOthers: getBool(a, "compare_with_others"),
+					Language:          getString(a, "language"),
+					// Note: API key is loaded from keyring separately
+				})
+			}
+		}
+		if len(aiAssistants) > 0 {
+			slog.Info("Repository: Deserialized AI assistants", "conn_id", id, "count", len(aiAssistants))
+		}
+	}
+
 	base := connection.BaseConnection{
-		ID:        id,
-		Name:      name,
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
+		ID:           id,
+		Name:         name,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+		AIAssistants: aiAssistants,
 	}
 
 	switch connType {
@@ -522,4 +574,16 @@ func getBool(data map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+func getFloat64(data map[string]interface{}, key string) float64 {
+	if val, ok := data[key]; ok {
+		switch v := val.(type) {
+		case float64:
+			return v
+		case int:
+			return float64(v)
+		}
+	}
+	return 0
 }

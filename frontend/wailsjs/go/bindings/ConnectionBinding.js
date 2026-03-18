@@ -18,6 +18,10 @@ export function ListConnections() {
   return window['go']['bindings']['ConnectionBinding']['ListConnections']();
 }
 
+export function TestAIConnection(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestAIConnection'](arg1);
+}
+
 export function TestConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestConnection'](arg1);
 }
@@ -28,10 +32,6 @@ export function TestConnectionDirect(arg1) {
 
 export function TestSSHConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestSSHConnection'](arg1);
-}
-
-export function TestAIConnection(arg1) {
-  return window['go']['bindings']['ConnectionBinding']['TestAIConnection'](arg1);
 }
 
 export function TestWinRMConnection(arg1) {

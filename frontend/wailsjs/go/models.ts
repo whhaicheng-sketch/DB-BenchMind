@@ -1,5 +1,77 @@
 export namespace bindings {
 	
+	export class AIAssistantConfig {
+	    id: string;
+	    name: string;
+	    provider: string;
+	    api_host: string;
+	    api_endpoint: string;
+	    api_key?: string;
+	    model: string;
+	    temperature: number;
+	    description: string;
+	    enter_action: string;
+	    compare_with_others: boolean;
+	    language: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIAssistantConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.provider = source["provider"];
+	        this.api_host = source["api_host"];
+	        this.api_endpoint = source["api_endpoint"];
+	        this.api_key = source["api_key"];
+	        this.model = source["model"];
+	        this.temperature = source["temperature"];
+	        this.description = source["description"];
+	        this.enter_action = source["enter_action"];
+	        this.compare_with_others = source["compare_with_others"];
+	        this.language = source["language"];
+	    }
+	}
+	export class AITestRequest {
+	    provider: string;
+	    api_host: string;
+	    api_endpoint: string;
+	    api_key: string;
+	    model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AITestRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.api_host = source["api_host"];
+	        this.api_endpoint = source["api_endpoint"];
+	        this.api_key = source["api_key"];
+	        this.model = source["model"];
+	    }
+	}
+	export class AITestResult {
+	    success: boolean;
+	    latency_ms: number;
+	    message?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AITestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.latency_ms = source["latency_ms"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	    }
+	}
 	export class BenchmarkBinding {
 	
 	
@@ -268,6 +340,7 @@ export namespace bindings {
 	    winrm_use_https: boolean;
 	    winrm_username?: string;
 	    winrm_password?: string;
+	    ai_assistants?: AIAssistantConfig[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionCreateRequest(source);
@@ -296,7 +369,26 @@ export namespace bindings {
 	        this.winrm_use_https = source["winrm_use_https"];
 	        this.winrm_username = source["winrm_username"];
 	        this.winrm_password = source["winrm_password"];
+	        this.ai_assistants = this.convertValues(source["ai_assistants"], AIAssistantConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConnectionDTO {
 	    id: string;
@@ -322,6 +414,7 @@ export namespace bindings {
 	    winrm_username?: string;
 	    winrm_password?: string;
 	    trust_server_certificate: boolean;
+	    ai_assistants?: AIAssistantConfig[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionDTO(source);
@@ -352,7 +445,26 @@ export namespace bindings {
 	        this.winrm_username = source["winrm_username"];
 	        this.winrm_password = source["winrm_password"];
 	        this.trust_server_certificate = source["trust_server_certificate"];
+	        this.ai_assistants = this.convertValues(source["ai_assistants"], AIAssistantConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConnectionCreateResult {
 	    connection?: ConnectionDTO;
@@ -511,6 +623,7 @@ export namespace bindings {
 	    winrm_use_https: boolean;
 	    winrm_username?: string;
 	    winrm_password?: string;
+	    ai_assistants?: AIAssistantConfig[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionUpdateRequest(source);
@@ -539,7 +652,26 @@ export namespace bindings {
 	        this.winrm_use_https = source["winrm_use_https"];
 	        this.winrm_username = source["winrm_username"];
 	        this.winrm_password = source["winrm_password"];
+	        this.ai_assistants = this.convertValues(source["ai_assistants"], AIAssistantConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConnectionUpdateResult {
 	    connection?: ConnectionDTO;
@@ -710,11 +842,11 @@ export namespace bindings {
 	    port: number;
 	    username: string;
 	    password: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SSHTestRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.host = source["host"];
@@ -723,47 +855,7 @@ export namespace bindings {
 	        this.password = source["password"];
 	    }
 	}
-
-	export class AITestRequest {
-	    provider: string;
-	    api_host: string;
-	    api_endpoint: string;
-	    api_key: string;
-	    model: string;
-
-	    static createFrom(source: any = {}) {
-	        return new AITestRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.provider = source["provider"];
-	        this.api_host = source["api_host"];
-	        this.api_endpoint = source["api_endpoint"];
-	        this.api_key = source["api_key"];
-	        this.model = source["model"];
-	    }
-	}
-
-	export class AITestResult {
-	    success: boolean;
-	    latency_ms: number;
-	    message?: string;
-	    error?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new AITestResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.latency_ms = source["latency_ms"];
-	        this.message = source["message"];
-	        this.error = source["error"];
-	    }
-	}
-
+	
 	export class SystemHistoryDTO {
 	    cpu: collector.SystemMetricPoint[];
 	    disk_io: collector.SystemMetricPoint[];

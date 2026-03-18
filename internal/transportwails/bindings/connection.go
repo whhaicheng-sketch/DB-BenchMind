@@ -61,18 +61,68 @@ type ConnectionDTO struct {
 
 // AIAssistantConfig represents AI assistant configuration for a connection.
 type AIAssistantConfig struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Provider        string  `json:"provider"`
-	APIHost         string  `json:"api_host"`
-	APIEndpoint     string  `json:"api_endpoint"`
-	APIKey          string  `json:"api_key,omitempty"`
-	Model           string  `json:"model"`
-	Temperature     float64 `json:"temperature"`
-	Description     string  `json:"description"`
-	EnterAction     string  `json:"enter_action"`
-	CompareWithOthers bool  `json:"compare_with_others"`
-	Language        string  `json:"language"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Provider          string  `json:"provider"`
+	APIHost           string  `json:"api_host"`
+	APIEndpoint       string  `json:"api_endpoint"`
+	APIKey            string  `json:"api_key,omitempty"`
+	Model             string  `json:"model"`
+	Temperature       float64 `json:"temperature"`
+	Description       string  `json:"description"`
+	EnterAction       string  `json:"enter_action"`
+	CompareWithOthers bool    `json:"compare_with_others"`
+	Language          string  `json:"language"`
+}
+
+// toDomainAIAssistants converts binding AIAssistantConfig slice to domain AIAssistantConfig slice.
+func toDomainAIAssistants(assistants []AIAssistantConfig) []connection.AIAssistantConfig {
+	if len(assistants) == 0 {
+		return nil
+	}
+	result := make([]connection.AIAssistantConfig, len(assistants))
+	for i, a := range assistants {
+		result[i] = connection.AIAssistantConfig{
+			ID:                a.ID,
+			Name:              a.Name,
+			Provider:          a.Provider,
+			APIHost:           a.APIHost,
+			APIEndpoint:       a.APIEndpoint,
+			APIKey:            a.APIKey,
+			Model:             a.Model,
+			Temperature:       a.Temperature,
+			Description:       a.Description,
+			EnterAction:       a.EnterAction,
+			CompareWithOthers: a.CompareWithOthers,
+			Language:          a.Language,
+		}
+	}
+	return result
+}
+
+// toBindingAIAssistants converts domain AIAssistantConfig slice to binding AIAssistantConfig slice.
+func toBindingAIAssistants(assistants []connection.AIAssistantConfig) []AIAssistantConfig {
+	if len(assistants) == 0 {
+		return nil
+	}
+	result := make([]AIAssistantConfig, len(assistants))
+	for i, a := range assistants {
+		result[i] = AIAssistantConfig{
+			ID:                a.ID,
+			Name:              a.Name,
+			Provider:          a.Provider,
+			APIHost:           a.APIHost,
+			APIEndpoint:       a.APIEndpoint,
+			APIKey:            a.APIKey,
+			Model:             a.Model,
+			Temperature:       a.Temperature,
+			Description:       a.Description,
+			EnterAction:       a.EnterAction,
+			CompareWithOthers: a.CompareWithOthers,
+			Language:          a.Language,
+		}
+	}
+	return result
 }
 
 // ConnectionListResult represents the result of ListConnections.
@@ -327,9 +377,35 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) Connec
 		return ConnectionCreateResult{Error: "Unknown connection type: " + req.Type}
 	}
 
+	// Set AI assistants (common to all connection types)
+	if len(req.AIAssistants) > 0 {
+		switch c := conn.(type) {
+		case *connection.MySQLConnection:
+			c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+		case *connection.PostgreSQLConnection:
+			c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+		case *connection.OracleConnection:
+			c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+		case *connection.SQLServerConnection:
+			c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+		}
+	}
+
 	if err := b.uc.CreateConnection(ctx, conn); err != nil {
 		slog.Error("CreateConnection failed", "error", err)
 		return ConnectionCreateResult{Error: err.Error()}
+	}
+
+	// Store AI API keys in keyring (after connection is created with ID)
+	if len(req.AIAssistants) > 0 {
+		connID := conn.GetID()
+		for _, a := range req.AIAssistants {
+			if a.APIKey != "" {
+				if err := b.uc.SetAIAPIKey(ctx, connID, a.ID, a.APIKey); err != nil {
+					slog.Warn("Failed to store AI API key in keyring", "assistant_id", a.ID, "error", err)
+				}
+			}
+		}
 	}
 
 	dto := b.toDTO(conn)
@@ -467,6 +543,26 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) Connec
 			}
 		} else {
 			conn.WinRM = nil
+		}
+	}
+
+	// Update AI assistants (common to all connection types)
+	switch c := existing.(type) {
+	case *connection.MySQLConnection:
+		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+	case *connection.PostgreSQLConnection:
+		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+	case *connection.OracleConnection:
+		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+	case *connection.SQLServerConnection:
+		c.SetAIAssistants(toDomainAIAssistants(req.AIAssistants))
+	}
+	// Store AI API keys in keyring
+	for _, a := range req.AIAssistants {
+		if a.APIKey != "" {
+			if err := b.uc.SetAIAPIKey(ctx, req.ID, a.ID, a.APIKey); err != nil {
+				slog.Warn("Failed to store AI API key in keyring", "assistant_id", a.ID, "error", err)
+			}
 		}
 	}
 
@@ -743,6 +839,18 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 			// Load WinRM password from keyring
 			if winrmPwd, err := b.uc.GetWinRMPassword(context.Background(), conn.GetID()); err == nil {
 				dto.WinRMPassword = winrmPwd
+			}
+		}
+	}
+
+	// Load AI assistants (common to all connection types)
+	assistants := conn.GetAIAssistants()
+	if len(assistants) > 0 {
+		dto.AIAssistants = toBindingAIAssistants(assistants)
+		// Load AI API keys from keyring
+		for i, a := range assistants {
+			if apiKey, err := b.uc.GetAIAPIKey(context.Background(), conn.GetID(), a.ID); err == nil {
+				dto.AIAssistants[i].APIKey = apiKey
 			}
 		}
 	}
