@@ -6,7 +6,7 @@
  */
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
-import { TestConnectionDirect, TestSSHConnection, TestAIConnection } from '../../../wailsjs/go/bindings/ConnectionBinding'
+import { TestConnectionDirect, TestSSHConnection, TestAIConnection, QueryAIModels } from '../../../wailsjs/go/bindings/ConnectionBinding'
 
 // Props
 const props = defineProps({
@@ -606,6 +606,17 @@ const getProviderInfo = (providerValue) => {
   return aiProviders.find(p => p.value === providerValue) || aiProviders[0]
 }
 
+// Check if provider is local (Ollama) - no API key required
+const isLocalProvider = (providerValue) => {
+  return providerValue === 'ollama'
+}
+
+// Cloud providers require API key to query models
+// Local providers (Ollama) can query models without API key
+const requiresApiKeyForModelQuery = (providerValue) => {
+  return !isLocalProvider(providerValue)
+}
+
 const removeAssistant = (id) => {
   if (formData.value.ai_assistants.length <= 1) {
     return // Keep at least one assistant
@@ -625,6 +636,65 @@ const selectAssistant = (id) => {
 
 const toggleApiKeyVisibility = (id) => {
   showApiKey.value[id] = !showApiKey.value[id]
+}
+
+// Model query state
+const modelQuerying = ref(false)
+const modelQueryError = ref('')
+const availableModels = ref([])
+const showModelSelector = ref(false)
+
+// Model query handler - calls real backend
+const handleQueryModels = async () => {
+  if (!selectedAssistant.value) return
+
+  const provider = selectedAssistant.value.provider
+  const apiHost = selectedAssistant.value.api_host
+  const apiKey = selectedAssistant.value.api_key
+
+  // Cloud providers require API key for model query
+  if (requiresApiKeyForModelQuery(provider) && !apiKey) {
+    modelQueryError.value = '云端模型需要先填写 API 密钥'
+    return
+  }
+
+  modelQuerying.value = true
+  modelQueryError.value = ''
+  availableModels.value = []
+
+  try {
+    const result = await QueryAIModels({
+      provider: provider,
+      api_host: apiHost,
+      api_key: apiKey
+    })
+
+    if (result.success && result.models?.length > 0) {
+      availableModels.value = result.models
+      showModelSelector.value = true
+    } else if (result.error) {
+      modelQueryError.value = result.error
+    } else {
+      modelQueryError.value = '未找到可用模型'
+    }
+  } catch (err) {
+    modelQueryError.value = `查询失败: ${err.message || err}`
+  } finally {
+    modelQuerying.value = false
+  }
+}
+
+// Select model from list
+const selectModel = (modelId) => {
+  if (selectedAssistant.value) {
+    selectedAssistant.value.model = modelId
+  }
+  showModelSelector.value = false
+}
+
+// Close model selector
+const closeModelSelector = () => {
+  showModelSelector.value = false
 }
 
 // ============================================================
@@ -933,15 +1003,17 @@ const syncSshHostFromDb = () => {
 
                   <div class="ai-config__row">
                     <label class="ai-config__label">API 主机</label>
-                    <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).host }}</div>
+                    <input v-model="selectedAssistant.api_host" type="text" class="ai-config__input" placeholder="https://api.example.com" />
                   </div>
 
+                  <!-- API Endpoint is readonly and linked to provider -->
                   <div class="ai-config__row">
                     <label class="ai-config__label">API 端点</label>
                     <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).endpoint }}</div>
                   </div>
 
-                  <div class="ai-config__row">
+                  <!-- API Key only shown for cloud providers (not Ollama) -->
+                  <div v-if="!isLocalProvider(selectedAssistant.provider)" class="ai-config__row">
                     <label class="ai-config__label">
                       API 密钥
                       <span class="ai-config__help" title="API 密钥用于身份验证，请妥善保管">?</span>
@@ -965,9 +1037,46 @@ const syncSshHostFromDb = () => {
                     </div>
                   </div>
 
+                  <!-- Local provider hint for Ollama -->
+                  <div v-else class="ai-config__row">
+                    <label class="ai-config__label">API 密钥</label>
+                    <div class="ai-config__readonly ai-config__readonly--hint">本地模型无需 API 密钥</div>
+                  </div>
+
                   <div class="ai-config__row">
                     <label class="ai-config__label">模型</label>
-                    <input v-model="selectedAssistant.model" type="text" class="ai-config__input" />
+                    <div class="ai-config__model-field">
+                      <input v-model="selectedAssistant.model" type="text" class="ai-config__input ai-config__model-input" placeholder="模型名称" />
+                      <button
+                        type="button"
+                        class="ai-config__model-btn"
+                        :class="{ 'ai-config__model-btn--loading': modelQuerying }"
+                        :disabled="modelQuerying"
+                        @click="handleQueryModels"
+                        title="查询可用模型"
+                      >{{ modelQuerying ? '...' : '...' }}</button>
+                    </div>
+                    <!-- Model query error -->
+                    <div v-if="modelQueryError" class="ai-config__model-error">{{ modelQueryError }}</div>
+                  </div>
+
+                  <!-- Model selector dialog -->
+                  <div v-if="showModelSelector" class="ai-config__model-selector">
+                    <div class="ai-config__model-selector-header">
+                      <span>选择模型</span>
+                      <button type="button" class="ai-config__model-selector-close" @click="closeModelSelector">×</button>
+                    </div>
+                    <div class="ai-config__model-selector-list">
+                      <div
+                        v-for="model in availableModels"
+                        :key="model.id"
+                        class="ai-config__model-option"
+                        :class="{ 'ai-config__model-option--selected': selectedAssistant.model === model.id }"
+                        @click="selectModel(model.id)"
+                      >
+                        {{ model.name || model.id }}
+                      </div>
+                    </div>
                   </div>
 
                   <div class="ai-config__row ai-config__row--temp">
@@ -1667,6 +1776,120 @@ const syncSshHostFromDb = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ai-config__readonly--hint {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* Model Field with Query Button */
+.ai-config__model-field {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.ai-config__model-input {
+  flex: 1;
+}
+
+.ai-config__model-btn {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-config__model-btn:hover:not(:disabled) {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.ai-config__model-btn--loading,
+.ai-config__model-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Model Query Error */
+.ai-config__model-error {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--error);
+}
+
+/* Model Selector Dialog */
+.ai-config__model-selector {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  max-height: 200px;
+  overflow: hidden;
+}
+
+.ai-config__model-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ai-config__model-selector-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ai-config__model-selector-close:hover {
+  color: var(--text-primary);
+}
+
+.ai-config__model-selector-list {
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.ai-config__model-option {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.ai-config__model-option:hover {
+  background-color: var(--bg-secondary);
+}
+
+.ai-config__model-option--selected {
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 /* Right Main Config Area */

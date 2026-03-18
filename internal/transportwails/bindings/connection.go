@@ -1002,3 +1002,56 @@ func (b *ConnectionBinding) TestAIConnection(req AITestRequest) AITestResult {
 		Error:     result.Error,
 	}
 }
+
+// AIModelQueryRequest represents a request to query available AI models.
+type AIModelQueryRequest struct {
+	Provider string `json:"provider"`
+	APIHost  string `json:"api_host"`
+	APIKey   string `json:"api_key"`
+}
+
+// AIModelInfo represents a single AI model's information.
+type AIModelInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// AIModelQueryResult represents the result of AI model query.
+type AIModelQueryResult struct {
+	Success bool           `json:"success"`
+	Models  []AIModelInfo  `json:"models,omitempty"`
+	Error   string         `json:"error,omitempty"`
+}
+
+// QueryAIModels queries available AI models from the provider (Wails binding).
+// For cloud providers: uses /v1/models endpoint with API key.
+// For Ollama (local): uses /api/tags endpoint without API key.
+func (b *ConnectionBinding) QueryAIModels(req AIModelQueryRequest) AIModelQueryResult {
+	ctx := context.Background()
+
+	slog.Info("QueryAIModels called",
+		"provider", req.Provider,
+		"api_host", req.APIHost)
+
+	// Delegate to aiprovider package
+	result := aiprovider.QueryModels(ctx, aiprovider.QueryModelsRequest{
+		Provider: req.Provider,
+		APIHost:  req.APIHost,
+		APIKey:   req.APIKey,
+	})
+
+	// Convert result
+	models := make([]AIModelInfo, 0, len(result.Models))
+	for _, m := range result.Models {
+		models = append(models, AIModelInfo{
+			ID:   m.ID,
+			Name: m.Name,
+		})
+	}
+
+	return AIModelQueryResult{
+		Success: result.Success,
+		Models:  models,
+		Error:   result.Error,
+	}
+}

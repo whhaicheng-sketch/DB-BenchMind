@@ -18,6 +18,10 @@ export function ListConnections() {
   return window['go']['bindings']['ConnectionBinding']['ListConnections']();
 }
 
+export function QueryAIModels(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['QueryAIModels'](arg1);
+}
+
 export function TestAIConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestAIConnection'](arg1);
 }

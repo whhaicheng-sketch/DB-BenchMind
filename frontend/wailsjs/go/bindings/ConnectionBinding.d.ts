@@ -10,6 +10,8 @@ export function GetConnection(arg1:string):Promise<bindings.ConnectionDTO>;
 
 export function ListConnections():Promise<bindings.ConnectionListResult>;
 
+export function QueryAIModels(arg1:bindings.AIModelQueryRequest):Promise<bindings.AIModelQueryResult>;
+
 export function TestAIConnection(arg1:bindings.AITestRequest):Promise<bindings.AITestResult>;
 
 export function TestConnection(arg1:string):Promise<bindings.ConnectionTestResult>;

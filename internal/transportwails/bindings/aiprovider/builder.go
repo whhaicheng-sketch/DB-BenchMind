@@ -443,3 +443,212 @@ func mapAPIError(statusCode int, body []byte, provider string) string {
 		return fmt.Sprintf("请求失败 (HTTP %d)", statusCode)
 	}
 }
+
+// ============================================================
+// Model Query Functions
+// ============================================================
+
+// ModelInfo represents a single model's information.
+type ModelInfo struct {
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	Owner  string `json:"owner,omitempty"`
+	Object string `json:"object,omitempty"`
+}
+
+// QueryModelsResult contains the result of model query.
+type QueryModelsResult struct {
+	Success bool         `json:"success"`
+	Models  []ModelInfo  `json:"models,omitempty"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// QueryModelsRequest contains parameters for model list query.
+type QueryModelsRequest struct {
+	Provider string `json:"provider"`
+	APIHost  string `json:"api_host"`
+	APIKey   string `json:"api_key"`
+}
+
+// QueryModels queries available models from the AI provider.
+// For cloud providers: uses /v1/models endpoint with API key authentication.
+// For Ollama (local): uses /api/tags endpoint without authentication.
+func QueryModels(ctx context.Context, req QueryModelsRequest) QueryModelsResult {
+	slog.Info("QueryModels called", "provider", req.Provider, "api_host", req.APIHost)
+
+	// Validate required fields
+	if req.Provider == "" {
+		return QueryModelsResult{Success: false, Error: "未选择 AI 提供商"}
+	}
+	if req.APIHost == "" {
+		return QueryModelsResult{Success: false, Error: "API 主机不能为空"}
+	}
+
+	cfg := GetProviderConfig(req.Provider)
+
+	switch cfg.Type {
+	case ProviderTypeOllama:
+		return queryOllamaModels(ctx, req.APIHost)
+	default:
+		// Cloud providers require API key
+		if req.APIKey == "" {
+			return QueryModelsResult{Success: false, Error: "API 密钥不能为空"}
+		}
+		return queryOpenAIModels(ctx, req.Provider, req.APIHost, req.APIKey, cfg)
+	}
+}
+
+// queryOllamaModels queries models from local Ollama instance.
+// Uses GET /api/tags endpoint which returns list of pulled models.
+func queryOllamaModels(ctx context.Context, apiHost string) QueryModelsResult {
+	// Normalize URL
+	apiURL, err := NormalizeURL(apiHost, "/api/tags")
+	if err != nil {
+		return QueryModelsResult{Success: false, Error: err.Error()}
+	}
+
+	slog.Info("Querying Ollama models", "url", apiURL)
+
+	// Create HTTP request (no auth needed for Ollama)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return QueryModelsResult{Success: false, Error: fmt.Sprintf("创建请求失败: %v", err)}
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		slog.Error("Ollama model query failed", "error", err)
+		return QueryModelsResult{Success: false, Error: mapQueryNetworkError(err)}
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		errMsg := fmt.Sprintf("Ollama 返回错误 (HTTP %d)", resp.StatusCode)
+		slog.Error("Ollama model query failed", "status", resp.StatusCode, "body", string(respBody))
+		return QueryModelsResult{Success: false, Error: errMsg}
+	}
+
+	// Parse Ollama response format: {"models": [{"name": "llama2:latest", ...}]}
+	var ollamaResp struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
+		return QueryModelsResult{Success: false, Error: fmt.Sprintf("解析响应失败: %v", err)}
+	}
+
+	// Convert to ModelInfo slice
+	models := make([]ModelInfo, 0, len(ollamaResp.Models))
+	for _, m := range ollamaResp.Models {
+		models = append(models, ModelInfo{
+			ID:   m.Name,
+			Name: m.Name,
+		})
+	}
+
+	slog.Info("Ollama models queried successfully", "count", len(models))
+	return QueryModelsResult{
+		Success: true,
+		Models:  models,
+	}
+}
+
+// queryOpenAIModels queries models from OpenAI-compatible API.
+// Uses GET /v1/models endpoint with Bearer token authentication.
+func queryOpenAIModels(ctx context.Context, provider, apiHost, apiKey string, cfg ProviderConfig) QueryModelsResult {
+	// Normalize URL
+	apiURL, err := NormalizeURL(apiHost, "/v1/models")
+	if err != nil {
+		return QueryModelsResult{Success: false, Error: err.Error()}
+	}
+
+	slog.Info("Querying OpenAI-compatible models", "provider", provider, "url", apiURL)
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return QueryModelsResult{Success: false, Error: fmt.Sprintf("创建请求失败: %v", err)}
+	}
+
+	// Set headers
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Set auth header
+	if cfg.AuthHeader != "" {
+		authValue := cfg.AuthPrefix + apiKey
+		httpReq.Header.Set(cfg.AuthHeader, authValue)
+	}
+
+	// Execute request
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		slog.Error("OpenAI model query failed", "provider", provider, "error", err)
+		return QueryModelsResult{Success: false, Error: mapQueryNetworkError(err)}
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		errMsg := mapAPIError(resp.StatusCode, respBody, provider)
+		slog.Error("OpenAI model query failed", "provider", provider, "status", resp.StatusCode, "error", errMsg)
+		return QueryModelsResult{Success: false, Error: errMsg}
+	}
+
+	// Parse OpenAI response format: {"data": [{"id": "gpt-4", "object": "model", ...}]}
+	var openAIResp struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Object string `json:"object"`
+			Owner  string `json:"owned_by"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		return QueryModelsResult{Success: false, Error: fmt.Sprintf("解析响应失败: %v", err)}
+	}
+
+	// Convert to ModelInfo slice
+	models := make([]ModelInfo, 0, len(openAIResp.Data))
+	for _, m := range openAIResp.Data {
+		models = append(models, ModelInfo{
+			ID:     m.ID,
+			Name:   m.ID,
+			Object: m.Object,
+			Owner:  m.Owner,
+		})
+	}
+
+	slog.Info("OpenAI models queried successfully", "provider", provider, "count", len(models))
+	return QueryModelsResult{
+		Success: true,
+		Models:  models,
+	}
+}
+
+// mapQueryNetworkError maps network errors for model query.
+func mapQueryNetworkError(err error) string {
+	errStr := err.Error()
+
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "context deadline exceeded") {
+		return "连接超时，请检查网络或主机地址"
+	}
+	if strings.Contains(errStr, "connection refused") {
+		return "无法连接到服务器，请检查主机地址和端口"
+	}
+	if strings.Contains(errStr, "no such host") || strings.Contains(errStr, "lookup") {
+		return "无法解析主机名，请检查 API 主机地址"
+	}
+
+	return fmt.Sprintf("网络错误: %v", err)
+}
