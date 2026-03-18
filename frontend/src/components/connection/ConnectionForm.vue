@@ -133,7 +133,7 @@ const formData = ref({
       api_host: 'https://api.deepseek.com',
       api_endpoint: '/v1/chat/completions',
       api_key: '',
-      model: 'deepseek-chat',
+      model: '',
       temperature: 0.7,
       description: ''
     }
@@ -179,17 +179,17 @@ const selectedAssistant = computed(() => {
 // AI Provider Options
 // ============================================================
 const aiProviders = [
-  { value: 'deepseek', label: 'DeepSeek', host: 'https://api.deepseek.com', endpoint: '/v1/chat/completions', model: 'deepseek-chat' },
-  { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: 'qwen-turbo' },
-  { value: 'doubao', label: '字节跳动 豆包', host: 'https://ark.cn-beijing.volces.com/api/v3', endpoint: '/chat/completions', model: 'doubao-pro-32k' },
-  { value: 'glm', label: '智谱 GLM', host: 'https://open.bigmodel.cn/api/paas/v4', endpoint: '/chat/completions', model: 'glm-4-flash' },
-  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.chat', endpoint: '/v1/chat/completions', model: 'abab6.5s-chat' },
-  { value: 'moonshot', label: 'Moonshot Kimi', host: 'https://api.moonshot.cn', endpoint: '/v1/chat/completions', model: 'moonshot-v1-8k' },
-  { value: 'openai', label: 'OpenAI ChatGPT', host: 'https://api.openai.com', endpoint: '/v1/chat/completions', model: 'gpt-4' },
-  { value: 'gemini', label: 'Google Gemini', host: 'https://generativelanguage.googleapis.com', endpoint: '/v1beta/models/gemini-pro:generateContent', model: 'gemini-pro' },
-  { value: 'anthropic', label: 'Anthropic Claude', host: 'https://api.anthropic.com', endpoint: '/v1/messages', model: 'claude-3-sonnet-20240229' },
-  { value: 'xai', label: 'xAI Grok', host: 'https://api.x.ai', endpoint: '/v1/chat/completions', model: 'grok-beta' },
-  { value: 'ollama', label: 'Ollama (本地)', host: 'http://localhost:11434', endpoint: '/api/chat', model: 'llama2' }
+  { value: 'deepseek', label: 'DeepSeek', host: 'https://api.deepseek.com', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'doubao', label: '字节跳动 豆包', host: 'https://ark.cn-beijing.volces.com/api/v3', endpoint: '/chat/completions', model: '' },
+  { value: 'glm', label: '智谱 GLM', host: 'https://open.bigmodel.cn/api/paas/v4', endpoint: '/chat/completions', model: '' },
+  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.chat', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'moonshot', label: 'Moonshot Kimi', host: 'https://api.moonshot.cn', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'openai', label: 'OpenAI ChatGPT', host: 'https://api.openai.com', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'gemini', label: 'Google Gemini', host: 'https://generativelanguage.googleapis.com', endpoint: '/v1beta/models/gemini-pro:generateContent', model: '' },
+  { value: 'anthropic', label: 'Anthropic Claude', host: 'https://api.anthropic.com', endpoint: '/v1/messages', model: '' },
+  { value: 'xai', label: 'xAI Grok', host: 'https://api.x.ai', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'ollama', label: 'Ollama (本地)', host: 'http://localhost:11434', endpoint: '/api/chat', model: '' }
 ]
 
 // ============================================================
@@ -317,7 +317,46 @@ const validateForm = () => {
   if (!validateField('username')) isValid = false
   if (!validateField('database')) isValid = false
 
+  // Validate AI assistants only if list is not empty
+  if (formData.value.ai_assistants.length > 0) {
+    if (!validateAIFields()) isValid = false
+  }
+
   return isValid
+}
+
+// Validate AI assistant fields
+const validateAIFields = () => {
+  let isValid = true
+
+  for (const assistant of formData.value.ai_assistants) {
+    const prefix = `ai_${assistant.id}`
+
+    // API Host is required
+    if (!assistant.api_host?.trim()) {
+      fieldErrors.value[`${prefix}_api_host`] = 'API 主机不能为空'
+      isValid = false
+    }
+
+    // Model is required
+    if (!assistant.model?.trim()) {
+      fieldErrors.value[`${prefix}_model`] = '模型不能为空'
+      isValid = false
+    }
+
+    // API Key is required for cloud providers (not Ollama)
+    if (!isLocalProvider(assistant.provider) && !assistant.api_key?.trim()) {
+      fieldErrors.value[`${prefix}_api_key`] = '云端模型需要 API 密钥'
+      isValid = false
+    }
+  }
+
+  return isValid
+}
+
+// Get AI field error
+const getAIFieldError = (assistantId, fieldName) => {
+  return fieldErrors.value[`ai_${assistantId}_${fieldName}`] || ''
 }
 
 // ============================================================
@@ -412,7 +451,7 @@ const resetForm = () => {
         api_host: 'https://api.deepseek.com',
         api_endpoint: '/v1/chat/completions',
         api_key: '',
-        model: 'deepseek-chat',
+        model: '',
         temperature: 0.7,
         description: ''
       }
@@ -589,7 +628,7 @@ const addAssistant = (providerValue) => {
     api_host: provider.host,
     api_endpoint: provider.endpoint,
     api_key: '',
-    model: provider.model,
+    model: '',  // No default model - user must input or select
     temperature: 0.7,
     description: ''
   })
@@ -597,8 +636,20 @@ const addAssistant = (providerValue) => {
   showProviderDropdown.value = false
 }
 
-const toggleProviderDropdown = () => {
+// Provider dropdown position for fixed positioning
+const dropdownPosition = ref({ top: 0, left: 0 })
+const addBtnRef = ref(null)
+
+const toggleProviderDropdown = (event) => {
   showProviderDropdown.value = !showProviderDropdown.value
+  if (showProviderDropdown.value) {
+    // Calculate position relative to viewport for fixed positioning
+    const rect = event.target.getBoundingClientRect()
+    dropdownPosition.value = {
+      top: rect.top - 4, // 4px margin from button top
+      left: rect.left + rect.width + 4 // 4px to the right of the button
+    }
+  }
 }
 
 // Get provider display info
@@ -618,14 +669,18 @@ const requiresApiKeyForModelQuery = (providerValue) => {
 }
 
 const removeAssistant = (id) => {
-  if (formData.value.ai_assistants.length <= 1) {
-    return // Keep at least one assistant
-  }
   const index = formData.value.ai_assistants.findIndex(a => a.id === id)
   if (index > -1) {
     formData.value.ai_assistants.splice(index, 1)
+    // If deleted the selected one
     if (formData.value.selectedAssistantId === id) {
-      formData.value.selectedAssistantId = formData.value.ai_assistants[0].id
+      // If still have assistants, select the first one
+      if (formData.value.ai_assistants.length > 0) {
+        formData.value.selectedAssistantId = formData.value.ai_assistants[0].id
+      } else {
+        // No assistants left, clear selection
+        formData.value.selectedAssistantId = null
+      }
     }
   }
 }
@@ -962,33 +1017,45 @@ const syncSshHostFromDb = () => {
                 </div>
               </div>
               <div class="ai-config__sidebar-actions">
-                <div class="ai-config__add-wrapper">
-                  <button class="ai-config__action-btn" @click="toggleProviderDropdown" title="添加助手">+</button>
-                  <!-- Provider Dropdown -->
-                  <div v-if="showProviderDropdown" class="ai-config__provider-dropdown">
-                    <div
-                      v-for="p in aiProviders"
-                      :key="p.value"
-                      class="ai-config__provider-option"
-                      @click="addAssistant(p.value)"
-                    >
-                      {{ p.label }}
-                    </div>
-                  </div>
-                </div>
+                <button class="ai-config__action-btn" @click="toggleProviderDropdown($event)" title="添加助手">+</button>
                 <button
                   class="ai-config__action-btn"
-                  :class="{ 'ai-config__action-btn--disabled': formData.ai_assistants.length <= 1 }"
+                  :class="{ 'ai-config__action-btn--disabled': !selectedAssistant }"
                   @click="removeAssistant(selectedAssistant?.id)"
-                  :disabled="formData.ai_assistants.length <= 1"
+                  :disabled="!selectedAssistant"
                   title="删除助手"
                 >−</button>
               </div>
             </div>
 
+            <!-- Provider Dropdown - Fixed position using Teleport -->
+            <Teleport to="body">
+              <div
+                v-if="showProviderDropdown"
+                class="ai-config__provider-dropdown"
+                :style="{ top: dropdownPosition.top + 'px', left: dropdownPosition.left + 'px' }"
+              >
+                <div
+                  v-for="p in aiProviders"
+                  :key="p.value"
+                  class="ai-config__provider-option"
+                  @click="addAssistant(p.value)"
+                >
+                  {{ p.label }}
+                </div>
+              </div>
+            </Teleport>
+
             <!-- Right: Config Form -->
             <div class="ai-config__main" @click="showProviderDropdown = false">
-              <template v-if="selectedAssistant">
+              <!-- Empty state when no assistants -->
+              <div v-if="formData.ai_assistants.length === 0" class="ai-config__empty">
+                <div class="ai-config__empty-icon">🤖</div>
+                <div class="ai-config__empty-title">暂无 AI 助手</div>
+                <div class="ai-config__empty-hint">请点击左下角 + 添加 AI 助手</div>
+              </div>
+
+              <template v-else-if="selectedAssistant">
                 <!-- Basic Config Section -->
                 <div class="ai-config__section">
                   <div class="ai-config__row">
@@ -1003,7 +1070,16 @@ const syncSshHostFromDb = () => {
 
                   <div class="ai-config__row">
                     <label class="ai-config__label">API 主机</label>
-                    <input v-model="selectedAssistant.api_host" type="text" class="ai-config__input" placeholder="https://api.example.com" />
+                    <input
+                      v-model="selectedAssistant.api_host"
+                      type="text"
+                      class="ai-config__input"
+                      :class="{ 'ai-config__input--error': getAIFieldError(selectedAssistant.id, 'api_host') }"
+                      placeholder="https://api.example.com"
+                    />
+                  </div>
+                  <div v-if="getAIFieldError(selectedAssistant.id, 'api_host')" class="ai-config__error-text">
+                    {{ getAIFieldError(selectedAssistant.id, 'api_host') }}
                   </div>
 
                   <!-- API Endpoint is readonly and linked to provider -->
@@ -1023,6 +1099,7 @@ const syncSshHostFromDb = () => {
                         v-model="selectedAssistant.api_key"
                         :type="showApiKey[selectedAssistant.id] ? 'text' : 'password'"
                         class="ai-config__input ai-config__key-input"
+                        :class="{ 'ai-config__input--error': getAIFieldError(selectedAssistant.id, 'api_key') }"
                         placeholder="sk-..."
                       />
                       <button
@@ -1036,6 +1113,9 @@ const syncSshHostFromDb = () => {
                       </button>
                     </div>
                   </div>
+                  <div v-if="!isLocalProvider(selectedAssistant.provider) && getAIFieldError(selectedAssistant.id, 'api_key')" class="ai-config__error-text">
+                    {{ getAIFieldError(selectedAssistant.id, 'api_key') }}
+                  </div>
 
                   <!-- Local provider hint for Ollama -->
                   <div v-else class="ai-config__row">
@@ -1046,7 +1126,13 @@ const syncSshHostFromDb = () => {
                   <div class="ai-config__row">
                     <label class="ai-config__label">模型</label>
                     <div class="ai-config__model-field">
-                      <input v-model="selectedAssistant.model" type="text" class="ai-config__input ai-config__model-input" placeholder="模型名称" />
+                      <input
+                        v-model="selectedAssistant.model"
+                        type="text"
+                        class="ai-config__input ai-config__model-input"
+                        :class="{ 'ai-config__input--error': getAIFieldError(selectedAssistant.id, 'model') }"
+                        placeholder="模型名称"
+                      />
                       <button
                         type="button"
                         class="ai-config__model-btn"
@@ -1054,11 +1140,14 @@ const syncSshHostFromDb = () => {
                         :disabled="modelQuerying"
                         @click="handleQueryModels"
                         title="查询可用模型"
-                      >{{ modelQuerying ? '...' : '...' }}</button>
+                      >{{ modelQuerying ? '查询中' : '查询' }}</button>
                     </div>
-                    <!-- Model query error -->
-                    <div v-if="modelQueryError" class="ai-config__model-error">{{ modelQueryError }}</div>
                   </div>
+                  <div v-if="getAIFieldError(selectedAssistant.id, 'model')" class="ai-config__error-text">
+                    {{ getAIFieldError(selectedAssistant.id, 'model') }}
+                  </div>
+                  <!-- Model query error -->
+                  <div v-if="modelQueryError" class="ai-config__error-text">{{ modelQueryError }}</div>
 
                   <!-- Model selector dialog -->
                   <div v-if="showModelSelector" class="ai-config__model-selector">
@@ -1733,18 +1822,15 @@ const syncSshHostFromDb = () => {
 }
 
 .ai-config__provider-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 4px;
+  position: fixed;
+  width: 190px;
+  max-height: 204px;
+  overflow-y: auto;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  max-height: 240px;
-  overflow-y: auto;
-  z-index: 100;
-  margin-bottom: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
 }
 
 .ai-config__provider-option {
@@ -1753,8 +1839,7 @@ const syncSshHostFromDb = () => {
   color: var(--text-primary);
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 
 .ai-config__provider-option:hover {
@@ -1978,8 +2063,26 @@ const syncSshHostFromDb = () => {
   border-color: var(--primary);
 }
 
+.ai-config__input--error {
+  border-color: var(--error);
+}
+
+.ai-config__input--error:focus {
+  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.2);
+}
+
 .ai-config__input::placeholder {
   color: var(--text-muted);
+}
+
+/* Field Error Text */
+.ai-config__error-text {
+  width: 100%;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--error);
+  padding-left: 100px;
 }
 
 /* Select */

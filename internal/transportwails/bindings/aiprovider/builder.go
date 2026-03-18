@@ -27,102 +27,116 @@ const (
 
 // ProviderConfig contains provider-specific configuration.
 type ProviderConfig struct {
-	Type            ProviderType
-	AuthHeader      string            // Header name for API key
-	AuthPrefix      string            // Prefix for auth value (e.g., "Bearer ")
-	ExtraHeaders    map[string]string // Additional headers required
-	RequestFormat   string            // "openai" or "anthropic" or "gemini"
-	DefaultEndpoint string            // Default API endpoint
+	Type              ProviderType
+	AuthHeader        string            // Header name for API key
+	AuthPrefix        string            // Prefix for auth value (e.g., "Bearer ")
+	ExtraHeaders      map[string]string // Additional headers required
+	RequestFormat     string            // "openai" or "anthropic" or "gemini"
+	DefaultEndpoint   string            // Default API endpoint
+	SupportsModelList bool              // Whether the provider supports /v1/models endpoint
+	ModelListEndpoint string            // Custom endpoint for model listing (if different from /v1/models)
 }
 
 // Provider registry with their configurations.
 var providerRegistry = map[string]ProviderConfig{
 	// OpenAI-compatible providers (China)
 	"deepseek": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 	"qwen": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 	"doubao": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/chat/completions",
+		SupportsModelList: false, // Doubao uses different model access per endpoint
 	},
 	"glm": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v4/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v4/chat/completions",
+		SupportsModelList: false, // GLM doesn't support standard /v1/models endpoint
 	},
 	"minimax": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 	"moonshot": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 
 	// OpenAI-compatible providers (International)
 	"openai": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 	"xai": {
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true,
 	},
 
 	// Special format providers
 	"anthropic": {
-		Type:            ProviderTypeAnthropic,
-		AuthHeader:      "x-api-key",
-		AuthPrefix:      "",
-		RequestFormat:   "anthropic",
-		DefaultEndpoint: "/v1/messages",
+		Type:              ProviderTypeAnthropic,
+		AuthHeader:        "x-api-key",
+		AuthPrefix:        "",
+		RequestFormat:     "anthropic",
+		DefaultEndpoint:   "/v1/messages",
+		SupportsModelList: false, // Anthropic doesn't have model list API
 		ExtraHeaders: map[string]string{
 			"anthropic-version": "2023-06-01",
 		},
 	},
 	"gemini": {
-		Type:            ProviderTypeGemini,
-		AuthHeader:      "", // API key goes in URL param
-		AuthPrefix:      "",
-		RequestFormat:   "gemini",
-		DefaultEndpoint: "/v1beta/models/{model}:generateContent",
+		Type:              ProviderTypeGemini,
+		AuthHeader:        "", // API key goes in URL param
+		AuthPrefix:        "",
+		RequestFormat:     "gemini",
+		DefaultEndpoint:   "/v1beta/models/{model}:generateContent",
+		SupportsModelList: false, // Gemini has different model list API
 	},
 
 	// Local providers
 	"ollama": {
-		Type:            ProviderTypeOllama,
-		AuthHeader:      "",
-		AuthPrefix:      "",
-		RequestFormat:   "ollama",
-		DefaultEndpoint: "/api/chat",
+		Type:              ProviderTypeOllama,
+		AuthHeader:        "",
+		AuthPrefix:        "",
+		RequestFormat:     "ollama",
+		DefaultEndpoint:   "/api/chat",
+		SupportsModelList: true,
+		ModelListEndpoint: "/api/tags", // Ollama uses different endpoint
 	},
 }
 
@@ -179,11 +193,12 @@ func GetProviderConfig(provider string) ProviderConfig {
 	}
 	// Default to OpenAI-compatible
 	return ProviderConfig{
-		Type:            ProviderTypeOpenAI,
-		AuthHeader:      "Authorization",
-		AuthPrefix:      "Bearer ",
-		RequestFormat:   "openai",
-		DefaultEndpoint: "/v1/chat/completions",
+		Type:              ProviderTypeOpenAI,
+		AuthHeader:        "Authorization",
+		AuthPrefix:        "Bearer ",
+		RequestFormat:     "openai",
+		DefaultEndpoint:   "/v1/chat/completions",
+		SupportsModelList: true, // Default to true for unknown OpenAI-compatible providers
 	}
 }
 
@@ -485,6 +500,14 @@ func QueryModels(ctx context.Context, req QueryModelsRequest) QueryModelsResult 
 	}
 
 	cfg := GetProviderConfig(req.Provider)
+
+	// Check if provider supports model listing
+	if !cfg.SupportsModelList {
+		return QueryModelsResult{
+			Success: false,
+			Error:   "该提供商不支持模型列表查询，请手动输入模型名称",
+		}
+	}
 
 	switch cfg.Type {
 	case ProviderTypeOllama:
