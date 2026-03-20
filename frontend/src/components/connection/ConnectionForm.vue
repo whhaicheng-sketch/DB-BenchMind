@@ -7,6 +7,12 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import { TestConnectionDirect, TestSSHConnection, TestAIConnection, QueryAIModels } from '../../../wailsjs/go/bindings/ConnectionBinding'
+import {
+  DEFAULT_AI_TEMPERATURE,
+  collectAiFieldErrors,
+  getBlockingValidationResult,
+  normalizeModelOptions
+} from './connectionFormAiState.mjs'
 
 // Props
 const props = defineProps({
@@ -134,7 +140,7 @@ const formData = ref({
       api_endpoint: '/v1/chat/completions',
       api_key: '',
       model: '',
-      temperature: 0.7,
+      temperature: DEFAULT_AI_TEMPERATURE,
       description: ''
     }
   ],
@@ -308,50 +314,20 @@ const validateField = (field) => {
 }
 
 const validateForm = () => {
-  fieldErrors.value = {}
-  let isValid = true
+  const blockingResult = getBlockingValidationResult(formData.value, currentSchema.value)
+  const aiErrors = validateAIFields()
 
-  if (!validateField('name')) isValid = false
-  if (!validateField('host')) isValid = false
-  if (!validateField('port')) isValid = false
-  if (!validateField('username')) isValid = false
-  if (!validateField('database')) isValid = false
-
-  // Validate AI assistants only if list is not empty
-  if (formData.value.ai_assistants.length > 0) {
-    if (!validateAIFields()) isValid = false
+  fieldErrors.value = {
+    ...blockingResult.errors,
+    ...aiErrors
   }
 
-  return isValid
+  return blockingResult.isValid
 }
 
 // Validate AI assistant fields
 const validateAIFields = () => {
-  let isValid = true
-
-  for (const assistant of formData.value.ai_assistants) {
-    const prefix = `ai_${assistant.id}`
-
-    // API Host is required
-    if (!assistant.api_host?.trim()) {
-      fieldErrors.value[`${prefix}_api_host`] = 'API 主机不能为空'
-      isValid = false
-    }
-
-    // Model is required
-    if (!assistant.model?.trim()) {
-      fieldErrors.value[`${prefix}_model`] = '模型不能为空'
-      isValid = false
-    }
-
-    // API Key is required for cloud providers (not Ollama)
-    if (!isLocalProvider(assistant.provider) && !assistant.api_key?.trim()) {
-      fieldErrors.value[`${prefix}_api_key`] = '云端模型需要 API 密钥'
-      isValid = false
-    }
-  }
-
-  return isValid
+  return collectAiFieldErrors(formData.value.ai_assistants, isLocalProvider)
 }
 
 // Get AI field error
@@ -452,7 +428,7 @@ const resetForm = () => {
         api_endpoint: '/v1/chat/completions',
         api_key: '',
         model: '',
-        temperature: 0.7,
+        temperature: DEFAULT_AI_TEMPERATURE,
         description: ''
       }
     ],
@@ -629,7 +605,7 @@ const addAssistant = (providerValue) => {
     api_endpoint: provider.endpoint,
     api_key: '',
     model: '',  // No default model - user must input or select
-    temperature: 0.7,
+    temperature: DEFAULT_AI_TEMPERATURE,
     description: ''
   })
   formData.value.selectedAssistantId = newId
@@ -698,6 +674,7 @@ const modelQuerying = ref(false)
 const modelQueryError = ref('')
 const availableModels = ref([])
 const showModelSelector = ref(false)
+const pendingModelSelection = ref('')
 
 // Model query handler - calls real backend
 const handleQueryModels = async () => {
@@ -724,8 +701,11 @@ const handleQueryModels = async () => {
       api_key: apiKey
     })
 
-    if (result.success && result.models?.length > 0) {
-      availableModels.value = result.models
+    const normalizedModels = normalizeModelOptions(result.models)
+
+    if (result.success && normalizedModels.length > 0) {
+      availableModels.value = normalizedModels
+      pendingModelSelection.value = selectedAssistant.value.model || normalizedModels[0].id
       showModelSelector.value = true
     } else if (result.error) {
       modelQueryError.value = result.error
@@ -741,8 +721,12 @@ const handleQueryModels = async () => {
 
 // Select model from list
 const selectModel = (modelId) => {
-  if (selectedAssistant.value) {
-    selectedAssistant.value.model = modelId
+  pendingModelSelection.value = modelId
+}
+
+const confirmModelSelection = () => {
+  if (selectedAssistant.value && pendingModelSelection.value) {
+    selectedAssistant.value.model = pendingModelSelection.value
   }
   showModelSelector.value = false
 }
@@ -750,6 +734,7 @@ const selectModel = (modelId) => {
 // Close model selector
 const closeModelSelector = () => {
   showModelSelector.value = false
+  pendingModelSelection.value = selectedAssistant.value?.model || ''
 }
 
 // ============================================================
@@ -1149,25 +1134,6 @@ const syncSshHostFromDb = () => {
                   <!-- Model query error -->
                   <div v-if="modelQueryError" class="ai-config__error-text">{{ modelQueryError }}</div>
 
-                  <!-- Model selector dialog -->
-                  <div v-if="showModelSelector" class="ai-config__model-selector">
-                    <div class="ai-config__model-selector-header">
-                      <span>选择模型</span>
-                      <button type="button" class="ai-config__model-selector-close" @click="closeModelSelector">×</button>
-                    </div>
-                    <div class="ai-config__model-selector-list">
-                      <div
-                        v-for="model in availableModels"
-                        :key="model.id"
-                        class="ai-config__model-option"
-                        :class="{ 'ai-config__model-option--selected': selectedAssistant.model === model.id }"
-                        @click="selectModel(model.id)"
-                      >
-                        {{ model.name || model.id }}
-                      </div>
-                    </div>
-                  </div>
-
                   <div class="ai-config__row ai-config__row--temp">
                     <label class="ai-config__label">温度</label>
                     <div class="ai-config__temp-control">
@@ -1229,6 +1195,42 @@ const syncSshHostFromDb = () => {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="showModelSelector" class="ai-config__model-selector-overlay" @click.self="closeModelSelector">
+        <div class="ai-config__model-selector-dialog" role="dialog" aria-modal="true" aria-label="选择模型">
+          <div class="ai-config__model-selector-header">
+            <span>选择模型</span>
+            <button type="button" class="ai-config__model-selector-close" @click="closeModelSelector">×</button>
+          </div>
+          <div class="ai-config__model-selector-list">
+            <button
+              v-for="model in availableModels"
+              :key="model.id"
+              type="button"
+              class="ai-config__model-option"
+              :class="{ 'ai-config__model-option--selected': pendingModelSelection === model.id }"
+              @click="selectModel(model.id)"
+            >
+              {{ model.name }}
+            </button>
+          </div>
+          <div class="ai-config__model-selector-actions">
+            <button type="button" class="ai-config__selector-btn ai-config__selector-btn--secondary" @click="closeModelSelector">
+              取消
+            </button>
+            <button
+              type="button"
+              class="ai-config__selector-btn ai-config__selector-btn--primary"
+              :disabled="!pendingModelSelection"
+              @click="confirmModelSelection"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Footer Actions -->
     <div class="conn-editor__footer">
@@ -1310,6 +1312,7 @@ const syncSshHostFromDb = () => {
   --error-bg: #fef0f0;
   --primary: #409eff;
   --primary-hover: #66b1ff;
+  --primary-light: #ecf5ff;
 
   background-color: var(--bg-primary);
   border-radius: 4px;
@@ -1914,18 +1917,22 @@ const syncSshHostFromDb = () => {
 }
 
 /* Model Selector Dialog */
-.ai-config__model-selector {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
+.ai-config__model-selector-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.22);
+  z-index: 1200;
+}
+
+.ai-config__model-selector-dialog {
+  width: min(420px, calc(100vw - 32px));
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 100;
-  max-height: 200px;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
   overflow: hidden;
 }
 
@@ -1956,14 +1963,20 @@ const syncSshHostFromDb = () => {
 }
 
 .ai-config__model-selector-list {
-  max-height: 160px;
+  max-height: 240px;
   overflow-y: auto;
+  padding: 8px 0;
 }
 
 .ai-config__model-option {
+  display: block;
+  width: 100%;
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-secondary);
+  text-align: left;
+  border: none;
+  background: transparent;
   cursor: pointer;
   transition: background-color 0.15s;
 }
@@ -1975,6 +1988,39 @@ const syncSshHostFromDb = () => {
 .ai-config__model-option--selected {
   background-color: var(--primary-light);
   color: var(--primary);
+}
+
+.ai-config__model-selector-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-config__selector-btn {
+  min-width: 72px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-config__selector-btn--secondary {
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.ai-config__selector-btn--primary {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.ai-config__selector-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Right Main Config Area */
