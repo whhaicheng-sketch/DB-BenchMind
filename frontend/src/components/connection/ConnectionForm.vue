@@ -1,12 +1,12 @@
 <script setup>
 /**
  * ConnectionForm.vue
- * Navicat-style database connection editor with tabs: General / SSH / AI Assistant
+ * Navicat-style database connection editor with tabs: General / Remote / AI Assistant
  * Supports MySQL, PostgreSQL, Oracle, and SQL Server with database-specific fields.
  */
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
-import { TestConnectionDirect, TestSSHConnection, TestAIConnection, QueryAIModels } from '../../../wailsjs/go/bindings/ConnectionBinding'
+import { TestConnectionDirect, TestSSHConnection, TestWinRMConnection, TestAIConnection, QueryAIModels } from '../../../wailsjs/go/bindings/ConnectionBinding'
 import AiTestDialog from './AiTestDialog.vue'
 import {
   applyBlockingFieldValidation,
@@ -16,6 +16,17 @@ import {
   normalizeModelOptions,
   shouldShowApiKeyField
 } from './connectionFormAiState.mjs'
+import {
+  applyRemoteTypeCompatibilityFields,
+  buildRemoteBlockingErrorMessage,
+  getDefaultWinRMPortByScheme,
+  getRemoteType,
+  isRemoteTypeNone,
+  isRemoteTypeSSH,
+  isRemoteTypeWinRM,
+  shouldAutoUpdateWinRMPort,
+  syncRemoteHostFromGeneral
+} from './connectionFormRemoteState.mjs'
 
 // Props
 const props = defineProps({
@@ -96,7 +107,7 @@ const DB_SCHEMA = {
 const activeTab = ref('general')
 const tabs = [
   { id: 'general', label: 'General' },
-  { id: 'ssh', label: 'SSH' },
+  { id: 'remote', label: 'Remote' },
   { id: 'ai', label: 'AI 助手' }
 ]
 
@@ -131,11 +142,22 @@ const formData = ref({
   oracle_tns_name: '',
   // SQL Server specific
   auth_type: 'sql', // sql or windows
+  remote_type: 'none',
+  remote_port_user_overridden: false,
+  ssh_enabled: false,
+  winrm_enabled: false,
   // SSH Configuration
   ssh_host: '',
   ssh_port: 22,
   ssh_username: '',
   ssh_password: '',
+  // WinRM Configuration
+  winrm_host: '',
+  winrm_port: 5985,
+  winrm_username: 'Administrator',
+  winrm_password: '',
+  winrm_scheme: 'http',
+  winrm_auth_type: 'basic',
   // AI Assistant Configuration
   ai_assistants: [
     {
@@ -156,6 +178,7 @@ const formData = ref({
 // UI State
 const showPassword = ref(false)
 const showSshPassword = ref(false)
+const showWinrmPassword = ref(false)
 const showApiKey = ref({})
 const saving = ref(false)
 const formError = ref(null)
@@ -171,6 +194,10 @@ const sshTesting = ref(false)
 const sshTestResult = ref(null)
 const sshTestStatus = ref('idle')
 
+const winrmTesting = ref(false)
+const winrmTestResult = ref(null)
+const winrmTestStatus = ref('idle')
+
 const aiTesting = ref(false)
 const aiTestResult = ref(null)
 const aiTestStatus = ref('idle')
@@ -178,6 +205,7 @@ const showAiTestDialog = ref(false)
 
 // Flag to track if SSH host was manually modified
 const sshHostManuallyModified = ref(false)
+const winrmHostManuallyModified = ref(false)
 
 // ============================================================
 // Computed Properties
@@ -197,6 +225,9 @@ const shouldShowDatabaseField = computed(() => {
   }
   return false
 })
+const isRemoteTypeNoneSelected = computed(() => isRemoteTypeNone(formData.value))
+const isRemoteTypeSSHSelected = computed(() => isRemoteTypeSSH(formData.value))
+const isRemoteTypeWinRMSelected = computed(() => isRemoteTypeWinRM(formData.value))
 
 // ============================================================
 // AI Provider Options
@@ -242,6 +273,42 @@ watch(() => formData.value.host, (newHost) => {
   if (!sshHostManuallyModified.value) {
     formData.value.ssh_host = newHost
   }
+  if (!winrmHostManuallyModified.value) {
+    formData.value.winrm_host = newHost
+  }
+})
+
+watch(() => formData.value.remote_type, (remoteType) => {
+  const normalized = applyRemoteTypeCompatibilityFields(formData.value)
+  formData.value.ssh_enabled = normalized.ssh_enabled
+  formData.value.winrm_enabled = normalized.winrm_enabled
+
+  if (remoteType === 'ssh' && !formData.value.ssh_port) {
+    formData.value.ssh_port = 22
+  }
+
+  if (remoteType === 'winrm') {
+    if (!formData.value.winrm_scheme) {
+      formData.value.winrm_scheme = 'http'
+    }
+    if (!formData.value.winrm_auth_type) {
+      formData.value.winrm_auth_type = 'basic'
+    }
+    if (!formData.value.winrm_port) {
+      formData.value.winrm_port = getDefaultWinRMPortByScheme(formData.value.winrm_scheme)
+      formData.value.remote_port_user_overridden = false
+    }
+  }
+}, { immediate: true })
+
+watch(() => formData.value.winrm_scheme, (scheme) => {
+  if (!isRemoteTypeWinRM(formData.value)) {
+    return
+  }
+
+  if (shouldAutoUpdateWinRMPort(formData.value)) {
+    formData.value.winrm_port = getDefaultWinRMPortByScheme(scheme)
+  }
 })
 
 watch(() => formData.value.oracle_connect_mode, (mode) => {
@@ -272,10 +339,20 @@ watch(() => props.connectionId, async (newId) => {
         oracle_basic_value: conn.service_name || conn.sid || '',
         oracle_tns_name: conn.tns_name || '',
         auth_type: conn.auth_type || 'sql',
+        remote_type: getRemoteType(conn),
+        remote_port_user_overridden: false,
+        ssh_enabled: !!conn.ssh_enabled,
+        winrm_enabled: !!conn.winrm_enabled,
         ssh_host: conn.host, // Will be overwritten if SSH was configured
         ssh_port: conn.ssh_port || 22,
         ssh_username: conn.ssh_username || '',
         ssh_password: conn.ssh_password || '',
+        winrm_host: conn.host,
+        winrm_port: conn.winrm_port || getDefaultWinRMPortByScheme(conn.winrm_use_https ? 'https' : 'http'),
+        winrm_username: conn.winrm_username || 'Administrator',
+        winrm_password: conn.winrm_password || '',
+        winrm_scheme: conn.winrm_use_https ? 'https' : 'http',
+        winrm_auth_type: 'basic',
         ai_assistants: conn.ai_assistants || formData.value.ai_assistants,
         selectedAssistantId: conn.ai_assistants?.[0]?.id || 'default'
       }
@@ -284,6 +361,10 @@ watch(() => props.connectionId, async (newId) => {
       if (conn.ssh_enabled && conn.ssh_username) {
         formData.value.ssh_host = conn.host
         sshHostManuallyModified.value = false
+      }
+      if (conn.winrm_enabled && conn.winrm_username) {
+        formData.value.winrm_host = conn.host
+        winrmHostManuallyModified.value = false
       }
 
       nextTick(() => {
@@ -354,6 +435,11 @@ const validateField = (field) => {
 }
 
 const buildBlockingErrorMessage = (blockingErrors) => {
+  const remoteMessage = buildRemoteBlockingErrorMessage(blockingErrors)
+  if (remoteMessage) {
+    return remoteMessage
+  }
+
   const messages = Object.values(blockingErrors).filter(Boolean)
   return messages.join('；')
 }
@@ -440,7 +526,7 @@ const handleSave = async () => {
     })
 
     const payload = {
-      ...formData.value,
+      ...applyRemoteTypeCompatibilityFields(formData.value),
       ai_assistants: syncedAssistants,
       // Map Oracle connect_type to appropriate field
       connect_type: formData.value.type === 'oracle' ? formData.value.oracle_connect_mode : '',
@@ -452,10 +538,14 @@ const handleSave = async () => {
       tns_name: formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'tns'
         ? formData.value.oracle_tns_name : '',
       // SSH configuration
-      ssh_enabled: !!(formData.value.ssh_username && formData.value.ssh_host),
       ssh_port: formData.value.ssh_port || 22,
       ssh_username: formData.value.ssh_username || '',
-      ssh_password: formData.value.ssh_password || ''
+      ssh_password: formData.value.ssh_password || '',
+      // WinRM configuration
+      winrm_port: formData.value.winrm_port || getDefaultWinRMPortByScheme(formData.value.winrm_scheme),
+      winrm_use_https: formData.value.winrm_scheme === 'https',
+      winrm_username: formData.value.winrm_username || '',
+      winrm_password: formData.value.winrm_password || ''
     }
 
     if (isEditing.value) {
@@ -501,10 +591,20 @@ const resetForm = () => {
     oracle_basic_value: '',
     oracle_tns_name: '',
     auth_type: 'sql',
+    remote_type: 'none',
+    remote_port_user_overridden: false,
+    ssh_enabled: false,
+    winrm_enabled: false,
     ssh_host: '',
     ssh_port: 22,
     ssh_username: '',
     ssh_password: '',
+    winrm_host: '',
+    winrm_port: 5985,
+    winrm_username: 'Administrator',
+    winrm_password: '',
+    winrm_scheme: 'http',
+    winrm_auth_type: 'basic',
     ai_assistants: [
       {
         id: 'default',
@@ -529,9 +629,14 @@ const resetForm = () => {
   dbTestStatus.value = 'idle'
   sshTestResult.value = null
   sshTestStatus.value = 'idle'
+  winrmTestResult.value = null
+  winrmTestStatus.value = 'idle'
   aiTestResult.value = null
   aiTestStatus.value = 'idle'
   sshHostManuallyModified.value = false
+  winrmHostManuallyModified.value = false
+  showSshPassword.value = false
+  showWinrmPassword.value = false
   showProviderDropdown.value = false
 }
 
@@ -594,11 +699,11 @@ const handleTestDB = async () => {
 // SSH Test - SSH connection test ONLY
 // ============================================================
 const handleTestSSH = async () => {
-  if (!formData.value.ssh_host || !formData.value.ssh_username) {
+  if (!formData.value.ssh_host || !formData.value.ssh_port || !formData.value.ssh_username) {
     sshTestStatus.value = 'error'
     sshTestResult.value = {
       success: false,
-      error: '请填写 SSH 主机和用户名'
+      error: '请填写 SSH 主机、SSH 端口和 SSH 用户名'
     }
     return
   }
@@ -628,6 +733,42 @@ const handleTestSSH = async () => {
     }
   } finally {
     sshTesting.value = false
+  }
+}
+
+const handleTestWinRM = async () => {
+  if (!formData.value.winrm_host || !formData.value.winrm_port || !formData.value.winrm_username) {
+    winrmTestStatus.value = 'error'
+    winrmTestResult.value = {
+      success: false,
+      error: '请填写 WinRM 主机、WinRM 端口和 WinRM 用户名'
+    }
+    return
+  }
+
+  winrmTesting.value = true
+  winrmTestStatus.value = 'testing'
+  winrmTestResult.value = null
+
+  try {
+    const result = await TestWinRMConnection({
+      host: formData.value.winrm_host,
+      port: formData.value.winrm_port || getDefaultWinRMPortByScheme(formData.value.winrm_scheme),
+      username: formData.value.winrm_username,
+      password: formData.value.winrm_password || '',
+      use_https: formData.value.winrm_scheme === 'https'
+    })
+
+    winrmTestResult.value = result
+    winrmTestStatus.value = result.success ? 'success' : 'error'
+  } catch (err) {
+    winrmTestStatus.value = 'error'
+    winrmTestResult.value = {
+      success: false,
+      error: err.message || 'WinRM 测试失败'
+    }
+  } finally {
+    winrmTesting.value = false
   }
 }
 
@@ -914,9 +1055,26 @@ const onSshHostChange = () => {
   sshHostManuallyModified.value = true
 }
 
-const syncSshHostFromDb = () => {
-  formData.value.ssh_host = formData.value.host
-  sshHostManuallyModified.value = false
+const onWinRMHostChange = () => {
+  winrmHostManuallyModified.value = true
+}
+
+const onWinRMPortChange = () => {
+  formData.value.remote_port_user_overridden = true
+}
+
+const setRemoteType = (remoteType) => {
+  formData.value.remote_type = remoteType
+}
+
+const syncCurrentRemoteHostFromGeneral = () => {
+  formData.value = syncRemoteHostFromGeneral(formData.value)
+  if (isRemoteTypeSSH(formData.value)) {
+    sshHostManuallyModified.value = false
+  }
+  if (isRemoteTypeWinRM(formData.value)) {
+    winrmHostManuallyModified.value = false
+  }
 }
 </script>
 
@@ -1130,70 +1288,189 @@ const syncSshHostFromDb = () => {
           </div>
         </div>
 
-        <!-- ==================== SSH Tab ==================== -->
-        <div v-show="activeTab === 'ssh'" class="conn-editor__panel">
+        <!-- ==================== Remote Tab ==================== -->
+        <div v-show="activeTab === 'remote'" class="conn-editor__panel">
           <div class="conn-form">
-            <div class="conn-form__row conn-form__row--inline">
-              <div class="conn-form__field">
-                <label class="conn-form__label">SSH 主机</label>
-                <input
-                  v-model="formData.ssh_host"
-                  type="text"
-                  class="conn-form__input"
-                  placeholder="SSH 服务器地址"
-                  @input="onSshHostChange"
-                />
-              </div>
-              <button type="button" class="conn-form__sync-btn" @click="syncSshHostFromDb" title="从数据库主机同步">
-                同步
-              </button>
-            </div>
-            <div class="conn-form__hint">默认继承自主机字段，可手动修改</div>
-
-            <div class="conn-form__row conn-form__row--inline">
-              <div class="conn-form__field">
-                <label class="conn-form__label">SSH 端口</label>
-                <input
-                  v-model.number="formData.ssh_port"
-                  type="number"
-                  class="conn-form__input"
-                  placeholder="22"
-                  min="1"
-                  max="65535"
-                />
+            <div class="conn-form__row">
+              <label class="conn-form__label">远程连接类型</label>
+              <div class="conn-form__radio-group">
+                <label class="conn-form__radio">
+                  <input :checked="isRemoteTypeNoneSelected" type="radio" @change="setRemoteType('none')">
+                  <span>不使用远程连接</span>
+                </label>
+                <label class="conn-form__radio">
+                  <input :checked="isRemoteTypeSSHSelected" type="radio" @change="setRemoteType('ssh')">
+                  <span>SSH</span>
+                </label>
+                <label class="conn-form__radio">
+                  <input :checked="isRemoteTypeWinRMSelected" type="radio" @change="setRemoteType('winrm')">
+                  <span>WinRM</span>
+                </label>
               </div>
             </div>
 
-            <div class="conn-form__row">
-              <label class="conn-form__label">SSH 用户名</label>
-              <input
-                v-model="formData.ssh_username"
-                type="text"
-                class="conn-form__input"
-                placeholder="SSH 用户名"
-              />
-            </div>
+            <div v-if="isRemoteTypeNoneSelected" class="conn-form__hint">未配置远程连接方式。</div>
 
-            <div class="conn-form__row">
-              <label class="conn-form__label">SSH 密码</label>
-              <div class="conn-form__password">
-                <input
-                  v-model="formData.ssh_password"
-                  :type="showSshPassword ? 'text' : 'password'"
-                  class="conn-form__input"
-                  placeholder="SSH 密码"
-                />
-                <button type="button" class="conn-form__password-toggle" @click="showSshPassword = !showSshPassword">
-                  {{ showSshPassword ? '隐藏' : '显示' }}
+            <template v-if="isRemoteTypeSSHSelected">
+              <div class="conn-form__row conn-form__row--inline">
+                <div class="conn-form__field">
+                  <label class="conn-form__label">SSH 主机 <span class="required">*</span></label>
+                  <input
+                    v-model="formData.ssh_host"
+                    type="text"
+                    class="conn-form__input"
+                    :class="{ 'conn-form__input--error': fieldErrors.ssh_host }"
+                    placeholder="SSH 服务器地址"
+                    @input="onSshHostChange"
+                  />
+                </div>
+                <button type="button" class="conn-form__sync-btn" @click="syncCurrentRemoteHostFromGeneral" title="从数据库主机同步">
+                  同步
                 </button>
               </div>
-            </div>
+              <div v-if="fieldErrors.ssh_host" class="conn-form__error-text">{{ fieldErrors.ssh_host }}</div>
 
-            <!-- Test Result -->
-            <div v-if="sshTestResult" class="conn-form__test-result" :class="sshTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
-              <span v-if="sshTestResult.success">SSH 连接成功 ({{ sshTestResult.latency_ms }}ms)</span>
-              <span v-else>{{ sshTestResult.error }}</span>
-            </div>
+              <div class="conn-form__row conn-form__row--inline">
+                <div class="conn-form__field">
+                  <label class="conn-form__label">SSH 端口 <span class="required">*</span></label>
+                  <input
+                    v-model.number="formData.ssh_port"
+                    type="number"
+                    class="conn-form__input"
+                    :class="{ 'conn-form__input--error': fieldErrors.ssh_port }"
+                    placeholder="22"
+                    min="1"
+                    max="65535"
+                  />
+                </div>
+              </div>
+              <div v-if="fieldErrors.ssh_port" class="conn-form__error-text">{{ fieldErrors.ssh_port }}</div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">SSH 用户名 <span class="required">*</span></label>
+                <input
+                  v-model="formData.ssh_username"
+                  type="text"
+                  class="conn-form__input"
+                  :class="{ 'conn-form__input--error': fieldErrors.ssh_username }"
+                  placeholder="SSH 用户名"
+                />
+              </div>
+              <div v-if="fieldErrors.ssh_username" class="conn-form__error-text">{{ fieldErrors.ssh_username }}</div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">SSH 密码</label>
+                <div class="conn-form__password">
+                  <input
+                    v-model="formData.ssh_password"
+                    :type="showSshPassword ? 'text' : 'password'"
+                    class="conn-form__input"
+                    placeholder="SSH 密码"
+                  />
+                  <button type="button" class="conn-form__password-toggle" @click="showSshPassword = !showSshPassword">
+                    {{ showSshPassword ? '隐藏' : '显示' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="sshTestResult" class="conn-form__test-result" :class="sshTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
+                <span v-if="sshTestResult.success">SSH 连接成功 ({{ sshTestResult.latency_ms }}ms)</span>
+                <span v-else>{{ sshTestResult.error }}</span>
+              </div>
+            </template>
+
+            <template v-if="isRemoteTypeWinRMSelected">
+              <div class="conn-form__row conn-form__row--inline">
+                <div class="conn-form__field">
+                  <label class="conn-form__label">WinRM 主机 <span class="required">*</span></label>
+                  <input
+                    v-model="formData.winrm_host"
+                    type="text"
+                    class="conn-form__input"
+                    :class="{ 'conn-form__input--error': fieldErrors.winrm_host }"
+                    placeholder="WinRM 主机地址"
+                    @input="onWinRMHostChange"
+                  />
+                </div>
+                <button type="button" class="conn-form__sync-btn" @click="syncCurrentRemoteHostFromGeneral" title="从数据库主机同步">
+                  同步
+                </button>
+              </div>
+              <div v-if="fieldErrors.winrm_host" class="conn-form__error-text">{{ fieldErrors.winrm_host }}</div>
+
+              <div class="conn-form__row conn-form__row--inline">
+                <div class="conn-form__field">
+                  <label class="conn-form__label">WinRM 端口 <span class="required">*</span></label>
+                  <input
+                    v-model.number="formData.winrm_port"
+                    type="number"
+                    class="conn-form__input"
+                    :class="{ 'conn-form__input--error': fieldErrors.winrm_port }"
+                    placeholder="5985"
+                    min="1"
+                    max="65535"
+                    @input="onWinRMPortChange"
+                  />
+                </div>
+              </div>
+              <div v-if="fieldErrors.winrm_port" class="conn-form__error-text">{{ fieldErrors.winrm_port }}</div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">WinRM 用户名 <span class="required">*</span></label>
+                <input
+                  v-model="formData.winrm_username"
+                  type="text"
+                  class="conn-form__input"
+                  :class="{ 'conn-form__input--error': fieldErrors.winrm_username }"
+                  placeholder="WinRM 用户名"
+                />
+              </div>
+              <div v-if="fieldErrors.winrm_username" class="conn-form__error-text">{{ fieldErrors.winrm_username }}</div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">WinRM 密码</label>
+                <div class="conn-form__password">
+                  <input
+                    v-model="formData.winrm_password"
+                    :type="showWinrmPassword ? 'text' : 'password'"
+                    class="conn-form__input"
+                    placeholder="WinRM 密码"
+                  />
+                  <button type="button" class="conn-form__password-toggle" @click="showWinrmPassword = !showWinrmPassword">
+                    {{ showWinrmPassword ? '隐藏' : '显示' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">协议</label>
+                <div class="conn-form__radio-group">
+                  <label class="conn-form__radio">
+                    <input v-model="formData.winrm_scheme" type="radio" value="http">
+                    <span>HTTP</span>
+                  </label>
+                  <label class="conn-form__radio">
+                    <input v-model="formData.winrm_scheme" type="radio" value="https">
+                    <span>HTTPS</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">认证方式</label>
+                <input
+                  v-model="formData.winrm_auth_type"
+                  type="text"
+                  class="conn-form__input"
+                  readonly
+                />
+              </div>
+
+              <div v-if="winrmTestResult" class="conn-form__test-result" :class="winrmTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
+                <span v-if="winrmTestResult.success">WinRM 连接成功 ({{ winrmTestResult.latency_ms }}ms)</span>
+                <span v-else>{{ winrmTestResult.error }}</span>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -1475,9 +1752,9 @@ const syncSshHostFromDb = () => {
           {{ dbTesting ? '测试中...' : 'Test DB' }}
         </button>
 
-        <!-- SSH tab: Test SSH button -->
+        <!-- Remote tab: Test SSH / Test WinRM button -->
         <button
-          v-if="activeTab === 'ssh'"
+          v-if="activeTab === 'remote' && isRemoteTypeSSHSelected"
           type="button"
           class="conn-editor__btn conn-editor__btn--test"
           :class="{
@@ -1492,6 +1769,23 @@ const syncSshHostFromDb = () => {
           <span v-else-if="sshTestStatus === 'success'" class="icon-success">✓</span>
           <span v-else-if="sshTestStatus === 'error'" class="icon-error">✗</span>
           {{ sshTesting ? '测试中...' : 'Test SSH' }}
+        </button>
+        <button
+          v-if="activeTab === 'remote' && isRemoteTypeWinRMSelected"
+          type="button"
+          class="conn-editor__btn conn-editor__btn--test"
+          :class="{
+            'conn-editor__btn--testing': winrmTesting,
+            'conn-editor__btn--success': winrmTestStatus === 'success',
+            'conn-editor__btn--error': winrmTestStatus === 'error'
+          }"
+          :disabled="winrmTesting || saving"
+          @click="handleTestWinRM"
+        >
+          <span v-if="winrmTesting" class="spinner"></span>
+          <span v-else-if="winrmTestStatus === 'success'" class="icon-success">✓</span>
+          <span v-else-if="winrmTestStatus === 'error'" class="icon-error">✗</span>
+          {{ winrmTesting ? '测试中...' : 'Test WinRM' }}
         </button>
       </div>
 

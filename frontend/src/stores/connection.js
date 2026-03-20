@@ -11,9 +11,16 @@ import {
   UpdateConnection,
   DeleteConnection,
   TestConnection,
+  TestAIConnection,
   TestSSHConnection,
   TestWinRMConnection
 } from '../../wailsjs/go/bindings/ConnectionBinding'
+import {
+  buildAiTestRequest,
+  selectPreferredAiAssistant,
+  shouldTestAiForConnection
+} from './connectionAiAggregation.mjs'
+import { getRemoteType } from '../components/connection/connectionFormRemoteState.mjs'
 
 export const useConnectionStore = defineStore('connection', {
   state: () => ({
@@ -31,11 +38,14 @@ export const useConnectionStore = defineStore('connection', {
     sshTestResult: null,
     // WinRM test result
     winrmTestResult: null,
+    // AI test result
+    aiTestResult: null,
     // Per-connection test states (for list page feedback)
     testingById: {},
     testResultById: {},
     sshTestResultById: {},
-    winrmTestResultById: {}
+    winrmTestResultById: {},
+    aiTestResultById: {}
   }),
 
   getters: {
@@ -50,6 +60,9 @@ export const useConnectionStore = defineStore('connection', {
       return !!state.testingById[id]
     },
     // Get test result for a specific connection
+    getDBTestResultById: (state) => (id) => {
+      return state.testResultById[id] || null
+    },
     getTestResultById: (state) => (id) => {
       return state.testResultById[id] || null
     },
@@ -58,6 +71,9 @@ export const useConnectionStore = defineStore('connection', {
     },
     getWinRMTestResultById: (state) => (id) => {
       return state.winrmTestResultById[id] || null
+    },
+    getAITestResultById: (state) => (id) => {
+      return state.aiTestResultById[id] || null
     },
     // Get connections grouped by type
     connectionsByType: (state) => {
@@ -291,10 +307,17 @@ export const useConnectionStore = defineStore('connection', {
       this.loading = true
       this.error = null
       this.testResult = null
+      this.aiTestResult = null
+      const connection = this.connections.find(conn => conn.id === id) || null
+      const shouldTestAI = shouldTestAiForConnection(connection)
+      const remoteType = getRemoteType(connection)
       // Set per-connection testing state
       this.$patch((state) => {
         state.testingById[id] = true
         state.testResultById[id] = null
+        state.sshTestResultById[id] = null
+        state.winrmTestResultById[id] = null
+        state.aiTestResultById[id] = null
       })
 
       try {
@@ -323,6 +346,53 @@ export const useConnectionStore = defineStore('connection', {
           this.$patch((state) => {
             state.winrmTestResultById[id] = result.winrm_result
           })
+        }
+
+        if (remoteType === 'winrm') {
+          try {
+            const winrmResult = await TestWinRMConnection({
+              host: connection?.host || '',
+              port: connection?.winrm_port || (connection?.winrm_use_https ? 5986 : 5985),
+              username: connection?.winrm_username || '',
+              password: connection?.winrm_password || '',
+              use_https: !!connection?.winrm_use_https
+            })
+            this.winrmTestResult = winrmResult
+            this.$patch((state) => {
+              state.winrmTestResultById[id] = winrmResult
+            })
+          } catch (err) {
+            const winrmErrorResult = {
+              success: false,
+              error: err.message || 'Failed to test WinRM connection'
+            }
+            this.winrmTestResult = winrmErrorResult
+            this.$patch((state) => {
+              state.winrmTestResultById[id] = winrmErrorResult
+            })
+          }
+        }
+
+        if (shouldTestAI) {
+          const assistant = selectPreferredAiAssistant(connection)
+          const aiRequest = buildAiTestRequest(assistant)
+
+          try {
+            const aiResult = await TestAIConnection(aiRequest)
+            this.aiTestResult = aiResult
+            this.$patch((state) => {
+              state.aiTestResultById[id] = aiResult
+            })
+          } catch (err) {
+            const aiErrorResult = {
+              success: false,
+              error: err.message || 'Failed to test AI connection'
+            }
+            this.aiTestResult = aiErrorResult
+            this.$patch((state) => {
+              state.aiTestResultById[id] = aiErrorResult
+            })
+          }
         }
 
         return result

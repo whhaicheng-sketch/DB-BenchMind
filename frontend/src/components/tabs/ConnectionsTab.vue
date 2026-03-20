@@ -49,9 +49,9 @@
               <div class="conn-name">{{ conn.name }}</div>
               <div class="conn-host">
                 {{ conn.host }}:{{ conn.port }}
-                <span v-if="conn.ssh_enabled" class="tag tag-ssh">SSH</span>
+                <span v-if="isRemoteTypeSSH(conn)" class="tag tag-ssh">SSH</span>
                 <span v-if="hasConfiguredAiAssistants(conn)" class="tag tag-ai" :title="getAiBadgeTooltip(conn)">AI</span>
-                <span v-if="conn.winrm_enabled" class="tag tag-winrm">WinRM</span>
+                <span v-if="isRemoteTypeWinRM(conn)" class="tag tag-winrm">WinRM</span>
               </div>
             </div>
 
@@ -88,15 +88,20 @@
                       :class="getDbTestStatusClass(conn)">
                   DB: {{ getDbTestStatusText(conn) }}
                 </span>
-                <span v-if="conn.ssh_enabled && connectionStore.getSSHTestResultById(conn.id)"
+                <span v-if="isRemoteTypeSSH(conn) && connectionStore.getSSHTestResultById(conn.id)"
                       class="result-spacing"
                       :class="getSshTestStatusClass(conn)">
                   SSH: {{ getSshTestStatusText(conn) }}
                 </span>
-                <span v-if="conn.winrm_enabled && connectionStore.getWinRMTestResultById(conn.id)"
+                <span v-if="isRemoteTypeWinRM(conn) && connectionStore.getWinRMTestResultById(conn.id)"
                       class="result-spacing"
                       :class="getWinrmTestStatusClass(conn)">
                   WinRM: {{ getWinrmTestStatusText(conn) }}
+                </span>
+                <span v-if="hasConfiguredAiAssistants(conn) && connectionStore.getAITestResultById(conn.id)"
+                      class="result-spacing"
+                      :class="getAiTestStatusClass(conn)">
+                  AI: {{ getAiTestStatusText(conn) }}
                 </span>
               </div>
             </div>
@@ -143,6 +148,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import ConnectionForm from '../connection/ConnectionForm.vue'
 import { getAiBadgeTooltip, hasConfiguredAiAssistants } from './connectionCardBadges'
+import { getRemoteType, isRemoteTypeSSH, isRemoteTypeWinRM } from '../connection/connectionFormRemoteState.mjs'
 
 const connectionStore = useConnectionStore()
 
@@ -264,13 +270,13 @@ const handleSaved = () => {
 
 // Helper functions for test status display
 const getDbTestStatusText = (conn) => {
-  const result = connectionStore.getTestResultById(conn.id)
+  const result = connectionStore.getDBTestResultById(conn.id)
   if (!result) return ''
   return result.success ? 'OK' : 'FAIL'
 }
 
 const getDbTestStatusClass = (conn) => {
-  const result = connectionStore.getTestResultById(conn.id)
+  const result = connectionStore.getDBTestResultById(conn.id)
   if (!result) return ''
   return result.success ? 'result-success' : 'result-error'
 }
@@ -298,6 +304,20 @@ const getWinrmTestStatusClass = (conn) => {
   if (!result) return ''
   return result.success ? 'result-success' : 'result-error'
 }
+
+const getAiTestStatusText = (conn) => {
+  const result = connectionStore.getAITestResultById(conn.id)
+  if (!result) return ''
+  return result.success ? 'OK' : 'FAIL'
+}
+
+const getAiTestStatusClass = (conn) => {
+  const result = connectionStore.getAITestResultById(conn.id)
+  if (!result) return ''
+  return result.success ? 'result-success' : 'result-error'
+}
+
+const getConnectionRemoteType = (conn) => getRemoteType(conn)
 </script>
 
 <style scoped>

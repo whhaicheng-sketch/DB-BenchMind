@@ -5,86 +5,70 @@ import (
 	"testing"
 )
 
-func TestDefaultSeedTemplates_IncludeSmokeTemplatesForSupportedDatabases(t *testing.T) {
+func TestDefaultSeedTemplates_OnlyKeepSingleDefaultTestTemplate(t *testing.T) {
 	templates := DefaultSeedTemplates()
 
-	want := map[string]string{
-		"mysql":      ToolSysbench,
-		"postgresql": ToolSysbench,
-		"oracle":     ToolSwingbench,
-		"sqlserver":  ToolHammerDB,
+	if len(templates) != 1 {
+		t.Fatalf("DefaultSeedTemplates() len = %d, want 1", len(templates))
 	}
 
-	found := map[string]*Template{}
-	for _, tmpl := range templates {
-		if tmpl.Scope != ScopeTest {
-			continue
-		}
-		found[tmpl.DBFamily] = tmpl
+	tmpl := templates[0]
+	if tmpl.ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("default template id = %s, want tpl_test_mysql_sysbench", tmpl.ID)
 	}
-
-	for dbFamily, tool := range want {
-		tmpl := found[dbFamily]
-		if tmpl == nil {
-			t.Fatalf("missing default test template for %s", dbFamily)
-		}
-		if tmpl.Tool != tool {
-			t.Fatalf("template for %s uses tool %s, want %s", dbFamily, tmpl.Tool, tool)
-		}
-		if !tmpl.SupportsDatabase(dbFamily) {
-			t.Fatalf("template for %s does not support its own database family", dbFamily)
-		}
-		if !containsTag(tmpl.Tags, "test") {
-			t.Fatalf("template for %s must include 'test' tag: %v", dbFamily, tmpl.Tags)
-		}
-		if !tmpl.Phases.Prepare.Enabled || !tmpl.Phases.Run.Enabled || !tmpl.Phases.Cleanup.Enabled {
-			t.Fatalf("template for %s must support prepare/run/cleanup", dbFamily)
-		}
+	if tmpl.Scope != ScopeTest {
+		t.Fatalf("default template scope = %s, want %s", tmpl.Scope, ScopeTest)
+	}
+	if tmpl.Tool != ToolSysbench {
+		t.Fatalf("default template tool = %s, want %s", tmpl.Tool, ToolSysbench)
+	}
+	if tmpl.DBFamily != "mysql" {
+		t.Fatalf("default template dbFamily = %s, want mysql", tmpl.DBFamily)
+	}
+	if !tmpl.SupportsDatabase("mysql") {
+		t.Fatal("default template must support mysql")
+	}
+	if !containsTag(tmpl.Tags, "test") {
+		t.Fatalf("default template must include 'test' tag: %v", tmpl.Tags)
+	}
+	if !tmpl.Phases.Prepare.Enabled || !tmpl.Phases.Run.Enabled || !tmpl.Phases.Cleanup.Enabled {
+		t.Fatal("default template must support prepare/run/cleanup")
 	}
 }
 
-func TestDefaultSeedTemplates_SmokeTemplatesDescribeUnifiedLifecycle(t *testing.T) {
+func TestDefaultSeedTemplates_SmokeTemplateDescribesUnifiedLifecycle(t *testing.T) {
 	templates := DefaultSeedTemplates()
 
-	for _, tmpl := range templates {
-		if tmpl.Scope != ScopeTest {
-			continue
-		}
+	if len(templates) != 1 {
+		t.Fatalf("DefaultSeedTemplates() len = %d, want 1", len(templates))
+	}
 
-		switch tmpl.DBFamily {
-		case "mysql", "postgresql", "oracle", "sqlserver":
-			if tmpl.Description == "" {
-				t.Fatalf("test template for %s must have description", tmpl.DBFamily)
-			}
-			if !(containsTextFold(tmpl.Description, "rebuild") || containsTextFold(tmpl.Description, "recreate")) {
-				t.Fatalf("test template for %s should describe prepare rebuild semantics: %q", tmpl.DBFamily, tmpl.Description)
-			}
-			if !(containsTextFold(tmpl.Description, "cleanup") && (containsTextFold(tmpl.Description, "full teardown") || containsTextFold(tmpl.Description, "fully removes"))) {
-				t.Fatalf("test template for %s should describe cleanup teardown semantics: %q", tmpl.DBFamily, tmpl.Description)
-			}
-		}
+	tmpl := templates[0]
+	if tmpl.Description == "" {
+		t.Fatal("default test template must have description")
+	}
+	if !(containsTextFold(tmpl.Description, "rebuild") || containsTextFold(tmpl.Description, "recreate")) {
+		t.Fatalf("default test template should describe prepare rebuild semantics: %q", tmpl.Description)
+	}
+	if !(containsTextFold(tmpl.Description, "cleanup") && (containsTextFold(tmpl.Description, "full teardown") || containsTextFold(tmpl.Description, "fully removes"))) {
+		t.Fatalf("default test template should describe cleanup teardown semantics: %q", tmpl.Description)
 	}
 }
 
-func TestDefaultSeedTemplates_OracleSwingbenchTestUsesMinimalScale(t *testing.T) {
+func TestDefaultSeedTemplates_DefaultTestDoesNotCarryLegacyCrossDatabaseEntries(t *testing.T) {
 	templates := DefaultSeedTemplates()
 
-	for _, tmpl := range templates {
-		if tmpl.ID != "tpl_test_oracle_swingbench" {
-			continue
-		}
-
-		param, ok := tmpl.Parameters["scale"]
-		if !ok {
-			t.Fatal("oracle swingbench test template missing scale parameter")
-		}
-		if param.Default != 0.1 {
-			t.Fatalf("oracle swingbench test scale default = %v, want 0.1", param.Default)
-		}
-		return
+	if len(templates) != 1 {
+		t.Fatalf("DefaultSeedTemplates() len = %d, want 1", len(templates))
 	}
 
-	t.Fatal("oracle swingbench test template not found")
+	tmpl := templates[0]
+	if tmpl.ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("default template id = %s, want tpl_test_mysql_sysbench", tmpl.ID)
+	}
+	if len(tmpl.Parameters) != 0 {
+		t.Fatalf("default test template should not carry legacy parameters, got %v", tmpl.Parameters)
+	}
 }
 
 func containsTag(tags []string, target string) bool {

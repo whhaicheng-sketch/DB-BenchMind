@@ -1,14 +1,6 @@
-const hasText = (value) => typeof value === 'string' && value.trim() !== ''
+import { isConfiguredAiAssistant } from '../../stores/connectionAiAggregation.mjs'
 
-export const isConfiguredAiAssistant = (assistant) => {
-  if (!assistant || !hasText(assistant.provider)) {
-    return false
-  }
-
-  // Default assistant shells always have provider/host defaults, so only count
-  // assistants that have at least one meaningful configured value.
-  return hasText(assistant.api_key) || hasText(assistant.model)
-}
+export { isConfiguredAiAssistant }
 
 export const countConfiguredAiAssistants = (connection) => {
   if (!Array.isArray(connection?.ai_assistants)) {

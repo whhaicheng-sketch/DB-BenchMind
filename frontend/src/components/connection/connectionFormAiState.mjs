@@ -1,3 +1,5 @@
+import { getVisibleRemoteBlockingErrors } from './connectionFormRemoteState.mjs'
+
 export const DEFAULT_AI_TEMPERATURE = 0.1
 const AI_FIELD_ERROR_PREFIX = 'ai_'
 
@@ -86,6 +88,8 @@ export function getBlockingValidationResult(formData, currentSchema) {
       }
     }
   }
+
+  Object.assign(errors, getVisibleRemoteBlockingErrors(formData))
 
   return {
     isValid: Object.keys(errors).length === 0,

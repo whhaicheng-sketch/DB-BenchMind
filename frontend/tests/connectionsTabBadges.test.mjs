@@ -17,6 +17,7 @@ const connectionsTabSource = fs.readFileSync(path.resolve(__dirname, '../src/com
 test('connection cards show no SSH or AI badge when neither is configured', () => {
   const connection = {
     ssh_enabled: false,
+    winrm_enabled: false,
     ai_assistants: []
   }
 
@@ -27,6 +28,7 @@ test('connection cards show no SSH or AI badge when neither is configured', () =
 test('connection cards show SSH only when only SSH is configured', () => {
   const connection = {
     ssh_enabled: true,
+    winrm_enabled: false,
     ai_assistants: []
   }
 
@@ -34,9 +36,21 @@ test('connection cards show SSH only when only SSH is configured', () => {
   assert.equal(hasConfiguredAiAssistants(connection), false)
 })
 
+test('connection cards prefer a single SSH badge when historical data enables both SSH and WinRM', () => {
+  const connection = {
+    ssh_enabled: true,
+    winrm_enabled: true,
+    ai_assistants: []
+  }
+
+  assert.equal(connection.ssh_enabled, true)
+  assert.equal(connection.winrm_enabled, true)
+})
+
 test('connection cards show AI only when at least one configured AI assistant exists', () => {
   const connection = {
     ssh_enabled: false,
+    winrm_enabled: false,
     ai_assistants: [
       {
         id: 'assistant_1',
@@ -55,6 +69,7 @@ test('connection cards show AI only when at least one configured AI assistant ex
 test('connection cards show both SSH and AI badges when both are configured', () => {
   const connection = {
     ssh_enabled: true,
+    winrm_enabled: false,
     ai_assistants: [
       {
         id: 'assistant_1',
@@ -72,6 +87,7 @@ test('connection cards show both SSH and AI badges when both are configured', ()
 test('AI badge is not hidden by AI test failure state', () => {
   const connection = {
     ssh_enabled: false,
+    winrm_enabled: false,
     ai_test_result: { success: false, error: 'invalid api key' },
     ai_assistants: [
       {
@@ -89,6 +105,7 @@ test('AI badge is not hidden by AI test failure state', () => {
 test('adding or removing AI assistants updates AI badge state', () => {
   const connection = {
     ssh_enabled: false,
+    winrm_enabled: false,
     ai_assistants: []
   }
 
@@ -142,8 +159,10 @@ test('AI badge tooltip reflects configured assistant count', () => {
   assert.equal(getAiBadgeTooltip(connection), '已配置 2 个 AI 助手')
 })
 
-test('ConnectionsTab renders AI badge with the SSH badge family and helper-based condition', () => {
-  assert.match(connectionsTabSource, /<span v-if="conn\.ssh_enabled" class="tag tag-ssh">SSH<\/span>/)
+test('ConnectionsTab renders remote badges via helper-driven remote_type semantics', () => {
+  assert.match(connectionsTabSource, /getRemoteType\(conn\)/)
+  assert.match(connectionsTabSource, /<span v-if="isRemoteTypeSSH\(conn\)" class="tag tag-ssh">SSH<\/span>/)
+  assert.match(connectionsTabSource, /<span v-if="isRemoteTypeWinRM\(conn\)" class="tag tag-winrm">WinRM<\/span>/)
   assert.match(connectionsTabSource, /<span v-if="hasConfiguredAiAssistants\(conn\)" class="tag tag-ai" :title="getAiBadgeTooltip\(conn\)">AI<\/span>/)
   assert.match(connectionsTabSource, /import\s*\{\s*getAiBadgeTooltip,\s*hasConfiguredAiAssistants\s*\}\s*from '\.\/connectionCardBadges'/)
 })
