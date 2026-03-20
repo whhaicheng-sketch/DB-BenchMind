@@ -1004,10 +1004,12 @@ func (a *SwingbenchAdapter) SupportsDatabase(dbType connection.DatabaseType) boo
 
 // buildConnectionString builds a Swingbench connection string for Oracle.
 func (a *SwingbenchAdapter) buildConnectionString(conn *connection.OracleConnection) string {
-	// Swingbench format: jdbc:oracle:thin:@//host:port/service_name or jdbc:oracle:thin:@host:port:sid
+	// Swingbench format: jdbc:oracle:thin:@//host:port/service_name, @host:port:sid, or @TNS_ALIAS
 	var connectionStr string
 
-	if conn.ServiceName != "" {
+	if conn.ConnectType == "tns" && conn.TNSName != "" {
+		connectionStr = fmt.Sprintf("jdbc:oracle:thin:@%s", conn.TNSName)
+	} else if conn.ServiceName != "" {
 		connectionStr = fmt.Sprintf("jdbc:oracle:thin:@//%s:%d/%s",
 			conn.Host, conn.Port, conn.ServiceName)
 	} else if conn.SID != "" {
@@ -1033,6 +1035,9 @@ func (a *SwingbenchAdapter) buildConnectionString(conn *connection.OracleConnect
 // buildCharbenchConnectionString builds a charbench/oewizard connection string for Oracle.
 // Format: //host:port/service_name (always use service name format for Swingbench)
 func (a *SwingbenchAdapter) buildCharbenchConnectionString(conn *connection.OracleConnection) string {
+	if conn.ConnectType == "tns" && conn.TNSName != "" {
+		return strings.ToUpper(conn.TNSName)
+	}
 	// Swingbench requires uppercase SID/ServiceName to avoid timezone issues
 	// Always use service name format: //host:port/service_name
 	// This format works with both sqlplus and Swingbench tools

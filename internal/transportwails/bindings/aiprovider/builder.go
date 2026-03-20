@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -238,6 +239,17 @@ type ChatResult struct {
 	Error     string
 }
 
+type auditContext struct {
+	Stage        string
+	Provider     string
+	URL          string
+	Method       string
+	Headers      map[string]string
+	RequestBody  string
+	StatusCode   int
+	ResponseBody string
+}
+
 // TestConnection tests the AI API connection.
 func TestConnection(ctx context.Context, req TestRequest) TestResult {
 	startTime := time.Now()
@@ -324,6 +336,9 @@ func TestConnection(ctx context.Context, req TestRequest) TestResult {
 		httpReq.URL.RawQuery = q.Encode()
 	}
 
+	audit := buildAuditContext("测试连接", req.Provider, httpReq, bodyBytes)
+	logAuditRequest(audit)
+
 	// Execute request
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(httpReq)
@@ -336,6 +351,9 @@ func TestConnection(ctx context.Context, req TestRequest) TestResult {
 
 	// Read response
 	respBody, _ := io.ReadAll(resp.Body)
+	audit.StatusCode = resp.StatusCode
+	audit.ResponseBody = previewBody(respBody)
+	logAuditResponse(audit)
 
 	// Check status
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -358,7 +376,7 @@ func TestConnection(ctx context.Context, req TestRequest) TestResult {
 	return TestResult{
 		Success:   false,
 		LatencyMs: latencyMs,
-		Error:     errMsg,
+		Error:     formatAuditError(errMsg, audit),
 	}
 }
 
@@ -420,6 +438,9 @@ func SendChat(ctx context.Context, req ChatRequest) ChatResult {
 		httpReq.URL.RawQuery = q.Encode()
 	}
 
+	audit := buildAuditContext("测试模型", req.Provider, httpReq, bodyBytes)
+	logAuditRequest(audit)
+
 	client := &http.Client{Timeout: 45 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -430,12 +451,15 @@ func SendChat(ctx context.Context, req ChatRequest) ChatResult {
 
 	latencyMs := time.Since(startTime).Milliseconds()
 	respBody, _ := io.ReadAll(resp.Body)
+	audit.StatusCode = resp.StatusCode
+	audit.ResponseBody = previewBody(respBody)
+	logAuditResponse(audit)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ChatResult{
 			Success:   false,
 			LatencyMs: latencyMs,
-			Error:     mapAPIError(resp.StatusCode, respBody, req.Provider),
+			Error:     formatAuditError(mapAPIError(resp.StatusCode, respBody, req.Provider), audit),
 		}
 	}
 
@@ -495,6 +519,103 @@ func buildOllamaRequest(model string) ([]byte, error) {
 		"stream":  false,
 	}
 	return json.Marshal(body)
+}
+
+func maskHeaders(headers http.Header) map[string]string {
+	masked := make(map[string]string, len(headers))
+	for key, values := range headers {
+		value := strings.Join(values, ", ")
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "authorization" || strings.Contains(lowerKey, "token") || strings.Contains(lowerKey, "key") {
+			masked[key] = maskSecret(value)
+			continue
+		}
+		masked[key] = value
+	}
+	return masked
+}
+
+func maskSecret(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 8 {
+		return "***"
+	}
+	return value[:4] + "***" + value[len(value)-4:]
+}
+
+func previewBody(body []byte) string {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return ""
+	}
+	const limit = 400
+	if len(trimmed) <= limit {
+		return trimmed
+	}
+	return trimmed[:limit] + "...(truncated)"
+}
+
+func buildAuditContext(stage, provider string, req *http.Request, body []byte) auditContext {
+	return auditContext{
+		Stage:       stage,
+		Provider:    provider,
+		URL:         req.URL.String(),
+		Method:      req.Method,
+		Headers:     maskHeaders(req.Header),
+		RequestBody: previewBody(body),
+	}
+}
+
+func logAuditRequest(a auditContext) {
+	slog.Info("AI provider request",
+		"stage", a.Stage,
+		"provider", a.Provider,
+		"method", a.Method,
+		"url", a.URL,
+		"headers", formatHeadersForLog(a.Headers),
+		"request_body", a.RequestBody)
+}
+
+func logAuditResponse(a auditContext) {
+	slog.Info("AI provider response",
+		"stage", a.Stage,
+		"provider", a.Provider,
+		"method", a.Method,
+		"url", a.URL,
+		"status", a.StatusCode,
+		"response_body", a.ResponseBody)
+}
+
+func formatHeadersForLog(headers map[string]string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", key, headers[key]))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatAuditError(message string, audit auditContext) string {
+	lines := []string{
+		fmt.Sprintf("%s失败: %s", audit.Stage, message),
+		fmt.Sprintf("请求: %s %s", audit.Method, audit.URL),
+	}
+	if audit.StatusCode > 0 {
+		lines = append(lines, fmt.Sprintf("状态: HTTP %d", audit.StatusCode))
+	}
+	if audit.ResponseBody != "" {
+		lines = append(lines, fmt.Sprintf("响应: %s", audit.ResponseBody))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildChatRequestBody(providerType ProviderType, model, prompt string, temperature float64) ([]byte, error) {
@@ -661,13 +782,25 @@ func mapNetworkError(err error) TestResult {
 func mapAPIError(statusCode int, body []byte, provider string) string {
 	// Try to extract error message from response
 	var errResp struct {
-		Error   string `json:"error"`
-		Detail  string `json:"detail"`
-		Message string `json:"message"`
+		Error   json.RawMessage `json:"error"`
+		Detail  string          `json:"detail"`
+		Message string          `json:"message"`
 	}
 	json.Unmarshal(body, &errResp)
 
-	errMsg := errResp.Error
+	var errMsg string
+	if len(errResp.Error) > 0 {
+		if err := json.Unmarshal(errResp.Error, &errMsg); err != nil || errMsg == "" {
+			var nested struct {
+				Type     string `json:"type"`
+				Message  string `json:"message"`
+				HTTPCode string `json:"http_code"`
+			}
+			if json.Unmarshal(errResp.Error, &nested) == nil {
+				errMsg = nested.Message
+			}
+		}
+	}
 	if errMsg == "" {
 		errMsg = errResp.Detail
 	}
@@ -682,10 +815,19 @@ func mapAPIError(statusCode int, body []byte, provider string) string {
 		}
 		return "请求格式错误"
 	case 401:
+		if errMsg != "" {
+			return fmt.Sprintf("API 密钥无效或已过期: %s", errMsg)
+		}
 		return "API 密钥无效或已过期"
 	case 403:
+		if errMsg != "" {
+			return fmt.Sprintf("访问被拒绝，请检查 API 密钥权限: %s", errMsg)
+		}
 		return "访问被拒绝，请检查 API 密钥权限"
 	case 404:
+		if errMsg != "" {
+			return fmt.Sprintf("API 端点不存在，请检查主机和端点地址: %s", errMsg)
+		}
 		return "API 端点不存在，请检查主机和端点地址"
 	case 429:
 		return "请求过于频繁，请稍后重试"

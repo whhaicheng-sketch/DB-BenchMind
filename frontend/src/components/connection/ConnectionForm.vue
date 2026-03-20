@@ -125,7 +125,10 @@ const formData = ref({
   username: 'root',
   password: '',
   // Oracle specific
-  connect_type: 'service_name', // service_name or sid
+  oracle_connect_mode: 'basic',
+  oracle_basic_identifier_type: 'service_name',
+  oracle_basic_value: '',
+  oracle_tns_name: '',
   // SQL Server specific
   auth_type: 'sql', // sql or windows
   // SSH Configuration
@@ -157,6 +160,7 @@ const showApiKey = ref({})
 const saving = ref(false)
 const formError = ref(null)
 const fieldErrors = ref({})
+const aiAdvisoryErrors = ref({})
 
 // Test States
 const dbTesting = ref(false)
@@ -184,6 +188,15 @@ const currentSchema = computed(() => DB_SCHEMA[formData.value.type])
 const selectedAssistant = computed(() => {
   return formData.value.ai_assistants.find(a => a.id === formData.value.selectedAssistantId) || formData.value.ai_assistants[0]
 })
+const isOracleBasicMode = computed(() => formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'basic')
+const isOracleTNSMode = computed(() => formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'tns')
+const shouldShowHostPort = computed(() => formData.value.type !== 'oracle' || isOracleBasicMode.value)
+const shouldShowDatabaseField = computed(() => {
+  if (formData.value.type !== 'oracle') {
+    return currentSchema.value.showDatabase
+  }
+  return false
+})
 
 // ============================================================
 // AI Provider Options
@@ -193,7 +206,7 @@ const aiProviders = [
   { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: '' },
   { value: 'doubao', label: '字节跳动 豆包', host: 'https://ark.cn-beijing.volces.com/api/v3', endpoint: '/chat/completions', model: '' },
   { value: 'glm', label: '智谱 GLM', host: 'https://open.bigmodel.cn/api/paas/v4', endpoint: '/chat/completions', model: '' },
-  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.io', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimaxi.com', endpoint: '/v1/chat/completions', model: 'MiniMax-M2.7' },
   { value: 'moonshot', label: 'Moonshot Kimi', host: 'https://api.moonshot.cn', endpoint: '/v1/chat/completions', model: '' },
   { value: 'openai', label: 'OpenAI ChatGPT', host: 'https://api.openai.com', endpoint: '/v1/chat/completions', model: '' },
   { value: 'gemini', label: 'Google Gemini', host: 'https://generativelanguage.googleapis.com', endpoint: '/v1beta/models/gemini-pro:generateContent', model: '' },
@@ -231,6 +244,13 @@ watch(() => formData.value.host, (newHost) => {
   }
 })
 
+watch(() => formData.value.oracle_connect_mode, (mode) => {
+  if (formData.value.type !== 'oracle') {
+    return
+  }
+  clearOracleModeSpecificFields(mode)
+})
+
 // Watch for connectionId to load edit data
 watch(() => props.connectionId, async (newId) => {
   if (newId && props.mode === 'edit') {
@@ -247,7 +267,10 @@ watch(() => props.connectionId, async (newId) => {
         database: conn.database || '',
         username: conn.username,
         password: conn.password || '',
-        connect_type: conn.connect_type || 'service_name',
+        oracle_connect_mode: conn.connect_type || 'basic',
+        oracle_basic_identifier_type: conn.identifier_type || (conn.sid ? 'sid' : 'service_name'),
+        oracle_basic_value: conn.service_name || conn.sid || '',
+        oracle_tns_name: conn.tns_name || '',
         auth_type: conn.auth_type || 'sql',
         ssh_host: conn.host, // Will be overwritten if SSH was configured
         ssh_port: conn.ssh_port || 22,
@@ -293,12 +316,12 @@ const validateField = (field) => {
       }
       break
     case 'host':
-      if (!formData.value.host.trim()) {
+      if (shouldShowHostPort.value && !formData.value.host.trim()) {
         errors.host = '主机地址不能为空'
       }
       break
     case 'port':
-      if (!formData.value.port || formData.value.port < 1 || formData.value.port > 65535) {
+      if (shouldShowHostPort.value && (!formData.value.port || formData.value.port < 1 || formData.value.port > 65535)) {
         errors.port = '端口必须在 1-65535 之间'
       }
       break
@@ -310,14 +333,47 @@ const validateField = (field) => {
       }
       break
     case 'database':
-      if (currentSchema.value.databaseRequired && !formData.value.database.trim()) {
+      if (shouldShowDatabaseField.value && currentSchema.value.databaseRequired && !formData.value.database.trim()) {
         errors.database = `${currentSchema.value.databaseLabel}不能为空`
+      }
+      break
+    case 'oracle_basic_value':
+      if (isOracleBasicMode.value && !formData.value.oracle_basic_value.trim()) {
+        errors.oracle_basic_value = formData.value.oracle_basic_identifier_type === 'sid' ? 'SID不能为空' : 'Service Name不能为空'
+      }
+      break
+    case 'oracle_tns_name':
+      if (isOracleTNSMode.value && !formData.value.oracle_tns_name.trim()) {
+        errors.oracle_tns_name = 'TNS不能为空'
       }
       break
   }
 
   fieldErrors.value = { ...nextErrors, ...errors }
   return Object.keys(errors).length === 0
+}
+
+const buildBlockingErrorMessage = (blockingErrors) => {
+  const messages = Object.values(blockingErrors).filter(Boolean)
+  return messages.join('；')
+}
+
+const clearOracleModeSpecificFields = (mode) => {
+  if (mode === 'tns') {
+    formData.value.host = ''
+    formData.value.port = DB_SCHEMA.oracle.defaultPort
+    formData.value.oracle_basic_value = ''
+    delete fieldErrors.value.host
+    delete fieldErrors.value.port
+    delete fieldErrors.value.oracle_basic_value
+  } else {
+    formData.value.oracle_tns_name = ''
+    delete fieldErrors.value.oracle_tns_name
+  }
+}
+
+const getOracleModeFieldError = (fieldName) => {
+  return fieldErrors.value[fieldName] || ''
 }
 
 const validateForm = () => {
@@ -332,6 +388,11 @@ const validateForm = () => {
 
   fieldErrors.value = pruneInactiveAiErrors(
     applyBlockingFieldValidation(fieldErrors.value, snapshot.blockingErrors),
+    [],
+    isLocalProvider
+  )
+  aiAdvisoryErrors.value = pruneInactiveAiErrors(
+    snapshot.advisoryErrors,
     getVisibleAiAssistants(),
     isLocalProvider
   )
@@ -341,7 +402,7 @@ const validateForm = () => {
 
 // Get AI field error
 const getAIFieldError = (assistantId, fieldName) => {
-  return fieldErrors.value[`ai_${assistantId}_${fieldName}`] || ''
+  return aiAdvisoryErrors.value[`ai_${assistantId}_${fieldName}`] || ''
 }
 
 // ============================================================
@@ -349,9 +410,16 @@ const getAIFieldError = (assistantId, fieldName) => {
 // ============================================================
 const handleSave = async () => {
   formError.value = null
-
   if (!validateForm()) {
-    formError.value = '请修正表单中的错误'
+    const snapshot = createSaveValidationSnapshot(
+      {
+        ...formData.value,
+        ai_assistants: getVisibleAiAssistants()
+      },
+      currentSchema.value,
+      isLocalProvider
+    )
+    formError.value = buildBlockingErrorMessage(snapshot.blockingErrors)
     return
   }
 
@@ -375,10 +443,14 @@ const handleSave = async () => {
       ...formData.value,
       ai_assistants: syncedAssistants,
       // Map Oracle connect_type to appropriate field
-      service_name: formData.value.type === 'oracle' && formData.value.connect_type === 'service_name'
-        ? formData.value.database : '',
-      sid: formData.value.type === 'oracle' && formData.value.connect_type === 'sid'
-        ? formData.value.database : '',
+      connect_type: formData.value.type === 'oracle' ? formData.value.oracle_connect_mode : '',
+      identifier_type: formData.value.type === 'oracle' ? formData.value.oracle_basic_identifier_type : '',
+      service_name: formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'basic' && formData.value.oracle_basic_identifier_type === 'service_name'
+        ? formData.value.oracle_basic_value : '',
+      sid: formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'basic' && formData.value.oracle_basic_identifier_type === 'sid'
+        ? formData.value.oracle_basic_value : '',
+      tns_name: formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'tns'
+        ? formData.value.oracle_tns_name : '',
       // SSH configuration
       ssh_enabled: !!(formData.value.ssh_username && formData.value.ssh_host),
       ssh_port: formData.value.ssh_port || 22,
@@ -424,7 +496,10 @@ const resetForm = () => {
     database: '',
     username: 'root',
     password: '',
-    connect_type: 'service_name',
+    oracle_connect_mode: 'basic',
+    oracle_basic_identifier_type: 'service_name',
+    oracle_basic_value: '',
+    oracle_tns_name: '',
     auth_type: 'sql',
     ssh_host: '',
     ssh_port: 22,
@@ -449,6 +524,7 @@ const resetForm = () => {
   selectedType.value = ''
   formError.value = null
   fieldErrors.value = {}
+  aiAdvisoryErrors.value = {}
   dbTestResult.value = null
   dbTestStatus.value = 'idle'
   sshTestResult.value = null
@@ -463,11 +539,12 @@ const resetForm = () => {
 // DB Test - Direct connection test ONLY
 // ============================================================
 const handleTestDB = async () => {
-  if (!formData.value.host || !formData.value.username) {
+  const requiresHost = !(formData.value.type === 'oracle' && formData.value.oracle_connect_mode === 'tns')
+  if ((!formData.value.username) || (requiresHost && !formData.value.host)) {
     dbTestStatus.value = 'error'
     dbTestResult.value = {
       success: false,
-      error: '请填写主机和用户名'
+      error: requiresHost ? '请填写主机和用户名' : '请填写用户名'
     }
     return
   }
@@ -490,9 +567,11 @@ const handleTestDB = async () => {
 
     // Add Oracle-specific fields
     if (formData.value.type === 'oracle') {
-      testRequest.connect_type = formData.value.connect_type || 'service_name'
-      testRequest.sid = formData.value.connect_type === 'sid' ? formData.value.database : ''
-      testRequest.service_name = formData.value.connect_type === 'service_name' ? formData.value.database : ''
+      testRequest.connect_type = formData.value.oracle_connect_mode || 'basic'
+      testRequest.identifier_type = formData.value.oracle_basic_identifier_type || 'service_name'
+      testRequest.sid = formData.value.oracle_connect_mode === 'basic' && formData.value.oracle_basic_identifier_type === 'sid' ? formData.value.oracle_basic_value : ''
+      testRequest.service_name = formData.value.oracle_connect_mode === 'basic' && formData.value.oracle_basic_identifier_type === 'service_name' ? formData.value.oracle_basic_value : ''
+      testRequest.tns_name = formData.value.oracle_connect_mode === 'tns' ? formData.value.oracle_tns_name : ''
     }
 
     // IMPORTANT: Use TestConnectionDirect - direct DB test without SSH tunnel
@@ -615,7 +694,7 @@ const addAssistant = (providerValue) => {
     api_host: provider.host,
     api_endpoint: provider.endpoint,
     api_key: '',
-    model: '',  // No default model - user must input or select
+    model: provider.model,
     temperature: DEFAULT_AI_TEMPERATURE,
     description: ''
   })
@@ -707,6 +786,9 @@ const syncAssistantProviderDefaults = (assistant) => {
   assistant.name = providerInfo.label
   assistant.api_host = providerInfo.host
   assistant.api_endpoint = providerInfo.endpoint
+  if (!assistant.model) {
+    assistant.model = providerInfo.model
+  }
 }
 
 const syncAllAssistantProviderDefaults = () => {
@@ -716,7 +798,7 @@ const syncAllAssistantProviderDefaults = () => {
 }
 
 const refreshVisibleAiFieldErrors = () => {
-  fieldErrors.value = pruneInactiveAiErrors(fieldErrors.value, getVisibleAiAssistants(), isLocalProvider)
+  aiAdvisoryErrors.value = pruneInactiveAiErrors(aiAdvisoryErrors.value, getVisibleAiAssistants(), isLocalProvider)
 }
 
 const resetAiInteractionState = () => {
@@ -902,7 +984,7 @@ const syncSshHostFromDb = () => {
             <div v-if="fieldErrors.name" class="conn-form__error-text">{{ fieldErrors.name }}</div>
 
             <!-- Host & Port -->
-            <div class="conn-form__row conn-form__row--inline">
+            <div v-if="shouldShowHostPort" class="conn-form__row conn-form__row--inline">
               <div class="conn-form__field">
                 <label class="conn-form__label">主机 <span class="required">*</span></label>
                 <input
@@ -927,8 +1009,8 @@ const syncSshHostFromDb = () => {
                 />
               </div>
             </div>
-            <div v-if="fieldErrors.host" class="conn-form__error-text">{{ fieldErrors.host }}</div>
-            <div v-if="fieldErrors.port" class="conn-form__error-text">{{ fieldErrors.port }}</div>
+            <div v-if="shouldShowHostPort && fieldErrors.host" class="conn-form__error-text">{{ fieldErrors.host }}</div>
+            <div v-if="shouldShowHostPort && fieldErrors.port" class="conn-form__error-text">{{ fieldErrors.port }}</div>
 
             <!-- SQL Server: Authentication Type -->
             <div v-if="formData.type === 'sqlserver'" class="conn-form__row">
@@ -942,11 +1024,55 @@ const syncSshHostFromDb = () => {
             <!-- Oracle: Connection Type -->
             <div v-if="formData.type === 'oracle'" class="conn-form__row">
               <label class="conn-form__label">连接类型</label>
-              <select v-model="formData.connect_type" class="conn-form__select">
-                <option value="service_name">Service Name</option>
-                <option value="sid">SID</option>
+              <select v-model="formData.oracle_connect_mode" class="conn-form__select">
+                <option value="basic">Basic</option>
+                <option value="tns">TNS</option>
               </select>
             </div>
+
+            <template v-if="isOracleBasicMode">
+              <div class="conn-form__row">
+                <label class="conn-form__label">类型</label>
+                <div class="conn-form__radio-group">
+                  <label class="conn-form__radio">
+                    <input v-model="formData.oracle_basic_identifier_type" type="radio" value="service_name">
+                    <span>Service Name</span>
+                  </label>
+                  <label class="conn-form__radio">
+                    <input v-model="formData.oracle_basic_identifier_type" type="radio" value="sid">
+                    <span>SID</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="conn-form__row">
+                <label class="conn-form__label">{{ formData.oracle_basic_identifier_type === 'sid' ? 'SID' : 'Service Name' }} <span class="required">*</span></label>
+                <input
+                  v-model="formData.oracle_basic_value"
+                  type="text"
+                  class="conn-form__input"
+                  :class="{ 'conn-form__input--error': getOracleModeFieldError('oracle_basic_value') }"
+                  :placeholder="formData.oracle_basic_identifier_type === 'sid' ? 'ORCL' : 'ORCLPDB1'"
+                  @blur="validateField('oracle_basic_value')"
+                />
+              </div>
+              <div v-if="getOracleModeFieldError('oracle_basic_value')" class="conn-form__error-text">{{ getOracleModeFieldError('oracle_basic_value') }}</div>
+            </template>
+
+            <template v-if="isOracleTNSMode">
+              <div class="conn-form__row" v-if="formData.type === 'oracle' && formData.oracle_connect_mode === 'tns'">
+                <label class="conn-form__label">TNS <span class="required">*</span></label>
+                <input
+                  v-model="formData.oracle_tns_name"
+                  type="text"
+                  class="conn-form__input"
+                  :class="{ 'conn-form__input--error': getOracleModeFieldError('oracle_tns_name') }"
+                  placeholder="ORCLCDB_HIGH"
+                  @blur="validateField('oracle_tns_name')"
+                />
+              </div>
+              <div v-if="getOracleModeFieldError('oracle_tns_name')" class="conn-form__error-text">{{ getOracleModeFieldError('oracle_tns_name') }}</div>
+            </template>
 
             <!-- Username & Password (hide for Windows auth) -->
             <template v-if="formData.type !== 'sqlserver' || formData.auth_type === 'sql'">
@@ -980,7 +1106,7 @@ const syncSshHostFromDb = () => {
             </template>
 
             <!-- Database (PostgreSQL, SQL Server, Oracle) -->
-            <div v-if="currentSchema.showDatabase" class="conn-form__row">
+            <div v-if="shouldShowDatabaseField" class="conn-form__row">
               <label class="conn-form__label">
                 {{ currentSchema.databaseLabel }}
                 <span v-if="currentSchema.databaseRequired" class="required">*</span>
@@ -994,7 +1120,7 @@ const syncSshHostFromDb = () => {
                 @blur="validateField('database')"
               />
             </div>
-            <div v-if="fieldErrors.database" class="conn-form__error-text">{{ fieldErrors.database }}</div>
+            <div v-if="shouldShowDatabaseField && fieldErrors.database" class="conn-form__error-text">{{ fieldErrors.database }}</div>
 
             <!-- Test Result -->
             <div v-if="dbTestResult" class="conn-form__test-result" :class="dbTestResult.success ? 'conn-form__test-result--success' : 'conn-form__test-result--error'">
@@ -1592,6 +1718,20 @@ const syncSshHostFromDb = () => {
 .conn-form__field--port {
   width: 100px;
   flex: none;
+}
+
+.conn-form__radio-group {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+}
+
+.conn-form__radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
 }
 
 .conn-form__input,

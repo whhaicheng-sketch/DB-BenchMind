@@ -227,6 +227,9 @@ func (r *SQLiteConnectionRepository) serializeConnection(conn connection.Connect
 		data["port"] = c.Port
 		data["service_name"] = c.ServiceName
 		data["sid"] = c.SID
+		data["tns_name"] = c.TNSName
+		data["connect_type"] = c.ConnectType
+		data["identifier_type"] = c.IdentifierType
 		data["username"] = c.Username
 		data["connect_as"] = c.ConnectAs
 		// Serialize SSH configuration if enabled
@@ -408,8 +411,29 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 			Port:           rawPort,
 			ServiceName:    getString(data, "service_name"),
 			SID:            getString(data, "sid"),
+			TNSName:        getString(data, "tns_name"),
+			ConnectType:    getString(data, "connect_type"),
+			IdentifierType: getString(data, "identifier_type"),
 			Username:       getString(data, "username"),
 			ConnectAs:      getString(data, "connect_as"),
+		}
+		if conn.ConnectType == "sid" || conn.ConnectType == "service_name" {
+			conn.IdentifierType = conn.ConnectType
+			conn.ConnectType = "basic"
+		}
+		if conn.ConnectType == "" {
+			if conn.TNSName != "" {
+				conn.ConnectType = "tns"
+			} else {
+				conn.ConnectType = "basic"
+			}
+		}
+		if conn.IdentifierType == "" {
+			if conn.SID != "" && conn.ServiceName == "" {
+				conn.IdentifierType = "sid"
+			} else {
+				conn.IdentifierType = "service_name"
+			}
 		}
 		if conn.ConnectAs == "" {
 			conn.ConnectAs = "normal"
@@ -431,7 +455,7 @@ func (r *SQLiteConnectionRepository) deserializeConnection(id, name string, conn
 				"ssh_port", conn.SSH.Port,
 				"ssh_user", conn.SSH.Username)
 		}
-		if conn.Port == 0 {
+		if conn.Port == 0 && conn.ConnectType != "tns" {
 			slog.Info("Repository: Oracle port is 0, using default 1521", "conn_id", id, "raw_port", rawPort)
 			conn.Port = 1521
 		}

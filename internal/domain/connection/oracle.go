@@ -19,12 +19,15 @@ type OracleConnection struct {
 	BaseConnection
 
 	// Connection parameters
-	Host        string `json:"host"`         // Host address
-	Port        int    `json:"port"`         // Port (default 1521)
-	ServiceName string `json:"service_name"` // Service name
-	SID         string `json:"sid"`          // SID (alternative to ServiceName)
-	Username    string `json:"username"`     // Username
-	ConnectAs   string `json:"connect_as,omitempty"`
+	Host           string `json:"host"`                      // Host address
+	Port           int    `json:"port"`                      // Port (default 1521)
+	ServiceName    string `json:"service_name"`              // Service name
+	SID            string `json:"sid"`                       // SID (alternative to ServiceName)
+	TNSName        string `json:"tns_name,omitempty"`        // TNS alias
+	ConnectType    string `json:"connect_type,omitempty"`    // basic or tns
+	IdentifierType string `json:"identifier_type,omitempty"` // service_name or sid
+	Username       string `json:"username"`                  // Username
+	ConnectAs      string `json:"connect_as,omitempty"`
 	Password    string `json:"-"` // Password (stored in keyring)
 
 	// SSH tunnel configuration
@@ -39,6 +42,9 @@ func (c *OracleConnection) GetType() DatabaseType {
 // GetDSN generates a connection string without password (for logging).
 // Format: oracle://username@host:port/service_name or oracle://username@host:port/sid
 func (c *OracleConnection) GetDSN() string {
+	if c.ConnectType == "tns" && c.TNSName != "" {
+		return fmt.Sprintf("oracle://%s@%s", c.Username, c.TNSName)
+	}
 	identifier := c.SID
 	if c.ServiceName != "" {
 		identifier = c.ServiceName
@@ -49,6 +55,9 @@ func (c *OracleConnection) GetDSN() string {
 // GetDSNWithPassword generates a complete connection string with password.
 // Format: oracle://username:password@host:port/service_name or oracle://username:password@host:port/sid
 func (c *OracleConnection) GetDSNWithPassword() string {
+	if c.ConnectType == "tns" && c.TNSName != "" {
+		return fmt.Sprintf("oracle://%s:%s@%s", c.Username, c.Password, c.TNSName)
+	}
 	identifier := c.SID
 	if c.ServiceName != "" {
 		identifier = c.ServiceName
@@ -58,6 +67,9 @@ func (c *OracleConnection) GetDSNWithPassword() string {
 
 // Redact returns a redacted connection string for display (REQ-CONN-008).
 func (c *OracleConnection) Redact() string {
+	if c.ConnectType == "tns" && c.TNSName != "" {
+		return fmt.Sprintf("%s (***@%s)", c.Name, c.TNSName)
+	}
 	identifier := c.ServiceName
 	if identifier == "" {
 		identifier = c.SID
@@ -78,32 +90,62 @@ func (c *OracleConnection) Validate() error {
 	if err := ValidateRequired("name", c.Name); err != nil {
 		errs = append(errs, err)
 	}
-	if err := ValidateRequired("host", c.Host); err != nil {
-		errs = append(errs, err)
-	}
 	if err := ValidateRequired("username", c.Username); err != nil {
 		errs = append(errs, err)
 	}
 
-	// Validate port
-	if err := ValidatePort(c.Port); err != nil {
-		errs = append(errs, err)
+	mode := c.ConnectType
+	if mode == "" {
+		mode = "basic"
+	}
+	identifierType := c.IdentifierType
+	if identifierType == "" {
+		if c.SID != "" && c.ServiceName == "" {
+			identifierType = "sid"
+		} else {
+			identifierType = "service_name"
+		}
 	}
 
-	// SID is required (ServiceName is not used in our UI)
-	if c.SID == "" {
-		errs = append(errs, &ValidationError{
-			Field:   "sid",
-			Message: "SID is required",
-			Value:   c.SID,
-		})
-	}
+	switch mode {
+	case "tns":
+		if err := ValidateRequired("tns_name", c.TNSName); err != nil {
+			errs = append(errs, err)
+		}
+	case "basic":
+		if err := ValidateRequired("host", c.Host); err != nil {
+			errs = append(errs, err)
+		}
+		if err := ValidatePort(c.Port); err != nil {
+			errs = append(errs, err)
+		}
+		if c.ServiceName == "" && c.SID == "" {
+			errs = append(errs, &ValidationError{
+				Field:   "service_name/sid",
+				Message: "either service_name or sid must be specified",
+			})
+		}
+		if c.ServiceName != "" && c.SID != "" {
+			errs = append(errs, &ValidationError{
+				Field:   "service_name/sid",
+				Message: "service_name and sid are mutually exclusive (specify only one)",
+			})
+		}
 
-	// Validate that ServiceName and SID are not both specified (mutually exclusive)
-	if c.ServiceName != "" && c.SID != "" {
+		if identifierType == "sid" {
+			if c.ServiceName == "" && c.SID == "" {
+				break
+			}
+		} else {
+			if c.ServiceName == "" && c.SID == "" {
+				break
+			}
+		}
+	default:
 		errs = append(errs, &ValidationError{
-			Field:   "service_name/sid",
-			Message: "service_name and sid are mutually exclusive (specify only one)",
+			Field:   "connect_type",
+			Message: "connect_type must be one of: basic, tns",
+			Value:   mode,
 		})
 	}
 
@@ -215,6 +257,9 @@ func (c *OracleConnection) GetPassword() string {
 // GetDSNWithPasswordForHost generates a complete connection string with password for a specific host/port.
 // Format: oracle://username:password@host:port/service_name or oracle://username:password@host:port/sid
 func (c *OracleConnection) GetDSNWithPasswordForHost(host string, port int) string {
+	if c.ConnectType == "tns" && c.TNSName != "" {
+		return fmt.Sprintf("oracle://%s:%s@%s", c.Username, c.Password, c.TNSName)
+	}
 	identifier := c.SID
 	if c.ServiceName != "" {
 		identifier = c.ServiceName

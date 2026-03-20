@@ -50,6 +50,7 @@
               <div class="conn-host">
                 {{ conn.host }}:{{ conn.port }}
                 <span v-if="conn.ssh_enabled" class="tag tag-ssh">SSH</span>
+                <span v-if="hasConfiguredAiAssistants(conn)" class="tag tag-ai" :title="getAiBadgeTooltip(conn)">AI</span>
                 <span v-if="conn.winrm_enabled" class="tag tag-winrm">WinRM</span>
               </div>
             </div>
@@ -141,6 +142,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import ConnectionForm from '../connection/ConnectionForm.vue'
+import { getAiBadgeTooltip, hasConfiguredAiAssistants } from './connectionCardBadges'
 
 const connectionStore = useConnectionStore()
 
@@ -489,6 +491,11 @@ const getWinrmTestStatusClass = (conn) => {
 .tag-ssh {
   background-color: var(--primary-light);
   color: var(--primary);
+}
+
+.tag-ai {
+  background-color: var(--success-bg);
+  color: var(--success);
 }
 
 .tag-winrm {

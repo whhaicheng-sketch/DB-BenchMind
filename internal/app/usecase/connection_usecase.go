@@ -45,11 +45,6 @@ func (uc *ConnectionUseCase) GetKeyring() keyring.Provider {
 // - Repository save fails
 // - Keyring save fails
 func (uc *ConnectionUseCase) CreateConnection(ctx context.Context, conn connection.Connection) error {
-	// Validate connection
-	if err := conn.Validate(); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
 	// Check if name already exists
 	exists, err := uc.repo.ExistsByName(ctx, conn.GetName(), "")
 	if err != nil {
@@ -113,11 +108,6 @@ func (uc *ConnectionUseCase) CreateConnection(ctx context.Context, conn connecti
 // - New name already exists (excluding current connection)
 // - Repository update fails
 func (uc *ConnectionUseCase) UpdateConnection(ctx context.Context, conn connection.Connection) error {
-	// Validate connection
-	if err := conn.Validate(); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
 	// Check if connection exists
 	existing, err := uc.repo.FindByID(ctx, conn.GetID())
 	if err != nil {
@@ -500,6 +490,13 @@ func NewOracleConnection(name, host, serviceName, sid, username string, port int
 		Port:        port,
 		ServiceName: serviceName,
 		SID:         sid,
+		ConnectType: "basic",
+		IdentifierType: func() string {
+			if sid != "" && serviceName == "" {
+				return "sid"
+			}
+			return "service_name"
+		}(),
 		Username:    username,
 		ConnectAs:   "normal",
 	}

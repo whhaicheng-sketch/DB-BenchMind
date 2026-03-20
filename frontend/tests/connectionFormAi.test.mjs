@@ -108,6 +108,34 @@ test('createSaveValidationSnapshot keeps AI errors advisory while blocking only 
   assert.equal(snapshot.advisoryErrors.ai_glm_api_key, '云端模型需要 API 密钥')
 })
 
+test('createSaveValidationSnapshot blocks save when database type is missing even if AI fields are present', () => {
+  const snapshot = createSaveValidationSnapshot(
+    {
+      name: 'prod-db',
+      host: '127.0.0.1',
+      port: 3306,
+      username: 'root',
+      database: '',
+      type: '',
+      auth_type: 'sql',
+      ai_assistants: [
+        {
+          id: 'minimax',
+          provider: 'minimax',
+          api_host: 'https://api.minimaxi.com',
+          api_key: 'sk-live',
+          model: 'MiniMax-M2.7'
+        }
+      ]
+    },
+    { databaseRequired: false, databaseLabel: 'Database' },
+    (provider) => provider === 'ollama'
+  )
+
+  assert.equal(snapshot.isValid, false)
+  assert.equal(snapshot.blockingErrors.type, '数据库类型不能为空')
+})
+
 test('applyBlockingFieldValidation removes stale blocking errors while preserving AI advisory hints', () => {
   const nextErrors = applyBlockingFieldValidation(
     {
@@ -214,6 +242,32 @@ test('ConnectionForm wires the visible AI test dialog entry points and removes t
   assert.match(connectionFormSource, /测试模型/)
   assert.match(connectionFormSource, /<AiTestDialog/)
   assert.doesNotMatch(connectionFormSource, /本地模型无需 API 密钥/)
+})
+
+test('ConnectionForm save flow only uses blocking validation for the top banner', () => {
+  assert.match(connectionFormSource, /if \(!validateForm\(\)\)/)
+  assert.doesNotMatch(connectionFormSource, /aiTestStatus[\s\S]{0,200}请修正表单中的错误/)
+  assert.doesNotMatch(connectionFormSource, /modelQueryError[\s\S]{0,200}请修正表单中的错误/)
+})
+
+test('ConnectionForm save flow does not gate save on AI test failures or model query failures', () => {
+  const handleSaveMatch = connectionFormSource.match(/const handleSave = async \(\) => \{([\s\S]*?)\n\}/)
+  assert.ok(handleSaveMatch, 'expected handleSave source')
+
+  const handleSaveSource = handleSaveMatch[1]
+  assert.doesNotMatch(handleSaveSource, /aiTestStatus|aiTestResult|modelQueryError|availableModels|QueryAIModels|TestAIConnection/)
+})
+
+test('ConnectionForm clears stale AI interaction state when switching providers or assistants', () => {
+  assert.match(connectionFormSource, /resetAiInteractionState\(\)/)
+  assert.match(connectionFormSource, /formData\.value\.ai_assistants\.map\(\(assistant\) => assistant\.provider\)\.join\('\|'\)/)
+  assert.match(connectionFormSource, /selectedAssistant\.value\?\.api_key \|\| ''/)
+  assert.match(connectionFormSource, /selectedAssistant\.value\?\.model \|\| ''/)
+})
+
+test('ConnectionForm uses China-region MiniMax defaults in provider options and initial assistant state', () => {
+  assert.match(connectionFormSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimaxi\.com', endpoint: '\/v1\/chat\/completions', model: 'MiniMax-M2\.7' \}/)
+  assert.doesNotMatch(connectionFormSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimax\.io'/)
 })
 
 test('ConnectionForm renders AI test buttons in the required left-to-right order', () => {

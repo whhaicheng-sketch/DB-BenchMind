@@ -41,16 +41,22 @@ export function normalizeModelOptions(models = []) {
 
 export function getBlockingValidationResult(formData, currentSchema) {
   const errors = {}
+  const isOracle = formData.type === 'oracle'
+  const oracleMode = formData.oracle_connect_mode || 'basic'
 
   if (!formData.name?.trim()) {
     errors.name = '连接名称不能为空'
   }
 
-  if (!formData.host?.trim()) {
+  if (!formData.type?.trim()) {
+    errors.type = '数据库类型不能为空'
+  }
+
+  if ((!isOracle || oracleMode === 'basic') && !formData.host?.trim()) {
     errors.host = '主机地址不能为空'
   }
 
-  if (!formData.port || formData.port < 1 || formData.port > 65535) {
+  if ((!isOracle || oracleMode === 'basic') && (!formData.port || formData.port < 1 || formData.port > 65535)) {
     errors.port = '端口必须在 1-65535 之间'
   }
 
@@ -60,8 +66,25 @@ export function getBlockingValidationResult(formData, currentSchema) {
     }
   }
 
-  if (currentSchema?.databaseRequired && !formData.database?.trim()) {
+  if (!isOracle && currentSchema?.databaseRequired && !formData.database?.trim()) {
     errors.database = `${currentSchema.databaseLabel}不能为空`
+  }
+
+  if (isOracle) {
+    if (!formData.oracle_connect_mode?.trim()) {
+      errors.oracle_connect_mode = 'Oracle 连接类型不能为空'
+    } else if (formData.oracle_connect_mode === 'basic') {
+      if (!formData.oracle_basic_identifier_type?.trim()) {
+        errors.oracle_basic_identifier_type = '请选择 Service Name 或 SID'
+      }
+      if (!formData.oracle_basic_value?.trim()) {
+        errors.oracle_basic_value = formData.oracle_basic_identifier_type === 'sid' ? 'SID不能为空' : 'Service Name不能为空'
+      }
+    } else if (formData.oracle_connect_mode === 'tns') {
+      if (!formData.oracle_tns_name?.trim()) {
+        errors.oracle_tns_name = 'TNS不能为空'
+      }
+    }
   }
 
   return {

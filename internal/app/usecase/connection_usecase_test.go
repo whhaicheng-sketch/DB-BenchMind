@@ -156,8 +156,7 @@ func TestConnectionUseCase_CreateConnection(t *testing.T) {
 				Database: "testdb",
 				Username: "root",
 			},
-			wantErr: true,
-			errType: "validation",
+			wantErr: false,
 		},
 		{
 			name: "duplicate name",
@@ -218,6 +217,42 @@ func TestConnectionUseCase_CreateConnection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConnectionUseCase_UpdateConnection_AllowsIncompleteConnectionSave(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockConnectionRepository()
+	keyring := NewMockKeyring()
+	uc := NewConnectionUseCase(repo, keyring)
+
+	existing := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "update-1",
+			Name: "Original",
+		},
+		Host:     "localhost",
+		Port:     3306,
+		Database: "testdb",
+		Username: "root",
+	}
+	if err := repo.Save(ctx, existing); err != nil {
+		t.Fatalf("seed repo: %v", err)
+	}
+
+	updated := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "update-1",
+			Name: "Original",
+		},
+		Host:     "",
+		Port:     0,
+		Database: "",
+		Username: "",
+	}
+
+	if err := uc.UpdateConnection(ctx, updated); err != nil {
+		t.Fatalf("UpdateConnection() should allow incomplete save, got error: %v", err)
 	}
 }
 

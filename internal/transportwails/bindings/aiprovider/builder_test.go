@@ -94,6 +94,51 @@ func TestMiniMaxSendChatUsesOfficialCompatibleEndpoint(t *testing.T) {
 	}
 }
 
+func TestMiniMaxChinaDefaultURLAndOpenAIBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer mm-cn-key" {
+			t.Fatalf("unexpected auth header: %s", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("unexpected content-type: %s", got)
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload["model"] != "MiniMax-M2.7" {
+			t.Fatalf("unexpected model: %#v", payload["model"])
+		}
+		messages, ok := payload["messages"].([]any)
+		if !ok || len(messages) != 1 {
+			t.Fatalf("unexpected messages payload: %#v", payload["messages"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"china minimax ok"}}]}`))
+	}))
+	defer server.Close()
+
+	result := SendChat(context.Background(), ChatRequest{
+		Provider: "minimax",
+		APIHost:  server.URL,
+		APIKey:   "mm-cn-key",
+		Model:    "MiniMax-M2.7",
+		Prompt:   "hello",
+	})
+
+	if !result.Success {
+		t.Fatalf("expected success, got error: %s", result.Error)
+	}
+	if result.Content != "china minimax ok" {
+		t.Fatalf("unexpected content: %q", result.Content)
+	}
+}
+
 func TestMiniMaxTestConnectionUsesOfficialCompatibleEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -231,5 +276,111 @@ func TestSendChatRejectsEmptyPrompt(t *testing.T) {
 	}
 	if !strings.Contains(result.Error, "测试问题不能为空") {
 		t.Fatalf("unexpected error: %s", result.Error)
+	}
+}
+
+func TestTestConnectionFailureIncludesAuditContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte(`{"error":"method not allowed for this endpoint"}`))
+	}))
+	defer server.Close()
+
+	result := TestConnection(context.Background(), TestRequest{
+		Provider:    "minimax",
+		APIHost:     server.URL,
+		APIEndpoint: "/v1/chat/completions",
+		APIKey:      "mm-secret-key",
+		Model:       "MiniMax-M2.7",
+	})
+
+	if result.Success {
+		t.Fatal("expected failure")
+	}
+	for _, want := range []string{
+		"测试连接失败",
+		"POST " + server.URL + "/v1/chat/completions",
+		"HTTP 405",
+		`{"error":"method not allowed for this endpoint"}`,
+	} {
+		if !strings.Contains(result.Error, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, result.Error)
+		}
+	}
+}
+
+func TestSendChatFailureIncludesAuditContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"temperature is not supported"}`))
+	}))
+	defer server.Close()
+
+	result := SendChat(context.Background(), ChatRequest{
+		Provider:    "glm",
+		APIHost:     server.URL + "/api/paas/v4",
+		APIEndpoint: "/chat/completions",
+		APIKey:      "glm-secret-key",
+		Model:       "glm-4-flash",
+		Prompt:      "hello",
+		Temperature: 0.1,
+	})
+
+	if result.Success {
+		t.Fatal("expected failure")
+	}
+	for _, want := range []string{
+		"测试模型失败",
+		"POST " + server.URL + "/api/paas/v4/chat/completions",
+		"HTTP 400",
+		`{"error":"temperature is not supported"}`,
+	} {
+		if !strings.Contains(result.Error, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, result.Error)
+		}
+	}
+}
+
+func TestMaskHeadersRedactsAuthorization(t *testing.T) {
+	headers := maskHeaders(http.Header{
+		"Authorization": []string{"Bearer super-secret-token"},
+		"Content-Type":  []string{"application/json"},
+	})
+
+	if got := headers["Authorization"]; got == "Bearer super-secret-token" {
+		t.Fatalf("expected authorization to be redacted, got %q", got)
+	}
+	if got := headers["Content-Type"]; got != "application/json" {
+		t.Fatalf("unexpected content-type header: %q", got)
+	}
+}
+
+func TestMapAPIErrorExtractsNestedProviderMessage(t *testing.T) {
+	body := []byte(`{"type":"error","error":{"type":"authorized_error","message":"login fail: Please carry the API secret key in the Authorization header","http_code":"401"}}`)
+
+	got := mapAPIError(http.StatusBadRequest, body, "minimax")
+
+	if !strings.Contains(got, "login fail") {
+		t.Fatalf("expected nested provider message, got %q", got)
+	}
+}
+
+func TestMapAPIErrorIncludesProviderMessageFor401(t *testing.T) {
+	body := []byte(`{"type":"error","error":{"type":"authorized_error","message":"login fail: invalid api key","http_code":"401"}}`)
+
+	got := mapAPIError(http.StatusUnauthorized, body, "minimax")
+
+	if !strings.Contains(got, "invalid api key") {
+		t.Fatalf("expected 401 error to include provider message, got %q", got)
+	}
+}
+
+func TestMapAPIErrorIncludesMiniMax2049ProviderMessage(t *testing.T) {
+	body := []byte(`{"type":"error","error":{"type":"authorized_error","message":"invalid api key (2049)","http_code":"401"}}`)
+
+	got := mapAPIError(http.StatusUnauthorized, body, "minimax")
+
+	if !strings.Contains(got, "invalid api key (2049)") {
+		t.Fatalf("expected MiniMax provider error details, got %q", got)
 	}
 }

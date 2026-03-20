@@ -161,6 +161,9 @@ export const useConnectionStore = defineStore('connection', {
           // Oracle specific fields
           sid: connectionData.sid || '',
           service_name: connectionData.service_name || '',
+          connect_type: connectionData.connect_type || '',
+          identifier_type: connectionData.identifier_type || '',
+          tns_name: connectionData.tns_name || '',
           // AI Assistant Configuration
           ai_assistants: connectionData.ai_assistants || []
         })
@@ -220,6 +223,8 @@ export const useConnectionStore = defineStore('connection', {
           sid: connectionData.sid || '',
           service_name: connectionData.service_name || '',
           connect_type: connectionData.connect_type || '',
+          identifier_type: connectionData.identifier_type || '',
+          tns_name: connectionData.tns_name || '',
           // AI Assistant Configuration
           ai_assistants: connectionData.ai_assistants || []
         })

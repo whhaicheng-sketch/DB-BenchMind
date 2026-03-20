@@ -37,6 +37,8 @@ type ConnectionDTO struct {
 	SID         string `json:"sid,omitempty"`
 	ServiceName string `json:"service_name,omitempty"`
 	ConnectType string `json:"connect_type,omitempty"`
+	IdentifierType string `json:"identifier_type,omitempty"`
+	TNSName     string `json:"tns_name,omitempty"`
 	ConnectAs   string `json:"connect_as,omitempty"`
 	// SSH configuration
 	SSHEnabled  bool   `json:"ssh_enabled"`
@@ -121,6 +123,15 @@ func toBindingAIAssistants(assistants []connection.AIAssistantConfig) []AIAssist
 	return result
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // ConnectionListResult represents the result of ListConnections.
 type ConnectionListResult struct {
 	Connections []ConnectionDTO `json:"connections"`
@@ -177,7 +188,9 @@ type ConnectionCreateRequest struct {
 	// Oracle specific fields
 	SID         string `json:"sid,omitempty"`
 	ServiceName string `json:"service_name,omitempty"`
-	ConnectType string `json:"connect_type,omitempty"` // "sid" or "service_name"
+	ConnectType string `json:"connect_type,omitempty"` // "basic" or "tns"
+	IdentifierType string `json:"identifier_type,omitempty"` // "service_name" or "sid"
+	TNSName     string `json:"tns_name,omitempty"`
 	ConnectAs   string `json:"connect_as,omitempty"`   // "normal", "sysdba", "sysoper"
 	// SSH Configuration
 	SSHEnabled  bool   `json:"ssh_enabled"`
@@ -207,7 +220,9 @@ type ConnectionUpdateRequest struct {
 	// Oracle specific fields
 	SID         string `json:"sid,omitempty"`
 	ServiceName string `json:"service_name,omitempty"`
-	ConnectType string `json:"connect_type,omitempty"` // "sid" or "service_name"
+	ConnectType string `json:"connect_type,omitempty"` // "basic" or "tns"
+	IdentifierType string `json:"identifier_type,omitempty"` // "service_name" or "sid"
+	TNSName     string `json:"tns_name,omitempty"`
 	ConnectAs   string `json:"connect_as,omitempty"`   // "normal", "sysdba", "sysoper"
 	// SSH Configuration
 	SSHEnabled  bool   `json:"ssh_enabled"`
@@ -310,23 +325,46 @@ func (b *ConnectionBinding) CreateConnection(req ConnectionCreateRequest) Connec
 			}
 		}
 	case "oracle":
-		// Determine SID/ServiceName based on connect_type
+		mode := req.ConnectType
+		if mode == "" || mode == "service_name" || mode == "sid" {
+			mode = "basic"
+		}
+		identifierType := req.IdentifierType
+		if identifierType == "" {
+			switch req.ConnectType {
+			case "sid":
+				identifierType = "sid"
+			case "service_name":
+				identifierType = "service_name"
+			default:
+				if req.SID != "" && req.ServiceName == "" {
+					identifierType = "sid"
+				} else {
+					identifierType = "service_name"
+				}
+			}
+		}
+
 		sid := ""
 		serviceName := ""
-		if req.ConnectType == "sid" {
-			sid = req.Database
-		} else if req.ConnectType == "service_name" {
-			serviceName = req.Database
-		} else if req.SID != "" {
-			sid = req.SID
-		} else if req.ServiceName != "" {
-			serviceName = req.ServiceName
-		} else {
-			// Default: treat database field as SID for backward compatibility
-			sid = req.Database
+		if mode == "basic" {
+			if identifierType == "sid" {
+				sid = firstNonEmpty(req.SID, req.Database)
+			} else {
+				serviceName = firstNonEmpty(req.ServiceName, req.Database)
+			}
 		}
 		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
+			oraConn.ConnectType = mode
+			oraConn.IdentifierType = identifierType
+			oraConn.TNSName = req.TNSName
+			if mode == "tns" {
+				oraConn.Host = ""
+				oraConn.Port = 0
+				oraConn.ServiceName = ""
+				oraConn.SID = ""
+			}
 			oraConn.SetPassword(req.Password)
 			if req.ConnectAs != "" {
 				oraConn.ConnectAs = req.ConnectAs
@@ -471,25 +509,46 @@ func (b *ConnectionBinding) UpdateConnection(req ConnectionUpdateRequest) Connec
 		}
 	case *connection.OracleConnection:
 		conn.SetName(req.Name)
-		conn.Host = req.Host
-		conn.Port = req.Port
 		conn.Username = req.Username
+		mode := req.ConnectType
+		if mode == "" || mode == "service_name" || mode == "sid" {
+			mode = "basic"
+		}
+		identifierType := req.IdentifierType
+		if identifierType == "" {
+			switch req.ConnectType {
+			case "sid":
+				identifierType = "sid"
+			case "service_name":
+				identifierType = "service_name"
+			default:
+				identifierType = conn.IdentifierType
+			}
+		}
+		conn.ConnectType = mode
+		conn.IdentifierType = identifierType
+		conn.TNSName = req.TNSName
 		if req.ConnectAs != "" {
 			conn.ConnectAs = req.ConnectAs
 		} else {
 			conn.ConnectAs = "normal"
 		}
-		// Update SID/ServiceName based on connect_type
-		if req.ConnectType == "sid" {
-			conn.SID = req.Database
-			conn.ServiceName = ""
-		} else if req.ConnectType == "service_name" {
-			conn.ServiceName = req.Database
+		if mode == "tns" {
+			conn.Host = ""
+			conn.Port = 0
 			conn.SID = ""
-		} else if req.SID != "" {
-			conn.SID = req.SID
-		} else if req.ServiceName != "" {
-			conn.ServiceName = req.ServiceName
+			conn.ServiceName = ""
+		} else {
+			conn.Host = req.Host
+			conn.Port = req.Port
+			conn.TNSName = ""
+			if identifierType == "sid" {
+				conn.SID = firstNonEmpty(req.SID, req.Database)
+				conn.ServiceName = ""
+			} else {
+				conn.ServiceName = firstNonEmpty(req.ServiceName, req.Database)
+				conn.SID = ""
+			}
 		}
 		if req.Password != "" {
 			conn.SetPassword(req.Password)
@@ -707,23 +766,43 @@ func (b *ConnectionBinding) TestConnectionDirect(req ConnectionCreateRequest) Co
 			// NOTE: SSH is intentionally NOT set - this is a direct DB test only
 		}
 	case "oracle":
-		// Determine SID/ServiceName based on connect_type
+		mode := req.ConnectType
+		if mode == "" || mode == "service_name" || mode == "sid" {
+			mode = "basic"
+		}
+		identifierType := req.IdentifierType
+		if identifierType == "" {
+			switch req.ConnectType {
+			case "sid":
+				identifierType = "sid"
+			case "service_name":
+				identifierType = "service_name"
+			default:
+				if req.SID != "" && req.ServiceName == "" {
+					identifierType = "sid"
+				} else {
+					identifierType = "service_name"
+				}
+			}
+		}
 		sid := ""
 		serviceName := ""
-		if req.ConnectType == "sid" {
-			sid = req.Database
-		} else if req.ConnectType == "service_name" {
-			serviceName = req.Database
-		} else if req.SID != "" {
-			sid = req.SID
-		} else if req.ServiceName != "" {
-			serviceName = req.ServiceName
-		} else {
-			// Default: treat database field as SID for backward compatibility
-			sid = req.Database
+		if mode == "basic" {
+			if identifierType == "sid" {
+				sid = firstNonEmpty(req.SID, req.Database)
+			} else {
+				serviceName = firstNonEmpty(req.ServiceName, req.Database)
+			}
 		}
 		conn = usecase.NewOracleConnection(req.Name, req.Host, serviceName, sid, req.Username, req.Port)
 		if oraConn, ok := conn.(*connection.OracleConnection); ok {
+			oraConn.ConnectType = mode
+			oraConn.IdentifierType = identifierType
+			oraConn.TNSName = req.TNSName
+			if mode == "tns" {
+				oraConn.Host = ""
+				oraConn.Port = 0
+			}
 			oraConn.SetPassword(req.Password)
 			// NOTE: SSH is intentionally NOT set - this is a direct DB test only
 		}
@@ -809,17 +888,24 @@ func (b *ConnectionBinding) toDTO(conn connection.Connection) ConnectionDTO {
 	case *connection.OracleConnection:
 		dto.Host = c.Host
 		dto.Port = c.Port
+		dto.SID = c.SID
+		dto.ServiceName = c.ServiceName
+		dto.TNSName = c.TNSName
+		dto.ConnectType = c.ConnectType
+		if dto.ConnectType == "" {
+			dto.ConnectType = "basic"
+		}
+		dto.IdentifierType = c.IdentifierType
+		if dto.IdentifierType == "" {
+			if c.SID != "" && c.ServiceName == "" {
+				dto.IdentifierType = "sid"
+			} else {
+				dto.IdentifierType = "service_name"
+			}
+		}
 		dto.Database = c.ServiceName
 		if dto.Database == "" {
 			dto.Database = c.SID
-		}
-		dto.SID = c.SID
-		dto.ServiceName = c.ServiceName
-		// Determine connect_type based on which field is populated
-		if c.SID != "" && c.ServiceName == "" {
-			dto.ConnectType = "sid"
-		} else {
-			dto.ConnectType = "service_name"
 		}
 		dto.Username = c.Username
 		dto.ConnectAs = c.ConnectAs
