@@ -7,11 +7,14 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import { TestConnectionDirect, TestSSHConnection, TestAIConnection, QueryAIModels } from '../../../wailsjs/go/bindings/ConnectionBinding'
+import AiTestDialog from './AiTestDialog.vue'
 import {
+  applyBlockingFieldValidation,
+  createSaveValidationSnapshot,
+  pruneInactiveAiErrors,
   DEFAULT_AI_TEMPERATURE,
-  collectAiFieldErrors,
-  getBlockingValidationResult,
-  normalizeModelOptions
+  normalizeModelOptions,
+  shouldShowApiKeyField
 } from './connectionFormAiState.mjs'
 
 // Props
@@ -167,6 +170,7 @@ const sshTestStatus = ref('idle')
 const aiTesting = ref(false)
 const aiTestResult = ref(null)
 const aiTestStatus = ref('idle')
+const showAiTestDialog = ref(false)
 
 // Flag to track if SSH host was manually modified
 const sshHostManuallyModified = ref(false)
@@ -189,7 +193,7 @@ const aiProviders = [
   { value: 'qwen', label: '阿里云 通义千问', host: 'https://dashscope.aliyuncs.com/compatible-mode', endpoint: '/v1/chat/completions', model: '' },
   { value: 'doubao', label: '字节跳动 豆包', host: 'https://ark.cn-beijing.volces.com/api/v3', endpoint: '/chat/completions', model: '' },
   { value: 'glm', label: '智谱 GLM', host: 'https://open.bigmodel.cn/api/paas/v4', endpoint: '/chat/completions', model: '' },
-  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.chat', endpoint: '/v1/chat/completions', model: '' },
+  { value: 'minimax', label: 'MiniMax', host: 'https://api.minimax.io', endpoint: '/v1/chat/completions', model: '' },
   { value: 'moonshot', label: 'Moonshot Kimi', host: 'https://api.moonshot.cn', endpoint: '/v1/chat/completions', model: '' },
   { value: 'openai', label: 'OpenAI ChatGPT', host: 'https://api.openai.com', endpoint: '/v1/chat/completions', model: '' },
   { value: 'gemini', label: 'Google Gemini', host: 'https://generativelanguage.googleapis.com', endpoint: '/v1beta/models/gemini-pro:generateContent', model: '' },
@@ -277,7 +281,10 @@ watch(() => props.defaultType, (newType) => {
 // Validation
 // ============================================================
 const validateField = (field) => {
+  const nextErrors = { ...fieldErrors.value }
   const errors = {}
+
+  delete nextErrors[field]
 
   switch (field) {
     case 'name':
@@ -309,25 +316,27 @@ const validateField = (field) => {
       break
   }
 
-  fieldErrors.value = { ...fieldErrors.value, ...errors }
+  fieldErrors.value = { ...nextErrors, ...errors }
   return Object.keys(errors).length === 0
 }
 
 const validateForm = () => {
-  const blockingResult = getBlockingValidationResult(formData.value, currentSchema.value)
-  const aiErrors = validateAIFields()
+  const snapshot = createSaveValidationSnapshot(
+    {
+      ...formData.value,
+      ai_assistants: getVisibleAiAssistants()
+    },
+    currentSchema.value,
+    isLocalProvider
+  )
 
-  fieldErrors.value = {
-    ...blockingResult.errors,
-    ...aiErrors
-  }
+  fieldErrors.value = pruneInactiveAiErrors(
+    applyBlockingFieldValidation(fieldErrors.value, snapshot.blockingErrors),
+    getVisibleAiAssistants(),
+    isLocalProvider
+  )
 
-  return blockingResult.isValid
-}
-
-// Validate AI assistant fields
-const validateAIFields = () => {
-  return collectAiFieldErrors(formData.value.ai_assistants, isLocalProvider)
+  return snapshot.isValid
 }
 
 // Get AI field error
@@ -345,6 +354,8 @@ const handleSave = async () => {
     formError.value = '请修正表单中的错误'
     return
   }
+
+  refreshVisibleAiFieldErrors()
 
   saving.value = true
 
@@ -548,7 +559,7 @@ const handleTestAI = async () => {
   const assistant = selectedAssistant.value
   const providerInfo = getProviderInfo(assistant.provider)
 
-  if (!providerInfo.host || !assistant.api_key) {
+  if (!providerInfo.host || (shouldShowAssistantApiKeyField(assistant) && !assistant.api_key)) {
     aiTestStatus.value = 'error'
     aiTestResult.value = {
       success: false,
@@ -565,8 +576,8 @@ const handleTestAI = async () => {
     // Build AI test request using provider-linked values
     const testRequest = {
       provider: assistant.provider,
-      api_host: providerInfo.host,
-      api_endpoint: providerInfo.endpoint,
+      api_host: assistant.api_host || providerInfo.host,
+      api_endpoint: assistant.api_endpoint || providerInfo.endpoint,
       api_key: assistant.api_key,
       model: assistant.model || providerInfo.model
     }
@@ -638,6 +649,13 @@ const isLocalProvider = (providerValue) => {
   return providerValue === 'ollama'
 }
 
+const shouldShowAssistantApiKeyField = (assistant) => {
+  if (!assistant) {
+    return false
+  }
+  return shouldShowApiKeyField(assistant.provider, isLocalProvider)
+}
+
 // Cloud providers require API key to query models
 // Local providers (Ollama) can query models without API key
 const requiresApiKeyForModelQuery = (providerValue) => {
@@ -676,9 +694,68 @@ const availableModels = ref([])
 const showModelSelector = ref(false)
 const pendingModelSelection = ref('')
 
+const getVisibleAiAssistants = () => {
+  return selectedAssistant.value ? [selectedAssistant.value] : []
+}
+
+const syncAssistantProviderDefaults = (assistant) => {
+  if (!assistant) {
+    return
+  }
+
+  const providerInfo = getProviderInfo(assistant.provider)
+  assistant.name = providerInfo.label
+  assistant.api_host = providerInfo.host
+  assistant.api_endpoint = providerInfo.endpoint
+}
+
+const syncAllAssistantProviderDefaults = () => {
+  for (const assistant of formData.value.ai_assistants) {
+    syncAssistantProviderDefaults(assistant)
+  }
+}
+
+const refreshVisibleAiFieldErrors = () => {
+  fieldErrors.value = pruneInactiveAiErrors(fieldErrors.value, getVisibleAiAssistants(), isLocalProvider)
+}
+
+const resetAiInteractionState = () => {
+  modelQueryError.value = ''
+  availableModels.value = []
+  showModelSelector.value = false
+  pendingModelSelection.value = selectedAssistant.value?.model || ''
+  aiTestResult.value = null
+  aiTestStatus.value = 'idle'
+  showAiTestDialog.value = false
+}
+
+watch(
+  () => formData.value.ai_assistants.map((assistant) => assistant.provider).join('|'),
+  () => {
+    syncAllAssistantProviderDefaults()
+    refreshVisibleAiFieldErrors()
+    resetAiInteractionState()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [
+    formData.value.selectedAssistantId,
+    selectedAssistant.value?.api_key || '',
+    selectedAssistant.value?.model || ''
+  ],
+  () => {
+    refreshVisibleAiFieldErrors()
+    resetAiInteractionState()
+  }
+)
+
 // Model query handler - calls real backend
 const handleQueryModels = async () => {
   if (!selectedAssistant.value) return
+
+  syncAssistantProviderDefaults(selectedAssistant.value)
 
   const provider = selectedAssistant.value.provider
   const apiHost = selectedAssistant.value.api_host
@@ -735,6 +812,17 @@ const confirmModelSelection = () => {
 const closeModelSelector = () => {
   showModelSelector.value = false
   pendingModelSelection.value = selectedAssistant.value?.model || ''
+}
+
+const openAiTestDialog = () => {
+  if (!selectedAssistant.value) {
+    return
+  }
+  showAiTestDialog.value = true
+}
+
+const closeAiTestDialog = () => {
+  showAiTestDialog.value = false
 }
 
 // ============================================================
@@ -1073,8 +1161,7 @@ const syncSshHostFromDb = () => {
                     <div class="ai-config__readonly">{{ getProviderInfo(selectedAssistant.provider).endpoint }}</div>
                   </div>
 
-                  <!-- API Key only shown for cloud providers (not Ollama) -->
-                  <div v-if="!isLocalProvider(selectedAssistant.provider)" class="ai-config__row">
+                  <div v-if="shouldShowAssistantApiKeyField(selectedAssistant)" class="ai-config__row">
                     <label class="ai-config__label">
                       API 密钥
                       <span class="ai-config__help" title="API 密钥用于身份验证，请妥善保管">?</span>
@@ -1098,14 +1185,8 @@ const syncSshHostFromDb = () => {
                       </button>
                     </div>
                   </div>
-                  <div v-if="!isLocalProvider(selectedAssistant.provider) && getAIFieldError(selectedAssistant.id, 'api_key')" class="ai-config__error-text">
+                  <div v-if="shouldShowAssistantApiKeyField(selectedAssistant) && getAIFieldError(selectedAssistant.id, 'api_key')" class="ai-config__error-text">
                     {{ getAIFieldError(selectedAssistant.id, 'api_key') }}
-                  </div>
-
-                  <!-- Local provider hint for Ollama -->
-                  <div v-else class="ai-config__row">
-                    <label class="ai-config__label">API 密钥</label>
-                    <div class="ai-config__readonly ai-config__readonly--hint">本地模型无需 API 密钥</div>
                   </div>
 
                   <div class="ai-config__row">
@@ -1185,6 +1266,13 @@ const syncSshHostFromDb = () => {
                     <span v-else-if="aiTestStatus === 'error'">✗</span>
                     测试连接
                   </button>
+                  <button
+                    type="button"
+                    class="ai-config__test-btn ai-config__test-btn--primary"
+                    @click="openAiTestDialog"
+                  >
+                    测试模型
+                  </button>
                   <span v-if="aiTestResult" class="ai-config__test-result" :class="aiTestResult.success ? 'ai-config__test-result--success' : 'ai-config__test-result--error'">
                     {{ aiTestResult.success ? (aiTestResult.message || '连接成功') : aiTestResult.error }}
                   </span>
@@ -1231,6 +1319,13 @@ const syncSshHostFromDb = () => {
         </div>
       </div>
     </Teleport>
+
+    <AiTestDialog
+      :visible="showAiTestDialog"
+      :assistant="selectedAssistant"
+      :provider-label="selectedAssistant ? getProviderInfo(selectedAssistant.provider).label : ''"
+      @close="closeAiTestDialog"
+    />
 
     <!-- Footer Actions -->
     <div class="conn-editor__footer">
@@ -2274,6 +2369,7 @@ const syncSshHostFromDb = () => {
 .ai-config__test-area {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 16px;
   padding-top: 12px;
@@ -2296,6 +2392,16 @@ const syncSshHostFromDb = () => {
 
 .ai-config__test-btn:hover:not(:disabled) {
   background-color: #e8eaed;
+}
+
+.ai-config__test-btn--primary {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.ai-config__test-btn--primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
 }
 
 .ai-config__test-btn:disabled {

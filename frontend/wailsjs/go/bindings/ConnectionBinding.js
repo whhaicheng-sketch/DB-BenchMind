@@ -26,6 +26,10 @@ export function TestAIConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestAIConnection'](arg1);
 }
 
+export function TestAIChat(arg1) {
+  return window['go']['bindings']['ConnectionBinding']['TestAIChat'](arg1);
+}
+
 export function TestConnection(arg1) {
   return window['go']['bindings']['ConnectionBinding']['TestConnection'](arg1);
 }

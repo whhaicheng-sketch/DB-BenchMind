@@ -1,4 +1,13 @@
 export const DEFAULT_AI_TEMPERATURE = 0.1
+const AI_FIELD_ERROR_PREFIX = 'ai_'
+
+export function shouldShowApiKeyField(providerValue, isLocalProvider = () => false) {
+  return !isLocalProvider(providerValue)
+}
+
+export function isAiFieldErrorKey(fieldName = '') {
+  return fieldName.startsWith(AI_FIELD_ERROR_PREFIX)
+}
 
 export function normalizeModelOptions(models = []) {
   return models
@@ -81,4 +90,48 @@ export function collectAiFieldErrors(aiAssistants = [], isLocalProvider = () => 
   }
 
   return errors
+}
+
+export function collectAdvisoryAiErrors(aiAssistants = [], isLocalProvider = () => false) {
+  return collectAiFieldErrors(aiAssistants, isLocalProvider)
+}
+
+export function createSaveValidationSnapshot(formData, currentSchema, isLocalProvider = () => false) {
+  const blockingResult = getBlockingValidationResult(formData, currentSchema)
+
+  return {
+    isValid: blockingResult.isValid,
+    blockingErrors: blockingResult.errors,
+    advisoryErrors: collectAdvisoryAiErrors(formData.ai_assistants, isLocalProvider)
+  }
+}
+
+export function applyBlockingFieldValidation(existingErrors = {}, blockingErrors = {}) {
+  const nextErrors = {}
+
+  for (const [fieldName, message] of Object.entries(existingErrors)) {
+    if (isAiFieldErrorKey(fieldName)) {
+      nextErrors[fieldName] = message
+    }
+  }
+
+  return {
+    ...nextErrors,
+    ...blockingErrors
+  }
+}
+
+export function pruneInactiveAiErrors(existingErrors = {}, aiAssistants = [], isLocalProvider = () => false) {
+  const nextErrors = {}
+
+  for (const [fieldName, message] of Object.entries(existingErrors)) {
+    if (!isAiFieldErrorKey(fieldName)) {
+      nextErrors[fieldName] = message
+    }
+  }
+
+  return {
+    ...nextErrors,
+    ...collectAdvisoryAiErrors(aiAssistants, isLocalProvider)
+  }
 }

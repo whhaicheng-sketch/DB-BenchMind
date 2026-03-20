@@ -20,9 +20,9 @@ type ProviderType string
 
 const (
 	ProviderTypeOpenAI    ProviderType = "openai_compatible" // OpenAI-compatible API
-	ProviderTypeAnthropic ProviderType = "anthropic"          // Anthropic Claude
-	ProviderTypeGemini    ProviderType = "gemini"             // Google Gemini
-	ProviderTypeOllama    ProviderType = "ollama"             // Ollama local
+	ProviderTypeAnthropic ProviderType = "anthropic"         // Anthropic Claude
+	ProviderTypeGemini    ProviderType = "gemini"            // Google Gemini
+	ProviderTypeOllama    ProviderType = "ollama"            // Ollama local
 )
 
 // ProviderConfig contains provider-specific configuration.
@@ -78,7 +78,7 @@ var providerRegistry = map[string]ProviderConfig{
 		AuthPrefix:        "Bearer ",
 		RequestFormat:     "openai",
 		DefaultEndpoint:   "/v1/chat/completions",
-		SupportsModelList: true,
+		SupportsModelList: false,
 	},
 	"moonshot": {
 		Type:              ProviderTypeOpenAI,
@@ -161,8 +161,8 @@ func NormalizeURL(host, endpoint string) (string, error) {
 		return "", fmt.Errorf("无效的 API 主机: %w", err)
 	}
 
-	// Rebuild host without trailing slash
-	host = fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host)
+	basePath := strings.TrimRight(parsedURL.Path, "/")
+	host = fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, basePath)
 
 	// Normalize endpoint
 	endpoint = strings.TrimSpace(endpoint)
@@ -176,7 +176,7 @@ func NormalizeURL(host, endpoint string) (string, error) {
 	}
 
 	// Remove duplicate slashes in path
-	fullURL := host + endpoint
+	fullURL := strings.TrimRight(host, "/") + endpoint
 	fullURL = strings.ReplaceAll(fullURL, "//", "/")
 	// Fix protocol slashes
 	fullURL = strings.ReplaceAll(fullURL, "http:/", "http://")
@@ -216,6 +216,25 @@ type TestResult struct {
 	Success   bool
 	LatencyMs int64
 	Message   string
+	Error     string
+}
+
+// ChatRequest contains parameters for an interactive AI test prompt.
+type ChatRequest struct {
+	Provider    string
+	APIHost     string
+	APIEndpoint string
+	APIKey      string
+	Model       string
+	Prompt      string
+	Temperature float64
+}
+
+// ChatResult contains the result of an interactive AI test prompt.
+type ChatResult struct {
+	Success   bool
+	LatencyMs int64
+	Content   string
 	Error     string
 }
 
@@ -343,6 +362,99 @@ func TestConnection(ctx context.Context, req TestRequest) TestResult {
 	}
 }
 
+// SendChat sends a real prompt to the configured AI provider and returns the model response text.
+func SendChat(ctx context.Context, req ChatRequest) ChatResult {
+	startTime := time.Now()
+
+	if req.Provider == "" {
+		return ChatResult{Success: false, Error: "未选择 AI 提供商"}
+	}
+	if req.APIHost == "" {
+		return ChatResult{Success: false, Error: "API 主机不能为空"}
+	}
+	if req.APIKey == "" && req.Provider != "ollama" {
+		return ChatResult{Success: false, Error: "API 密钥不能为空"}
+	}
+	if req.Model == "" {
+		return ChatResult{Success: false, Error: "模型不能为空"}
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		return ChatResult{Success: false, Error: "测试问题不能为空"}
+	}
+
+	cfg := GetProviderConfig(req.Provider)
+
+	endpoint := req.APIEndpoint
+	if endpoint == "" {
+		endpoint = cfg.DefaultEndpoint
+	}
+	if cfg.Type == ProviderTypeGemini {
+		endpoint = strings.ReplaceAll(endpoint, "{model}", req.Model)
+	}
+
+	apiURL, err := NormalizeURL(req.APIHost, endpoint)
+	if err != nil {
+		return ChatResult{Success: false, Error: err.Error()}
+	}
+
+	bodyBytes, err := buildChatRequestBody(cfg.Type, req.Model, req.Prompt, req.Temperature)
+	if err != nil {
+		return ChatResult{Success: false, Error: fmt.Sprintf("构建请求失败: %v", err)}
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return ChatResult{Success: false, Error: fmt.Sprintf("创建请求失败: %v", err)}
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	if cfg.AuthHeader != "" && req.APIKey != "" {
+		httpReq.Header.Set(cfg.AuthHeader, cfg.AuthPrefix+req.APIKey)
+	}
+	for key, value := range cfg.ExtraHeaders {
+		httpReq.Header.Set(key, value)
+	}
+	if cfg.Type == ProviderTypeGemini {
+		q := httpReq.URL.Query()
+		q.Set("key", req.APIKey)
+		httpReq.URL.RawQuery = q.Encode()
+	}
+
+	client := &http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		testResult := mapNetworkError(err)
+		return ChatResult{Success: false, Error: testResult.Error}
+	}
+	defer resp.Body.Close()
+
+	latencyMs := time.Since(startTime).Milliseconds()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ChatResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     mapAPIError(resp.StatusCode, respBody, req.Provider),
+		}
+	}
+
+	content, err := extractChatResponseText(cfg.Type, respBody)
+	if err != nil {
+		return ChatResult{
+			Success:   false,
+			LatencyMs: latencyMs,
+			Error:     fmt.Sprintf("解析模型响应失败: %v", err),
+		}
+	}
+
+	return ChatResult{
+		Success:   true,
+		LatencyMs: latencyMs,
+		Content:   content,
+	}
+}
+
 // Request builders for different provider types
 
 func buildOpenAIRequest(model string) ([]byte, error) {
@@ -383,6 +495,134 @@ func buildOllamaRequest(model string) ([]byte, error) {
 		"stream":  false,
 	}
 	return json.Marshal(body)
+}
+
+func buildChatRequestBody(providerType ProviderType, model, prompt string, temperature float64) ([]byte, error) {
+	switch providerType {
+	case ProviderTypeAnthropic:
+		body := map[string]interface{}{
+			"model":       model,
+			"max_tokens":  256,
+			"temperature": temperature,
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+		}
+		return json.Marshal(body)
+	case ProviderTypeGemini:
+		body := map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{"parts": []map[string]string{{"text": prompt}}},
+			},
+			"generationConfig": map[string]float64{
+				"temperature": temperature,
+			},
+		}
+		return json.Marshal(body)
+	case ProviderTypeOllama:
+		body := map[string]interface{}{
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+			"stream": false,
+			"options": map[string]float64{
+				"temperature": temperature,
+			},
+		}
+		return json.Marshal(body)
+	default:
+		body := map[string]interface{}{
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+			"temperature": temperature,
+		}
+		return json.Marshal(body)
+	}
+}
+
+func extractChatResponseText(providerType ProviderType, body []byte) (string, error) {
+	switch providerType {
+	case ProviderTypeAnthropic:
+		var resp struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return "", err
+		}
+		for _, item := range resp.Content {
+			if strings.TrimSpace(item.Text) != "" {
+				return strings.TrimSpace(item.Text), nil
+			}
+		}
+	case ProviderTypeGemini:
+		var resp struct {
+			Candidates []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				} `json:"content"`
+			} `json:"candidates"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return "", err
+		}
+		for _, candidate := range resp.Candidates {
+			parts := make([]string, 0, len(candidate.Content.Parts))
+			for _, part := range candidate.Content.Parts {
+				if strings.TrimSpace(part.Text) != "" {
+					parts = append(parts, strings.TrimSpace(part.Text))
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n"), nil
+			}
+		}
+	case ProviderTypeOllama:
+		var resp struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Response string `json:"response"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(resp.Message.Content) != "" {
+			return strings.TrimSpace(resp.Message.Content), nil
+		}
+		if strings.TrimSpace(resp.Response) != "" {
+			return strings.TrimSpace(resp.Response), nil
+		}
+	default:
+		var resp struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+				Text string `json:"text"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return "", err
+		}
+		for _, choice := range resp.Choices {
+			if strings.TrimSpace(choice.Message.Content) != "" {
+				return strings.TrimSpace(choice.Message.Content), nil
+			}
+			if strings.TrimSpace(choice.Text) != "" {
+				return strings.TrimSpace(choice.Text), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("响应中未找到可显示的文本内容")
 }
 
 // Error mapping functions
@@ -473,9 +713,9 @@ type ModelInfo struct {
 
 // QueryModelsResult contains the result of model query.
 type QueryModelsResult struct {
-	Success bool         `json:"success"`
-	Models  []ModelInfo  `json:"models,omitempty"`
-	Error   string       `json:"error,omitempty"`
+	Success bool        `json:"success"`
+	Models  []ModelInfo `json:"models,omitempty"`
+	Error   string      `json:"error,omitempty"`
 }
 
 // QueryModelsRequest contains parameters for model list query.

@@ -930,11 +930,11 @@ type SSHTestRequest struct {
 
 // AITestRequest represents a request to test AI API connection.
 type AITestRequest struct {
-	Provider    string  `json:"provider"`
-	APIHost     string  `json:"api_host"`
-	APIEndpoint string  `json:"api_endpoint"`
-	APIKey      string  `json:"api_key"`
-	Model       string  `json:"model"`
+	Provider    string `json:"provider"`
+	APIHost     string `json:"api_host"`
+	APIEndpoint string `json:"api_endpoint"`
+	APIKey      string `json:"api_key"`
+	Model       string `json:"model"`
 }
 
 // AITestResult represents the result of AI API connection test.
@@ -942,6 +942,25 @@ type AITestResult struct {
 	Success   bool   `json:"success"`
 	LatencyMs int64  `json:"latency_ms"`
 	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// AIChatTestRequest represents a request to send a real prompt to the AI model.
+type AIChatTestRequest struct {
+	Provider    string  `json:"provider"`
+	APIHost     string  `json:"api_host"`
+	APIEndpoint string  `json:"api_endpoint"`
+	APIKey      string  `json:"api_key"`
+	Model       string  `json:"model"`
+	Prompt      string  `json:"prompt"`
+	Temperature float64 `json:"temperature"`
+}
+
+// AIChatTestResult represents the result of an AI prompt test.
+type AIChatTestResult struct {
+	Success   bool   `json:"success"`
+	LatencyMs int64  `json:"latency_ms"`
+	Content   string `json:"content,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -1003,6 +1022,33 @@ func (b *ConnectionBinding) TestAIConnection(req AITestRequest) AITestResult {
 	}
 }
 
+// TestAIChat sends a real prompt to the configured AI model and returns the response text.
+func (b *ConnectionBinding) TestAIChat(req AIChatTestRequest) AIChatTestResult {
+	ctx := context.Background()
+
+	slog.Info("TestAIChat called",
+		"provider", req.Provider,
+		"api_host", req.APIHost,
+		"model", req.Model)
+
+	result := aiprovider.SendChat(ctx, aiprovider.ChatRequest{
+		Provider:    req.Provider,
+		APIHost:     req.APIHost,
+		APIEndpoint: req.APIEndpoint,
+		APIKey:      req.APIKey,
+		Model:       req.Model,
+		Prompt:      req.Prompt,
+		Temperature: req.Temperature,
+	})
+
+	return AIChatTestResult{
+		Success:   result.Success,
+		LatencyMs: result.LatencyMs,
+		Content:   result.Content,
+		Error:     result.Error,
+	}
+}
+
 // AIModelQueryRequest represents a request to query available AI models.
 type AIModelQueryRequest struct {
 	Provider string `json:"provider"`
@@ -1018,9 +1064,9 @@ type AIModelInfo struct {
 
 // AIModelQueryResult represents the result of AI model query.
 type AIModelQueryResult struct {
-	Success bool           `json:"success"`
-	Models  []AIModelInfo  `json:"models,omitempty"`
-	Error   string         `json:"error,omitempty"`
+	Success bool          `json:"success"`
+	Models  []AIModelInfo `json:"models,omitempty"`
+	Error   string        `json:"error,omitempty"`
 }
 
 // QueryAIModels queries available AI models from the provider (Wails binding).

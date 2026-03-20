@@ -84,6 +84,50 @@ export namespace bindings {
 	    }
 	}
 
+	export class AIChatTestRequest {
+	    provider: string;
+	    api_host: string;
+	    api_endpoint: string;
+	    api_key: string;
+	    model: string;
+	    prompt: string;
+	    temperature: number;
+
+	    static createFrom(source: any = {}) {
+	        return new AIChatTestRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.api_host = source["api_host"];
+	        this.api_endpoint = source["api_endpoint"];
+	        this.api_key = source["api_key"];
+	        this.model = source["model"];
+	        this.prompt = source["prompt"];
+	        this.temperature = source["temperature"];
+	    }
+	}
+
+	export class AIChatTestResult {
+	    success: boolean;
+	    latency_ms: number;
+	    content?: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AIChatTestResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.latency_ms = source["latency_ms"];
+	        this.content = source["content"];
+	        this.error = source["error"];
+	    }
+	}
+
 	export class AITestRequest {
 	    provider: string;
 	    api_host: string;
