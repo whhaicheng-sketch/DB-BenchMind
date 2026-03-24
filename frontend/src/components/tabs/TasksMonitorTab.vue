@@ -86,7 +86,7 @@
           <label class="field">
             <span>Connection</span>
             <select v-model="draft.connection_id" class="select-dark" :disabled="!draft.database_type">
-              <option value="">{{ draft.database_type ? 'Select connection' : 'Select database type first' }}</option>
+              <option value="">{{ draft.database_type ? 'Select one' : 'Select database type first' }}</option>
               <option v-for="connection in filteredConnections" :key="connection.id" :value="connection.id">
                 {{ connection.name }}
               </option>
@@ -350,7 +350,13 @@ import { useAppStore } from '../../stores/app'
 import { useConnectionStore } from '../../stores/connection'
 import { useTaskStore } from '../../stores/task'
 import { useTemplateStore } from '../../stores/template'
+import { getPreferredConnectionId } from './tasksMonitorConnectionDefaults.mjs'
 import { getOracleSwingbenchMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
+import {
+  createEmptyRetainedBusinessMetricsState,
+  resolveDisplayedTaskMetrics,
+  updateRetainedBusinessMetricsState
+} from './tasksMonitorPerformanceMetrics.mjs'
 import { resolveTasksMonitorBinding } from './tasksMonitorTaskState.mjs'
 import { getPreferredTemplateId } from './tasksMonitorTemplateSelection.mjs'
 import { buildStatusStripModel } from './tasksMonitorStatusStrip.mjs'
@@ -394,6 +400,7 @@ const autoScroll = ref(true)
 const logViewport = ref(null)
 const nowTick = ref(Date.now())
 const logActionNotice = ref(null)
+const retainedBusinessMetrics = ref(createEmptyRetainedBusinessMetricsState())
 let logNoticeTimer = null
 
 const selectedTemplate = computed(() => templates.value.find((template) => template.id === draft.template_id) || null)
@@ -523,7 +530,7 @@ const statusPopoverItems = computed(() => {
 })
 
 const businessMetrics = computed(() => {
-  const metrics = currentTask.value?.metrics || {}
+  const metrics = resolveDisplayedTaskMetrics(currentTask.value, retainedBusinessMetrics.value)
   return [
     metricCard(currentTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
     metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
@@ -600,6 +607,14 @@ watch(activeTask, (task) => {
   pendingStopTaskId.value = taskBinding.value.pendingStopTaskId
 })
 
+watch(
+  currentTask,
+  (task) => {
+    retainedBusinessMetrics.value = updateRetainedBusinessMetricsState(retainedBusinessMetrics.value, task)
+  },
+  { immediate: true }
+)
+
 onMounted(async () => {
   await Promise.all([templateStore.loadTemplates?.() || templateStore.fetchTemplates?.() || Promise.resolve(), connectionStore.fetchConnections(), taskStore.fetchTasks()])
   restoreDraft()
@@ -663,6 +678,7 @@ watch(() => draft.database_type, (databaseType) => {
   if (selectedTemplate.value && !(selectedTemplate.value.dbFamily === databaseType || selectedTemplate.value.database_types?.includes(databaseType))) {
     draft.template_id = ''
   }
+  applyPreferredConnectionSelection()
   applyPreferredTemplateSelection({ preferTestTemplate: true })
 })
 
@@ -1088,6 +1104,15 @@ function applyPreferredTemplateSelection({ preferTestTemplate = false } = {}) {
   }
 }
 
+function applyPreferredConnectionSelection() {
+  if (!draft.database_type) return
+
+  const preferredConnectionId = getPreferredConnectionId(filteredConnections.value, draft.connection_id)
+  if (preferredConnectionId !== draft.connection_id) {
+    draft.connection_id = preferredConnectionId
+  }
+}
+
 function restoreDraft() {
   const raw = window.localStorage.getItem(TASKS_DRAFT_STORAGE_KEY)
   if (!raw) return
@@ -1118,8 +1143,8 @@ function sanitizeDraftState() {
     draft.connection_id = ''
     draft.template_id = ''
   }
-  if (draft.connection_id && !filteredConnections.value.some((connection) => connection.id === draft.connection_id)) {
-    draft.connection_id = ''
+  if (draft.database_type) {
+    applyPreferredConnectionSelection()
   }
   if (draft.template_id && !templateMatchesDatabaseAndConnection(draft.template_id)) {
     draft.template_id = ''
