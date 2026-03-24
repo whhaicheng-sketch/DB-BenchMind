@@ -1826,6 +1826,13 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 		return fmt.Errorf("command failed with exit status %v: %s", processErr, strings.Join(details, "\n"))
 	}
 
+	if hammerDBErr := detectHammerDBCommandFailure(cmd.CmdLine, stdoutBuf.String(), stderrBuf.String()); hammerDBErr != nil {
+		slog.Error("Benchmark: HammerDB command reported failure despite zero exit status",
+			"run_id", run.ID,
+			"error", hammerDBErr)
+		return hammerDBErr
+	}
+
 	return nil
 }
 
@@ -2111,6 +2118,31 @@ func (uc *BenchmarkUseCase) isRetryableError(err error) bool {
 	}
 
 	return false
+}
+
+func detectHammerDBCommandFailure(cmdLine, stdout, stderr string) error {
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if combined == "" {
+		return nil
+	}
+
+	lowerCmd := strings.ToLower(cmdLine)
+	lowerOutput := strings.ToLower(combined)
+	if !strings.Contains(lowerCmd, "hammerdb") && !strings.Contains(lowerOutput, "hammerdb cli") {
+		return nil
+	}
+
+	for _, line := range strings.Split(combined, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Error:") {
+			return fmt.Errorf("hammerdb command reported failure: %s", trimmed)
+		}
+	}
+
+	return nil
 }
 
 // calculateBackoffDelay calculates the delay for the next retry attempt using exponential backoff.

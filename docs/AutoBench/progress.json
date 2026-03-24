@@ -1,38 +1,50 @@
 {
-  "current_module": "M1",
-  "current_task": "T1.3",
-  "next_task": "T2.1",
+  "current_module": "M3",
+  "current_task": "T3.2",
+  "next_task": "T3.3",
   "done_tasks": [
     "T0.1",
     "T0.2",
     "T1.1",
     "T1.2",
-    "T1.3"
+    "T1.3",
+    "T2.1",
+    "T2.2",
+    "T2.3",
+    "T3.1",
+    "T3.2"
   ],
   "blocked_tasks": [],
   "changed_files": [
-    "internal/app/usecase/autobench_usecase.go",
-    "internal/app/usecase/autobench_usecase_test.go",
+    "frontend/src/components/tabs/AutoBenchTab.vue",
+    "frontend/src/components/tabs/autobenchWizardDraft.mjs",
+    "frontend/tests/autoBenchTab.test.mjs",
+    "frontend/tests/autobenchWizardDraft.test.mjs",
+    "frontend/tests/autobenchProgressDocs.test.mjs",
     "docs/AutoBench/progress.md",
     "docs/AutoBench/progress.json"
   ],
   "test_results": [
     {
-      "command": "go test ./internal/app/usecase -run AutoBenchSuiteUseCase",
+      "command": "node --test frontend/tests/autoBenchTab.test.mjs",
       "status": "pass"
     },
     {
-      "command": "go test ./internal/domain/autobench",
+      "command": "node --test frontend/tests/autobenchWizardDraft.test.mjs",
       "status": "pass"
     },
     {
-      "command": "cd frontend && node --test tests/connectionFormRemote.test.mjs tests/connectionsTabAggregatedAiTest.test.mjs tests/connectionsTabBadges.test.mjs tests/templatesTab.test.mjs tests/tasksMonitorConnectionDefaults.test.mjs tests/tasksMonitorTemplateSelection.test.mjs tests/tasksMonitorPerformanceMetrics.test.mjs tests/tasksMonitorOracleSwingbench.test.mjs tests/tasksMonitorStatusStrip.test.mjs tests/tasksMonitorTaskState.test.mjs tests/taskBinding.test.mjs tests/appNavigation.test.mjs tests/appStore.test.mjs",
+      "command": "node --test frontend/tests/appNavigation.test.mjs frontend/tests/autobenchProgressDocs.test.mjs",
+      "status": "pass"
+    },
+    {
+      "command": "cd frontend && node --test tests/*.test.mjs",
       "status": "pass"
     }
   ],
   "known_risks": [
-    "AutoBench currently has only domain models and a use case skeleton; no real execution, UI, binding, persistence, or reporting is wired yet.",
-    "CreateSuite/GetSuiteStatus are intentionally in-memory placeholders for stage one orchestration design.",
+    "AutoBench currently exposes only local placeholder connection and profile selection; real connection/template data, suite execution, monitoring, report content, and history integration are intentionally not wired in T3.2.",
+    "Profile metadata and ordering remain frontend-only placeholders, so T3.3 must keep the future plan preview isolated from the existing Tasks Monitor execution semantics.",
     "Repository baseline issue: go test ./internal/domain/... is currently blocked by an existing problem in internal/domain/connection/ssh_tunnel.go."
   ]
 }

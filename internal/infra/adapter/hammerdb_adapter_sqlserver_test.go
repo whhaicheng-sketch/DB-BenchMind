@@ -73,6 +73,9 @@ func TestHammerDBAdapter_SQLServer_CleanupCommand(t *testing.T) {
 	t.Logf("Decoded script:\n%s", script)
 
 	// Verify HammerDB 4.10+ Linux connection format: diset connection mssqls_linux_server
+	if !strings.Contains(script, "dbset db mssqls") {
+		t.Errorf("Cleanup script should use 'dbset db mssqls', got:\n%s", script)
+	}
 	if !strings.Contains(script, "diset connection mssqls_linux_server") {
 		t.Errorf("Cleanup script should use 'diset connection mssqls_linux_server', got:\n%s", script)
 	}
@@ -167,6 +170,14 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 			t.Errorf("Run command should contain 'hammerdb', got: %s", cmd.CmdLine)
 		}
 
+		runScript := extractBase64Script(t, cmd.CmdLine)
+		if !strings.Contains(runScript, "dbset db mssqls") {
+			t.Errorf("Run script should use 'dbset db mssqls', got:\n%s", runScript)
+		}
+		if !strings.Contains(runScript, "diset tpcc mssqls_dbase tpcc") {
+			t.Errorf("Run script should set database name, got:\n%s", runScript)
+		}
+
 		t.Logf("Generated run command:\n%s", cmd.CmdLine)
 	})
 
@@ -187,6 +198,9 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 		t.Logf("Decoded buildschema script:\n%s", buildschemaScript)
 
 		// Verify connection settings
+		if !strings.Contains(buildschemaScript, "dbset db mssqls") {
+			t.Errorf("Buildschema script should use 'dbset db mssqls', got:\n%s", buildschemaScript)
+		}
 		if !strings.Contains(buildschemaScript, "diset connection mssqls_linux_server") {
 			t.Errorf("Buildschema script should use 'diset connection mssqls_linux_server', got:\n%s", buildschemaScript)
 		}
@@ -222,5 +236,30 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 		}
 
 		t.Logf("Generated buildschema command:\n%s", buildschemaCmd.CmdLine)
+	})
+
+	t.Run("Prepare command caps build users to warehouse count", func(t *testing.T) {
+		cappedConfig := &Config{
+			Connection: conn,
+			WorkDir:    "/tmp",
+			PrepareThreads: 2,
+			Parameters: map[string]interface{}{
+				"database_name": "tpcc",
+				"warehouses":    1,
+			},
+		}
+
+		cmd, err := adapter.BuildPrepareCommand(context.Background(), cappedConfig)
+		if err != nil {
+			t.Fatalf("Failed to build prepare command: %v", err)
+		}
+		if len(cmd.Commands) != 2 {
+			t.Fatalf("Prepare command should return 2 steps, got %d", len(cmd.Commands))
+		}
+
+		buildschemaScript := extractBase64Script(t, cmd.Commands[1].CmdLine)
+		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_num_vu 1") {
+			t.Fatalf("Buildschema script should cap build users to warehouse count, got:\n%s", buildschemaScript)
+		}
 	})
 }

@@ -1138,6 +1138,33 @@ func TestExecuteCommandSync_IncludesStdoutForSqlplusStyleFailures(t *testing.T) 
 	}
 }
 
+func TestExecuteCommandSync_FailsWhenHammerDBReportsStdoutError(t *testing.T) {
+	ctx := context.Background()
+	runRepo := newMockRunRepository()
+	uc := NewBenchmarkUseCase(runRepo, adapter.NewAdapterRegistry(), nil, nil)
+
+	tempDir := t.TempDir()
+	run := &execution.Run{
+		ID:        "run-hammerdb-stdout-fail",
+		TaskID:    "task-hammerdb-stdout-fail",
+		State:     execution.StatePreparing,
+		CreatedAt: time.Now(),
+		WorkDir:   tempDir,
+	}
+	require.NoError(t, runRepo.Save(ctx, run))
+
+	err := uc.executeCommandSync(ctx, run, &adapter.Command{
+		StepName: "Build schema and load data",
+		CmdLine:  "bash -lc 'printf \"HammerDB CLI v4.10\\nError:Build virtual users must be less than or equal to number of warehouses\\n\"' && true # hammerdbcli",
+		WorkDir:  tempDir,
+	})
+
+	require.Error(t, err)
+	if !strings.Contains(err.Error(), "Build virtual users must be less than or equal to number of warehouses") {
+		t.Fatalf("expected HammerDB stdout failure reason in error, got: %s", err)
+	}
+}
+
 func TestIngestSwingbenchDebugLogs_CollectsExplicitAndFallbackLogs(t *testing.T) {
 	ctx := context.Background()
 	runRepo := newMockRunRepository()

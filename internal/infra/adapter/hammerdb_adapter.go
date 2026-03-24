@@ -106,6 +106,9 @@ func (a *HammerDBAdapter) buildBuildschemaCommand(ctx context.Context, config *C
 	if buildUsers <= 0 {
 		buildUsers = 4
 	}
+	if warehouses > 0 && buildUsers > warehouses {
+		buildUsers = warehouses
+	}
 
 	// Build TCL script for buildschema
 	var script strings.Builder
@@ -294,6 +297,7 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 
 	case "run":
 		// Run benchmark phase with tcstart for real-time monitoring
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
 		script.WriteString(fmt.Sprintf("diset tpcc mssqls_driver %s\n", driver))
 
 		// Ramp up is only used in timed mode
@@ -684,7 +688,7 @@ func (a *HammerDBAdapter) getDBType(conn connection.Connection) string {
 	case connection.DatabaseTypeOracle:
 		return "Oracle"
 	case connection.DatabaseTypeSQLServer:
-		return "MSSQLServer"
+		return "mssqls"
 	case connection.DatabaseTypePostgreSQL:
 		return "Postgres"
 	default:
