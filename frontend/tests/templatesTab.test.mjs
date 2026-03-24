@@ -108,6 +108,32 @@ test('template fallback data ships the 12 built-in database templates with profi
   assert.doesNotMatch(mockTemplatesSource, /\bscope:\s*|\\bstatus:\s*|updatedAt/)
 })
 
+test('template fallback data keeps all built-in test templates at 60 second default runtime', () => {
+  const extractTemplateBlock = (id) => {
+    const match = mockTemplatesSource.match(new RegExp(`id:\\s*'${id}'[\\s\\S]*?\\n\\s*}\\)`, 'm'))
+    assert.ok(match, `template block for ${id} not found`)
+    return match[0]
+  }
+
+  const blocks = {
+    oracle_test: extractTemplateBlock('oracle_test'),
+    mysql_test: extractTemplateBlock('mysql_test'),
+    sqlserver_test: extractTemplateBlock('sqlserver_test'),
+    postgresql_test: extractTemplateBlock('postgresql_test')
+  }
+
+  for (const [id, block] of Object.entries(blocks)) {
+    assert.match(block, /durationSeconds:\s*60/, `${id} should expose 60 second runtime in frontend fallback data`)
+  }
+
+  assert.match(blocks.oracle_test, /runTimeSeconds:\s*60/)
+  assert.match(blocks.oracle_test, /xmlOverrides:\s*'\.\.\/configs\/server_side_soe_v2\.xml'/)
+  assert.doesNotMatch(blocks.mysql_test, /durationSeconds:\s*120/)
+  assert.doesNotMatch(blocks.oracle_test, /durationSeconds:\s*180/)
+  assert.doesNotMatch(blocks.sqlserver_test, /durationSeconds:\s*300/)
+  assert.doesNotMatch(blocks.postgresql_test, /durationSeconds:\s*120/)
+})
+
 test('template model and store only keep compact filters and four lifecycle phases', () => {
   assert.match(modelSource, /export const PHASE_KEYS = \[\s*'prepare',\s*'warmup',\s*'run',\s*'cleanup'\s*\]/)
   assert.match(modelSource, /export function createPhaseState\(overrides = \{\}\)\s*\{\s*return \{\s*prepare: createPhaseConfig\(overrides\.prepare, \{ enabled: false, required: false \}\),\s*warmup: createPhaseConfig\(overrides\.warmup, \{ enabled: false, required: false \}\),\s*run: createPhaseConfig\(overrides\.run, \{ enabled: true, required: true \}\),\s*cleanup: createPhaseConfig\(overrides\.cleanup, \{ enabled: false, required: false \}\)\s*\}\s*\}/s)

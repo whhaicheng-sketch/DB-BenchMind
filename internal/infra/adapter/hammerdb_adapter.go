@@ -116,29 +116,12 @@ func (a *HammerDBAdapter) buildBuildschemaCommand(ctx context.Context, config *C
 
 	// SQL Server specific: build complete prepare script
 	if conn.GetType() == connection.DatabaseTypeSQLServer {
-		sqlServerConn, ok := conn.(*connection.SQLServerConnection)
-		if ok {
-			// Fixed settings
-			script.WriteString("diset tpcc mssqls_use_bcp false\n")
-
-			// Connection settings
-			script.WriteString(fmt.Sprintf("diset connection mssqls_linux_server {%s}\n", sqlServerConn.Host))
-			script.WriteString(fmt.Sprintf("diset connection mssqls_port %d\n", sqlServerConn.Port))
-			script.WriteString("diset connection mssqls_odbc_driver {ODBC Driver 17 for SQL Server}\n")
-			script.WriteString("diset connection mssqls_authentication {SQL Server Authentication}\n")
-			script.WriteString(fmt.Sprintf("diset connection mssqls_uid {%s}\n", sqlServerConn.Username))
-			script.WriteString(fmt.Sprintf("diset connection mssqls_pass {%s}\n", sqlServerConn.Password))
-
-			// TPC-C schema settings (no curly braces for database name)
-			script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
-			script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
-			script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
-			script.WriteString("diset tpcc mssqls_durability SCHEMA_AND_DATA\n")
-
-			// Rebuild database and schema from scratch
-			a.buildDatabaseCreationScript(&script, databaseName)
-			script.WriteString("buildschema\n")
-		}
+		a.buildSQLServerConnection(&script, conn)
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
+		script.WriteString("vudestroy\n")
+		script.WriteString("buildschema\n")
 	} else {
 		// Non-SQL Server: use legacy format
 		connectionStr := a.buildConnectionString(conn)
@@ -299,14 +282,12 @@ func (a *HammerDBAdapter) buildSQLServerScript(script *strings.Builder, config *
 	// Phase-specific configuration
 	switch phase {
 	case "prepare":
-		// Create database first (before buildschema)
-		a.buildDatabaseCreationScript(script, databaseName)
-
-		// Build schema phase
+		// Build schema phase using the same HammerDB TCL that is validated manually.
+		script.WriteString(fmt.Sprintf("diset tpcc mssqls_dbase %s\n", databaseName))
 		script.WriteString(fmt.Sprintf("diset tpcc mssqls_count_ware %d\n", warehouses))
 		script.WriteString(fmt.Sprintf("diset tpcc mssqls_num_vu %d\n", buildUsers))
+		script.WriteString("vudestroy\n")
 		script.WriteString("buildschema\n")
-		script.WriteString("waittocomplete\n")
 
 	case "run":
 		// Run benchmark phase with tcstart for real-time monitoring
@@ -368,38 +349,6 @@ func (a *HammerDBAdapter) buildGenericScript(script *strings.Builder, config *Co
 	script.WriteString(fmt.Sprintf("hwmem %s\n", a.getBoolParam(config.Parameters, "hwmem", "false")))
 	script.WriteString(fmt.Sprintf("clearlog %s\n", a.getBoolParam(config.Parameters, "clear_log", "true")))
 	script.WriteString(fmt.Sprintf("logtotemp %s\n", a.getBoolParam(config.Parameters, "log_to_temp", "false")))
-}
-
-// buildDatabaseCreationScript builds TCL script to recreate the SQL Server database with appropriate settings.
-func (a *HammerDBAdapter) buildDatabaseCreationScript(script *strings.Builder, databaseName string) {
-	script.WriteString(fmt.Sprintf("puts \"Rebuilding database %s...\"\n", databaseName))
-	script.WriteString(fmt.Sprintf("set db_exists [tcldb \"IF EXISTS (SELECT name FROM sys.databases WHERE name = '%s') SELECT 1 ELSE SELECT 0\"]\n", databaseName))
-	script.WriteString("if {$db_exists == 1} {\n")
-	script.WriteString(fmt.Sprintf("    puts \"Dropping existing database %s...\"\n", databaseName))
-	script.WriteString(fmt.Sprintf("    tcldb \"ALTER DATABASE [%s] SET SINGLE_USER WITH ROLLBACK IMMEDIATE\"\n", databaseName))
-	script.WriteString(fmt.Sprintf("    tcldb \"DROP DATABASE [%s]\"\n", databaseName))
-	script.WriteString("}\n")
-
-	script.WriteString("puts \"Checking for AlwaysOn availability groups...\"\n")
-	script.WriteString("set is_alwayson [tcldb \"IF EXISTS (SELECT * FROM sys.dm_hadr_ag_replicas WHERE is_local = 1) SELECT 1 ELSE SELECT 0\"]\n")
-	script.WriteString("if {$is_alwayson == 1} {\n")
-	script.WriteString("    puts \"AlwaysOn detected: setting recovery mode to FULL\"\n")
-	script.WriteString("    set recovery_mode \"FULL\"\n")
-	script.WriteString("} else {\n")
-	script.WriteString("    puts \"Standalone instance: setting recovery mode to SIMPLE\"\n")
-	script.WriteString("    set recovery_mode \"SIMPLE\"\n")
-	script.WriteString("}\n")
-
-	script.WriteString(fmt.Sprintf("puts \"Creating database %s with recovery mode $recovery_mode...\"\n", databaseName))
-	createSQL := fmt.Sprintf("CREATE DATABASE [%s] ON PRIMARY (NAME = N'%s_data', FILENAME = N'/var/opt/mssql/data/%s_data.mdf', SIZE = 20480MB, MAXSIZE = UNLIMITED, FILEGROWTH = 500MB) LOG ON (NAME = N'%s_log', FILENAME = N'/var/opt/mssql/data/%s_log.ldf', SIZE = 10240MB, MAXSIZE = UNLIMITED, FILEGROWTH = 500MB)",
-		databaseName, databaseName, databaseName, databaseName, databaseName)
-	script.WriteString(fmt.Sprintf("tcldb {%s}\n", createSQL))
-	script.WriteString(fmt.Sprintf("puts \"Database %s created successfully\"\n", databaseName))
-
-	script.WriteString(fmt.Sprintf("puts \"Setting recovery mode to $recovery_mode for database %s...\"\n", databaseName))
-	script.WriteString(fmt.Sprintf("tcldb \"ALTER DATABASE [%s] SET RECOVERY $recovery_mode WITH NO_WAIT\"\n", databaseName))
-	script.WriteString("puts \"Recovery mode set successfully\"\n")
-	script.WriteString("\n")
 }
 
 // ParseRunOutput parses the output from a hammerdb run.

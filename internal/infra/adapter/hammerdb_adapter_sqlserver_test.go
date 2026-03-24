@@ -189,33 +189,27 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 		if !strings.Contains(buildschemaScript, "diset connection mssqls_linux_server") {
 			t.Errorf("Buildschema script should use 'diset connection mssqls_linux_server', got:\n%s", buildschemaScript)
 		}
-		if !strings.Contains(buildschemaScript, "diset connection mssqls_odbc_driver") {
-			t.Errorf("Buildschema script should set ODBC driver, got:\n%s", buildschemaScript)
-		}
-		if !strings.Contains(buildschemaScript, "diset connection mssqls_authentication") {
-			t.Errorf("Buildschema script should set authentication mode, got:\n%s", buildschemaScript)
+		if !strings.Contains(buildschemaScript, "diset connection mssqls_tcp true") {
+			t.Errorf("Buildschema script should enable TCP, got:\n%s", buildschemaScript)
 		}
 
 		// Verify TPC-C settings
-		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_use_bcp false") {
-			t.Errorf("Buildschema script should set mssqls_use_bcp false, got:\n%s", buildschemaScript)
-		}
 		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_count_ware") {
 			t.Errorf("Buildschema script should set warehouses, got:\n%s", buildschemaScript)
 		}
-		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_durability SCHEMA_AND_DATA") {
-			t.Errorf("Buildschema script should set durability, got:\n%s", buildschemaScript)
+		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_dbase tpcc") {
+			t.Errorf("Buildschema script should set database name, got:\n%s", buildschemaScript)
 		}
 
-		// Verify database operations
-		if !strings.Contains(buildschemaScript, "DROP DATABASE") {
-			t.Errorf("Buildschema script should contain DROP DATABASE, got:\n%s", buildschemaScript)
-		}
-		if !strings.Contains(buildschemaScript, "CREATE DATABASE") {
-			t.Errorf("Buildschema script should contain CREATE DATABASE, got:\n%s", buildschemaScript)
+		// Verify manual-script-compatible buildschema flow
+		if !strings.Contains(buildschemaScript, "vudestroy") {
+			t.Errorf("Buildschema script should reset virtual users before buildschema, got:\n%s", buildschemaScript)
 		}
 		if !strings.Contains(buildschemaScript, "buildschema") {
 			t.Errorf("Buildschema script should contain 'buildschema', got:\n%s", buildschemaScript)
+		}
+		if strings.Contains(buildschemaScript, "tcldb") {
+			t.Errorf("Buildschema script should not contain invalid tcldb command, got:\n%s", buildschemaScript)
 		}
 
 		// Verify uses yes pipe for auto-confirmation

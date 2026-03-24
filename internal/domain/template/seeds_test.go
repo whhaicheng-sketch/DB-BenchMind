@@ -121,6 +121,63 @@ func TestDefaultSeedTemplates_JSONOmitsRemovedMetadataAndCarriesBuiltinTemplateM
 	}
 }
 
+func TestDefaultSeedTemplates_TestProfilesUseSixtySecondRuntime(t *testing.T) {
+	templates := DefaultSeedTemplates()
+	index := map[string]*Template{}
+	for _, tmpl := range templates {
+		index[tmpl.ID] = tmpl
+	}
+
+	for _, id := range []string{"oracle_test", "mysql_test", "sqlserver_test", "postgresql_test"} {
+		tmpl := index[id]
+		if tmpl == nil {
+			t.Fatalf("missing template %s", id)
+		}
+		if tmpl.Runtime.DurationSeconds != 60 {
+			t.Fatalf("%s runtime duration = %d, want 60", id, tmpl.Runtime.DurationSeconds)
+		}
+		if tmpl.Tool == ToolSwingbench {
+			if tmpl.ToolConfig.Swingbench.RunTimeSeconds != 60 {
+				t.Fatalf("%s swingbench runtime = %d, want 60", id, tmpl.ToolConfig.Swingbench.RunTimeSeconds)
+			}
+		}
+	}
+
+	for _, id := range []string{"oracle_cpu_bound", "oracle_io_bound", "mysql_cpu_bound", "mysql_io_bound", "sqlserver_cpu_bound", "sqlserver_io_bound", "postgresql_cpu_bound", "postgresql_io_bound"} {
+		tmpl := index[id]
+		if tmpl == nil {
+			t.Fatalf("missing template %s", id)
+		}
+		if tmpl.Runtime.DurationSeconds == 60 {
+			t.Fatalf("%s runtime duration unexpectedly changed to 60", id)
+		}
+	}
+}
+
+func TestDefaultSeedTemplates_OracleTestUsesManagedXMLPathInsteadOfNarrativeText(t *testing.T) {
+	templates := DefaultSeedTemplates()
+	index := map[string]*Template{}
+	for _, tmpl := range templates {
+		index[tmpl.ID] = tmpl
+	}
+
+	tmpl := index["oracle_test"]
+	if tmpl == nil {
+		t.Fatal("missing oracle_test")
+	}
+
+	got := tmpl.ToolConfig.Swingbench.XMLOverrides
+	if got == "" {
+		t.Fatal("oracle_test xmlOverrides must not be empty")
+	}
+	if got != "../configs/server_side_soe_v2.xml" {
+		t.Fatalf("oracle_test xmlOverrides = %q, want managed XML path", got)
+	}
+	if strings.Contains(got, "沿用") || strings.Contains(got, "cpu_bound") || strings.Contains(got, "9:1") {
+		t.Fatalf("oracle_test xmlOverrides should be a usable config path, got %q", got)
+	}
+}
+
 func containsTextFold(text, target string) bool {
 	return strings.Contains(strings.ToLower(text), strings.ToLower(target))
 }

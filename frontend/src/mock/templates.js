@@ -55,7 +55,7 @@ export const templateMocks = [
     readonly: true,
     source_alignment: 'engineered_minimal',
     prepare_config: { dataset: '1GB' },
-    run_config: { default_users: 32, duration: '180 秒' },
+    run_config: { default_users: 32, duration: '60 秒' },
     cleanup_config: { strategy: '删除 SOE schema 或保留供重复 smoke 使用' },
     metrics: ['TPS', 'TPM'],
     tags: ['builtin', 'oracle', 'test', 'smoke', 'minimal'],
@@ -64,8 +64,8 @@ export const templateMocks = [
     workloadFamily: 'order-entry',
     is_builtin: true,
     version: '1.0.0',
-    runtime: { concurrency: { mode: 'users', value: 32 }, durationSeconds: 180, reportIntervalSeconds: 10, validationEnabled: true },
-    toolConfig: { swingbench: { benchmark: 'orderEntry', frontend: 'charbench', userCount: 32, runTimeSeconds: 180 } }
+    runtime: { concurrency: { mode: 'users', value: 32 }, durationSeconds: 60, reportIntervalSeconds: 10, validationEnabled: true },
+    toolConfig: { swingbench: { benchmark: 'orderEntry', frontend: 'charbench', userCount: 32, runTimeSeconds: 60, xmlOverrides: '../configs/server_side_soe_v2.xml' } }
   }),
   createDefaultTemplate({
     id: 'mysql_cpu_bound',
@@ -118,7 +118,7 @@ export const templateMocks = [
     readonly: true,
     source_alignment: 'engineered_minimal',
     prepare_config: { dataset: '约 0.1GB', params: { tables: 4, table_size: 100000, threads: 8 } },
-    run_config: { params: { threads: 8, time_sec: 120, report_interval: 10 } },
+    run_config: { params: { threads: 8, time_sec: 60, report_interval: 10 } },
     cleanup_config: { strategy: 'sysbench cleanup' },
     metrics: ['TPS', 'QPS'],
     tags: ['builtin', 'mysql', 'test', 'smoke', 'minimal'],
@@ -127,7 +127,7 @@ export const templateMocks = [
     workloadFamily: 'oltp-read-write',
     is_builtin: true,
     version: '1.0.0',
-    runtime: { concurrency: { mode: 'threads', value: 8 }, durationSeconds: 120, reportIntervalSeconds: 10, validationEnabled: true },
+    runtime: { concurrency: { mode: 'threads', value: 8 }, durationSeconds: 60, reportIntervalSeconds: 10, validationEnabled: true },
     toolConfig: { sysbench: { dbDriver: 'mysql', scriptType: 'oltp_read_write', tables: 4, tableSize: 100000 } }
   }),
   createDefaultTemplate({
@@ -184,7 +184,7 @@ export const templateMocks = [
     readonly: true,
     source_alignment: 'engineered_minimal',
     prepare_config: { dataset: '约 2.5GB', params: { warehouses: 10 } },
-    run_config: { params: { virtual_users: 10, time_sec: 300 } },
+    run_config: { params: { virtual_users: 10, time_sec: 60 } },
     cleanup_config: { strategy: '删除 tpcc schema/数据库' },
     metrics: ['TPM', 'TPS'],
     tags: ['builtin', 'sqlserver', 'test', 'smoke', 'minimal'],
@@ -193,7 +193,7 @@ export const templateMocks = [
     workloadFamily: 'tproc-c',
     is_builtin: true,
     version: '1.0.0',
-    runtime: { concurrency: { mode: 'virtualUsers', value: 10 }, durationSeconds: 300, reportIntervalSeconds: 10, validationEnabled: true },
+    runtime: { concurrency: { mode: 'virtualUsers', value: 10 }, durationSeconds: 60, reportIntervalSeconds: 10, validationEnabled: true },
     toolConfig: { hammerdb: { benchmark: 'tproc-c', virtualUsers: 10, warehouses: 10, timeProfile: true } }
   }),
   createDefaultTemplate({
@@ -247,7 +247,7 @@ export const templateMocks = [
     readonly: true,
     source_alignment: 'engineered_minimal',
     prepare_config: { dataset: '约 0.1GB', params: { tables: 4, table_size: 100000, threads: 8 } },
-    run_config: { params: { threads: 8, time_sec: 120, report_interval: 5 } },
+    run_config: { params: { threads: 8, time_sec: 60, report_interval: 5 } },
     cleanup_config: { strategy: 'sysbench cleanup' },
     metrics: ['TPS', 'QPS'],
     tags: ['builtin', 'postgresql', 'test', 'smoke', 'minimal'],
@@ -256,7 +256,7 @@ export const templateMocks = [
     workloadFamily: 'oltp-read-write',
     is_builtin: true,
     version: '1.0.0',
-    runtime: { concurrency: { mode: 'threads', value: 8 }, durationSeconds: 120, reportIntervalSeconds: 5, validationEnabled: true },
+    runtime: { concurrency: { mode: 'threads', value: 8 }, durationSeconds: 60, reportIntervalSeconds: 5, validationEnabled: true },
     toolConfig: { sysbench: { dbDriver: 'pgsql', scriptType: 'oltp_read_write', tables: 4, tableSize: 100000 } }
   })
 ]

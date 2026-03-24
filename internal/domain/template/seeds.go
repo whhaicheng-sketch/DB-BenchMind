@@ -219,6 +219,9 @@ func buildRuntimeNotes(def builtinTemplateDefinition) string {
 }
 
 func buildSwingbenchOverrides(def builtinTemplateDefinition) string {
+	if def.ID == "oracle_test" {
+		return "../configs/server_side_soe_v2.xml"
+	}
 	workloadMix := stringValue(def.Run, "workload_mix")
 	if workloadMix == "" {
 		return ""
@@ -311,6 +314,8 @@ func extractDurationSeconds(def builtinTemplateDefinition) int {
 	}
 	if text := stringValue(def.Run, "duration"); text != "" {
 		switch {
+		case strings.Contains(text, "60"):
+			return 60
 		case strings.Contains(text, "180"):
 			return 180
 		case strings.Contains(text, "300"):
@@ -488,7 +493,7 @@ const defaultBuiltinTemplateJSON = `[
       },
       "default_users": 32,
       "tuning_rule": "不追求峰值，只要求稳定产生 TPS/TPM",
-      "duration": "180 秒",
+      "duration": "60 秒",
       "metrics": ["TPS", "TPM"]
     },
     "cleanup": {
@@ -577,7 +582,7 @@ const defaultBuiltinTemplateJSON = `[
     "run": {
       "params": {
         "threads": 8,
-        "time_sec": 120,
+        "time_sec": 60,
         "report_interval": 10,
         "forced_shutdown": 1,
         "db_ps_mode": "disable"
@@ -660,7 +665,7 @@ const defaultBuiltinTemplateJSON = `[
     "run": {
       "params": {
         "virtual_users": 10,
-        "time_sec": 300
+        "time_sec": 60
       },
       "metrics": ["TPM", "TPS"]
     },
@@ -750,7 +755,7 @@ const defaultBuiltinTemplateJSON = `[
     "run": {
       "params": {
         "threads": 8,
-        "time_sec": 120,
+        "time_sec": 60,
         "report_interval": 5,
         "forced_shutdown": 1,
         "max_requests": 0
