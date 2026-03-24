@@ -1,7 +1,7 @@
 {
   "current_module": "M3",
-  "current_task": "T3.2",
-  "next_task": "T3.3",
+  "current_task": "T3.3",
+  "next_task": "T3.4",
   "done_tasks": [
     "T0.1",
     "T0.2",
@@ -12,7 +12,8 @@
     "T2.2",
     "T2.3",
     "T3.1",
-    "T3.2"
+    "T3.2",
+    "T3.3"
   ],
   "blocked_tasks": [],
   "changed_files": [
@@ -43,8 +44,8 @@
     }
   ],
   "known_risks": [
-    "AutoBench currently exposes only local placeholder connection and profile selection; real connection/template data, suite execution, monitoring, report content, and history integration are intentionally not wired in T3.2.",
-    "Profile metadata and ordering remain frontend-only placeholders, so T3.3 must keep the future plan preview isolated from the existing Tasks Monitor execution semantics.",
+    "AutoBench currently exposes only local placeholder connection/profile selection and local plan preview; real connection/template data, suite execution, monitoring, report content, and history integration are intentionally not wired in T3.3.",
+    "The new Plan Preview is frontend-only and must remain isolated from the existing Tasks Monitor execution semantics until later orchestration tasks.",
     "Repository baseline issue: go test ./internal/domain/... is currently blocked by an existing problem in internal/domain/connection/ssh_tunnel.go."
   ]
 }
