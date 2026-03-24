@@ -54,7 +54,7 @@ export const templateMocks = [
     goal: '最小数据量跑通 Oracle prepare/run/cleanup 链路',
     readonly: true,
     source_alignment: 'engineered_minimal',
-    prepare_config: { dataset: '1GB' },
+    prepare_config: { dataset: '约 0.1GB', params: { scale: 0.1 } },
     run_config: { default_users: 32, duration: '60 秒' },
     cleanup_config: { strategy: '删除 SOE schema 或保留供重复 smoke 使用' },
     metrics: ['TPS', 'TPM'],
@@ -183,7 +183,7 @@ export const templateMocks = [
     goal: '最小数据量跑通 SQL Server prepare/run/cleanup 链路',
     readonly: true,
     source_alignment: 'engineered_minimal',
-    prepare_config: { dataset: '约 2.5GB', params: { warehouses: 10 } },
+    prepare_config: { dataset: '约 0.25GB', params: { warehouses: 1 } },
     run_config: { params: { virtual_users: 10, time_sec: 60 } },
     cleanup_config: { strategy: '删除 tpcc schema/数据库' },
     metrics: ['TPM', 'TPS'],
@@ -194,7 +194,7 @@ export const templateMocks = [
     is_builtin: true,
     version: '1.0.0',
     runtime: { concurrency: { mode: 'virtualUsers', value: 10 }, durationSeconds: 60, reportIntervalSeconds: 10, validationEnabled: true },
-    toolConfig: { hammerdb: { benchmark: 'tproc-c', virtualUsers: 10, warehouses: 10, timeProfile: true } }
+    toolConfig: { hammerdb: { benchmark: 'tproc-c', virtualUsers: 10, warehouses: 1, timeProfile: true } }
   }),
   createDefaultTemplate({
     id: 'postgresql_cpu_bound',

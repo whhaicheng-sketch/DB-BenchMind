@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -1675,6 +1676,10 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 					if !ok {
 						continue
 					}
+					if isIgnorableSampleCollectorError(err) {
+						slog.Debug("Benchmark: Sample collector finished during shutdown", "run_id", run.ID, "error", err)
+						continue
+					}
 					slog.Error("Benchmark: Error from sample collector", "run_id", run.ID, "error", err)
 				}
 			}
@@ -1840,6 +1845,10 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 
 		case err, ok := <-errCh:
 			if !ok {
+				continue
+			}
+			if isIgnorableSampleCollectorError(err) {
+				slog.Debug("Benchmark: Sample collector finished during shutdown", "run_id", run.ID, "error", err)
 				continue
 			}
 			slog.Error("Benchmark: Error from sample collector", "run_id", run.ID, "error", err)
@@ -2329,6 +2338,25 @@ func (uc *BenchmarkUseCase) mirrorOutputStream(ctx context.Context, runID string
 	}()
 
 	return pipeReader
+}
+
+func isIgnorableSampleCollectorError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, fs.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		return true
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	lowerMessage := strings.ToLower(err.Error())
+	return strings.Contains(lowerMessage, "file already closed") ||
+		strings.Contains(lowerMessage, "use of closed file") ||
+		strings.Contains(lowerMessage, "context canceled")
 }
 
 // =============================================================================

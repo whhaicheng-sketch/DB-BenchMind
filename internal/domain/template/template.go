@@ -306,6 +306,7 @@ type ParameterType string
 
 const (
 	ParameterTypeInteger ParameterType = "integer"
+	ParameterTypeNumber  ParameterType = "number"
 	ParameterTypeString  ParameterType = "string"
 	ParameterTypeBoolean ParameterType = "boolean"
 	ParameterTypeEnum    ParameterType = "enum"
@@ -636,6 +637,10 @@ func (p *Parameter) Validate() error {
 		if p.Min != nil && p.Max != nil && *p.Min > *p.Max {
 			return fmt.Errorf("%w: min (%d) > max (%d)", ErrInvalidParameterType, *p.Min, *p.Max)
 		}
+	case ParameterTypeNumber:
+		if p.Min != nil && p.Max != nil && *p.Min > *p.Max {
+			return fmt.Errorf("%w: min (%d) > max (%d)", ErrInvalidParameterType, *p.Min, *p.Max)
+		}
 	case ParameterTypeEnum:
 		if len(p.Options) == 0 {
 			return fmt.Errorf("%w: enum type requires options", ErrInvalidParameterType)
@@ -668,6 +673,26 @@ func (p *Parameter) ValidateDefaultValue() error {
 			p.Default = int(v)
 		default:
 			return fmt.Errorf("default value for integer parameter must be an integer")
+		}
+	case ParameterTypeNumber:
+		switch v := p.Default.(type) {
+		case int:
+			if p.Min != nil && v < *p.Min {
+				return fmt.Errorf("default value (%d) < min (%d)", v, *p.Min)
+			}
+			if p.Max != nil && v > *p.Max {
+				return fmt.Errorf("default value (%d) > max (%d)", v, *p.Max)
+			}
+			p.Default = float64(v)
+		case float64:
+			if p.Min != nil && v < float64(*p.Min) {
+				return fmt.Errorf("default value (%v) < min (%d)", v, *p.Min)
+			}
+			if p.Max != nil && v > float64(*p.Max) {
+				return fmt.Errorf("default value (%v) > max (%d)", v, *p.Max)
+			}
+		default:
+			return fmt.Errorf("default value for number parameter must be numeric")
 		}
 	case ParameterTypeString:
 		if _, ok := p.Default.(string); !ok {

@@ -2,7 +2,7 @@
   "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
   "id": "swingbench-oracle-test",
   "name": "Swingbench Oracle Test",
-  "description": "Lightweight test template for quick Oracle testing (1GB data, balanced read/write mix)",
+  "description": "Lightweight test template for quick Oracle testing (0.1GB data, balanced read/write mix)",
   "tool": "swingbench",
   "database_types": ["oracle"],
   "version": "1.0.0",
@@ -22,10 +22,10 @@
       "max": 1440
     },
     "scale": {
-      "type": "integer",
+      "type": "number",
       "label": "Data size scale (1 = 1GB)",
-      "default": 1,
-      "min": 1,
+      "default": 0.1,
+      "min": 0,
       "max": 1000
     },
     "username": {
@@ -87,6 +87,6 @@
     },
     "workload_type": "test",
     "target": "Quick testing - balanced read/write mix",
-    "data_size_gb": 1
+    "data_size_gb": 0.1
   }
 }

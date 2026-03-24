@@ -2,7 +2,7 @@
   "$schema": "https://db-benchmind.dev/schemas/template/v1.json",
   "id": "hammerdb-sqlserver-test",
   "name": "Test (HammerDB)",
-  "description": "Lightweight test template for quick SQL Server testing (1 warehouse, rampup time configurable in tasks)",
+  "description": "Lightweight test template for quick SQL Server testing (1 warehouse, minimal dataset, rampup time configurable in tasks)",
   "tool": "hammerdb",
   "database_types": ["sqlserver"],
   "version": "1.0.0",
@@ -17,7 +17,7 @@
     "warehouses": {
       "type": "integer",
       "label": "Number of warehouses",
-      "default": 10,
+      "default": 1,
       "min": 1,
       "max": 1000
     },

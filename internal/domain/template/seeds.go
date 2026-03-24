@@ -82,8 +82,39 @@ func buildBuiltinTemplate(def builtinTemplateDefinition, createdAt string) *Temp
 		Runtime:    runtime,
 		ToolConfig: buildToolConfig(def, dbFamily, workloadFamily, runtime),
 	}
+	tmpl.Parameters = buildLegacyParameters(def)
 	tmpl.Normalize()
 	return tmpl
+}
+
+func buildLegacyParameters(def builtinTemplateDefinition) map[string]Parameter {
+	parameters := map[string]Parameter{}
+
+	switch mapBuiltinTool(def.Tool) {
+	case ToolSwingbench:
+		parameters["scale"] = Parameter{
+			Type:    ParameterTypeInteger,
+			Label:   "Scale",
+			Default: 1,
+			Min:     intPtr(1),
+		}
+		if def.ID == "oracle_test" {
+			parameters["scale"] = Parameter{
+				Type:    ParameterTypeNumber,
+				Label:   "Scale",
+				Default: 0.1,
+			}
+		}
+	case ToolHammerDB:
+		parameters["warehouses"] = Parameter{
+			Type:    ParameterTypeInteger,
+			Label:   "Warehouses",
+			Default: extractPrepareInt(def.Prepare, "warehouses", 10),
+			Min:     intPtr(1),
+		}
+	}
+
+	return parameters
 }
 
 func mapBuiltinTool(tool string) string {
@@ -474,8 +505,11 @@ const defaultBuiltinTemplateJSON = `[
     "source_alignment": "engineered_minimal",
     "goal": "最小数据量跑通 Oracle prepare/run/cleanup 链路",
     "prepare": {
-      "dataset": "1GB",
-      "notes": "沿用文档默认的无特殊要求初始化量，优先保证快速完成",
+      "dataset": "约 0.1GB",
+      "params": {
+        "scale": 0.1
+      },
+      "notes": "工程化最小规模，不用于性能结论",
       "pre_steps": [
         "确保 SOE 表空间存在",
         "使用 oewizard 创建 schema"
@@ -656,11 +690,11 @@ const defaultBuiltinTemplateJSON = `[
     "source_alignment": "engineered_minimal",
     "goal": "最小数据量跑通 SQL Server prepare/run/cleanup 链路",
     "prepare": {
-      "dataset": "约 2.5GB",
+      "dataset": "约 0.25GB",
       "params": {
-        "warehouses": 10
+        "warehouses": 1
       },
-      "notes": "相对 100 仓库基线缩小 10 倍，保证初始化更快"
+      "notes": "工程化最小规模，不用于性能结论"
     },
     "run": {
       "params": {

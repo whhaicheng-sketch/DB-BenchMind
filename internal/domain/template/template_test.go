@@ -186,6 +186,15 @@ func TestTemplate_Validate_InvalidParameter(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid number parameter",
+			param: Parameter{
+				Type:    ParameterTypeNumber,
+				Label:   "Scale",
+				Default: 0.1,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -195,6 +204,18 @@ func TestTemplate_Validate_InvalidParameter(t *testing.T) {
 				t.Errorf("Parameter.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParameter_ValidateDefaultValue_AllowsFloatForNumberType(t *testing.T) {
+	param := Parameter{
+		Type:    ParameterTypeNumber,
+		Label:   "Scale",
+		Default: 0.1,
+	}
+
+	if err := param.ValidateDefaultValue(); err != nil {
+		t.Fatalf("ValidateDefaultValue() returned error: %v", err)
 	}
 }
 

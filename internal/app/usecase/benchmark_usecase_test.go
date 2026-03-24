@@ -4,7 +4,9 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +24,43 @@ import (
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 )
+
+func TestIsIgnorableSampleCollectorError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "closed file error is ignored",
+			err:  fmt.Errorf("scan stdout: %w", fs.ErrClosed),
+			want: true,
+		},
+		{
+			name: "context canceled is ignored",
+			err:  context.Canceled,
+			want: true,
+		},
+		{
+			name: "deadline exceeded is ignored",
+			err:  context.DeadlineExceeded,
+			want: true,
+		},
+		{
+			name: "real scanner failure is not ignored",
+			err:  errors.New("scan stdout: token too long"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isIgnorableSampleCollectorError(tt.err); got != tt.want {
+				t.Fatalf("isIgnorableSampleCollectorError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestOracleSwingbenchRunPreflight_FailsForInvalidWorkloadCredentials(t *testing.T) {
 	restoreUserExists := oracleSwingbenchPreflightUserExists

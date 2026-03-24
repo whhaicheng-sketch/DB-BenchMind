@@ -127,7 +127,11 @@ test('template fallback data keeps all built-in test templates at 60 second defa
   }
 
   assert.match(blocks.oracle_test, /runTimeSeconds:\s*60/)
+  assert.match(blocks.oracle_test, /dataset:\s*'约 0\.1GB'/)
+  assert.match(blocks.oracle_test, /scale:\s*0\.1/)
   assert.match(blocks.oracle_test, /xmlOverrides:\s*'\.\.\/configs\/server_side_soe_v2\.xml'/)
+  assert.match(blocks.sqlserver_test, /dataset:\s*'约 0\.25GB'/)
+  assert.match(blocks.sqlserver_test, /warehouses:\s*1/)
   assert.doesNotMatch(blocks.mysql_test, /durationSeconds:\s*120/)
   assert.doesNotMatch(blocks.oracle_test, /durationSeconds:\s*180/)
   assert.doesNotMatch(blocks.sqlserver_test, /durationSeconds:\s*300/)

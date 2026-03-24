@@ -178,6 +178,36 @@ func TestDefaultSeedTemplates_OracleTestUsesManagedXMLPathInsteadOfNarrativeText
 	}
 }
 
+func TestDefaultSeedTemplates_MinimalOracleAndSQLServerTestsUseSmallestDatasetDefaults(t *testing.T) {
+	templates := DefaultSeedTemplates()
+	index := map[string]*Template{}
+	for _, tmpl := range templates {
+		index[tmpl.ID] = tmpl
+	}
+
+	oracleTest := index["oracle_test"]
+	if oracleTest == nil {
+		t.Fatal("missing oracle_test")
+	}
+	if oracleTest.Parameters["scale"].Type != ParameterTypeNumber {
+		t.Fatalf("oracle_test scale type = %s, want %s", oracleTest.Parameters["scale"].Type, ParameterTypeNumber)
+	}
+	if got := oracleTest.Parameters["scale"].Default; got != 0.1 {
+		t.Fatalf("oracle_test scale default = %v, want 0.1", got)
+	}
+
+	sqlServerTest := index["sqlserver_test"]
+	if sqlServerTest == nil {
+		t.Fatal("missing sqlserver_test")
+	}
+	if got := sqlServerTest.Parameters["warehouses"].Default; got != float64(1) && got != 1 {
+		t.Fatalf("sqlserver_test warehouses default = %v, want 1", got)
+	}
+	if got := sqlServerTest.ToolConfig.HammerDB.Warehouses; got != 1 {
+		t.Fatalf("sqlserver_test hammerdb warehouses = %d, want 1", got)
+	}
+}
+
 func containsTextFold(text, target string) bool {
 	return strings.Contains(strings.ToLower(text), strings.ToLower(target))
 }
