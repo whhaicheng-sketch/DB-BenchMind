@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"os/exec"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/bindings"
@@ -13,6 +14,8 @@ import (
 var runBenchmarkCleanup = func(ctx context.Context, cmd string) error {
 	return exec.CommandContext(ctx, "bash", "-lc", cmd).Run()
 }
+
+const benchmarkCleanupTimeout = 3 * time.Second
 
 // App provides the main application bindings for Wails.
 type App struct {
@@ -74,7 +77,10 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) Shutdown(ctx context.Context) {
 	slog.Info("Wails App: shutdown called")
 
-	if err := runBenchmarkCleanup(ctx, benchmarkCleanupCommand()); err != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), benchmarkCleanupTimeout)
+	defer cancel()
+
+	if err := runBenchmarkCleanup(cleanupCtx, benchmarkCleanupCommand()); err != nil {
 		slog.Warn("Wails App: benchmark cleanup failed during shutdown", "error", err)
 	}
 }

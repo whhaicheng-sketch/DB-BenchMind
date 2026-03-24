@@ -27,7 +27,7 @@ func TestBenchmarkCleanupCommandContainsManagedProcessPatterns(t *testing.T) {
 
 func TestAppShutdownInvokesBenchmarkCleanup(t *testing.T) {
 	called := false
-	gotCtx := context.Background()
+	var gotCtx context.Context
 	gotCmd := ""
 
 	restore := runBenchmarkCleanup
@@ -48,11 +48,44 @@ func TestAppShutdownInvokesBenchmarkCleanup(t *testing.T) {
 	if !called {
 		t.Fatal("Shutdown() did not invoke benchmark cleanup")
 	}
-	if gotCtx != ctx {
-		t.Fatal("Shutdown() passed unexpected context to cleanup")
+	if gotCtx == nil {
+		t.Fatal("Shutdown() did not pass a context to cleanup")
 	}
 	if gotCmd != benchmarkCleanupCommand() {
 		t.Fatalf("Shutdown() cleanup cmd = %q, want %q", gotCmd, benchmarkCleanupCommand())
+	}
+}
+
+func TestAppShutdownUsesIndependentCleanupContextWhenShutdownContextCancelled(t *testing.T) {
+	called := false
+	errAtCleanup := error(nil)
+	hadDeadline := false
+
+	restore := runBenchmarkCleanup
+	runBenchmarkCleanup = func(ctx context.Context, cmd string) error {
+		called = true
+		errAtCleanup = ctx.Err()
+		_, hadDeadline = ctx.Deadline()
+		return nil
+	}
+	defer func() {
+		runBenchmarkCleanup = restore
+	}()
+
+	app := NewApp()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	app.Shutdown(ctx)
+
+	if !called {
+		t.Fatal("Shutdown() did not invoke benchmark cleanup")
+	}
+	if errAtCleanup != nil {
+		t.Fatalf("Shutdown() passed cancelled cleanup context: %v", errAtCleanup)
+	}
+	if !hadDeadline {
+		t.Fatal("Shutdown() cleanup context should have a deadline")
 	}
 }
 
