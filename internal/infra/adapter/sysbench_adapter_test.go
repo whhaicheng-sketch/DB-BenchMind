@@ -90,6 +90,73 @@ func TestSysbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	}
 }
 
+func TestSysbenchAdapter_BuildPrepareCommand_RebuildsEnvironmentBeforePrepare(t *testing.T) {
+	ctx := context.Background()
+	adapter := NewSysbenchAdapter()
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{
+			ID:   "test-conn-rebuild",
+			Name: "Test MySQL Rebuild",
+		},
+		Host:     "localhost",
+		Port:     3306,
+		Database: "sbtest",
+		Username: "root",
+		Password: "password",
+	}
+
+	config := &Config{
+		Connection: conn,
+		Template: &template.Template{
+			ID:             "mysql_test",
+			Name:           "MySQL Test",
+			Tool:           template.ToolSysbench,
+			DBFamily:       "mysql",
+			WorkloadFamily: "oltp-read-write",
+			Runtime: template.Runtime{
+				Concurrency:     template.Concurrency{Mode: "threads", Value: 8},
+				DurationSeconds: 120,
+			},
+			ToolConfig: template.ToolConfig{
+				Sysbench: template.SysbenchConfig{
+					DBDriver:   "mysql",
+					ScriptType: "oltp_read_write",
+					Tables:     4,
+					TableSize:  100000,
+				},
+			},
+		},
+		Parameters: map[string]interface{}{
+			"tables":     4,
+			"table_size": 100000,
+		},
+		WorkDir: "/tmp/work",
+	}
+	config.Template.Normalize()
+
+	cmd, err := adapter.BuildPrepareCommand(ctx, config)
+	if err != nil {
+		t.Fatalf("BuildPrepareCommand() failed: %v", err)
+	}
+
+	if len(cmd.Commands) != 2 {
+		t.Fatalf("prepare should rebuild with cleanup + prepare sequence, got %d steps", len(cmd.Commands))
+	}
+	if cmd.Commands[0].StepName != "Cleanup Existing Environment" {
+		t.Fatalf("step 1 = %s, want Cleanup Existing Environment", cmd.Commands[0].StepName)
+	}
+	if !strings.Contains(cmd.Commands[0].CmdLine, "cleanup") {
+		t.Fatalf("cleanup step should run sysbench cleanup, got %s", cmd.Commands[0].CmdLine)
+	}
+	if cmd.Commands[1].StepName != "Prepare Benchmark Data" {
+		t.Fatalf("step 2 = %s, want Prepare Benchmark Data", cmd.Commands[1].StepName)
+	}
+	if !strings.Contains(cmd.Commands[1].CmdLine, "prepare") {
+		t.Fatalf("prepare step should run sysbench prepare, got %s", cmd.Commands[1].CmdLine)
+	}
+}
+
 // TestSysbenchAdapter_BuildRunCommand tests run command building.
 func TestSysbenchAdapter_BuildRunCommand(t *testing.T) {
 	ctx := context.Background()

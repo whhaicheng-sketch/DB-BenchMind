@@ -18,22 +18,32 @@ func NewTemplateBinding(uc *usecase.TemplateUseCase) *TemplateBinding {
 }
 
 type TemplateDTO struct {
-	ID             string                       `json:"id"`
-	Name           string                       `json:"name"`
-	Description    string                       `json:"description"`
-	Tool           string                       `json:"tool"`
-	DBFamily       string                       `json:"dbFamily"`
-	WorkloadFamily string                       `json:"workloadFamily"`
-	IsBuiltin      bool                         `json:"is_builtin"`
-	Version        string                       `json:"version"`
-	CreatedAt      string                       `json:"createdAt"`
-	Compatibility  domaintemplate.Compatibility `json:"compatibility"`
-	Phases         domaintemplate.PhaseSet      `json:"phases"`
-	Runtime        domaintemplate.Runtime       `json:"runtime"`
-	ToolConfig     domaintemplate.ToolConfig    `json:"toolConfig"`
-	DatabaseTypes  []string                     `json:"database_types"`
-	Parameters     map[string]ParamDTO          `json:"parameters,omitempty"`
-	CustomData     map[string]interface{}       `json:"custom_data,omitempty"`
+	ID              string                       `json:"id"`
+	Name            string                       `json:"name"`
+	Description     string                       `json:"description"`
+	Tool            string                       `json:"tool"`
+	ProfileType     string                       `json:"profile_type"`
+	Goal            string                       `json:"goal"`
+	Readonly        bool                         `json:"readonly"`
+	SourceAlignment string                       `json:"source_alignment"`
+	PrepareConfig   map[string]interface{}       `json:"prepare_config"`
+	RunConfig       map[string]interface{}       `json:"run_config"`
+	CleanupConfig   map[string]interface{}       `json:"cleanup_config"`
+	Metrics         []string                     `json:"metrics"`
+	Tags            []string                     `json:"tags"`
+	TestPosition    string                       `json:"test_position"`
+	DBFamily        string                       `json:"dbFamily"`
+	WorkloadFamily  string                       `json:"workloadFamily"`
+	IsBuiltin       bool                         `json:"is_builtin"`
+	Version         string                       `json:"version"`
+	CreatedAt       string                       `json:"createdAt"`
+	Compatibility   domaintemplate.Compatibility `json:"compatibility"`
+	Phases          domaintemplate.PhaseSet      `json:"phases"`
+	Runtime         domaintemplate.Runtime       `json:"runtime"`
+	ToolConfig      domaintemplate.ToolConfig    `json:"toolConfig"`
+	DatabaseTypes   []string                     `json:"database_types"`
+	Parameters      map[string]ParamDTO          `json:"parameters,omitempty"`
+	CustomData      map[string]interface{}       `json:"custom_data,omitempty"`
 }
 
 type ParamDTO struct {
@@ -226,22 +236,32 @@ func (b *TemplateBinding) toDTO(t *domaintemplate.Template) TemplateDTO {
 		}
 	}
 	return TemplateDTO{
-		ID:             t.ID,
-		Name:           t.Name,
-		Description:    t.Description,
-		Tool:           t.Tool,
-		DBFamily:       t.DBFamily,
-		WorkloadFamily: t.WorkloadFamily,
-		IsBuiltin:      t.IsBuiltin,
-		Version:        t.Version,
-		CreatedAt:      t.CreatedAt,
-		Compatibility:  t.Compatibility,
-		Phases:         t.Phases,
-		Runtime:        t.Runtime,
-		ToolConfig:     t.ToolConfig,
-		DatabaseTypes:  append([]string{}, t.DatabaseTypes...),
-		Parameters:     params,
-		CustomData:     t.CustomData,
+		ID:              t.ID,
+		Name:            t.Name,
+		Description:     t.Description,
+		Tool:            t.Tool,
+		ProfileType:     t.ProfileType,
+		Goal:            t.Goal,
+		Readonly:        t.IsReadOnly(),
+		SourceAlignment: t.SourceAlignment,
+		PrepareConfig:   t.PrepareConfig,
+		RunConfig:       t.RunConfig,
+		CleanupConfig:   t.CleanupConfig,
+		Metrics:         append([]string{}, t.Metrics...),
+		Tags:            append([]string{}, t.Tags...),
+		TestPosition:    t.TestPosition,
+		DBFamily:        t.DBFamily,
+		WorkloadFamily:  t.WorkloadFamily,
+		IsBuiltin:       t.IsBuiltin,
+		Version:         t.Version,
+		CreatedAt:       t.CreatedAt,
+		Compatibility:   t.Compatibility,
+		Phases:          t.Phases,
+		Runtime:         t.Runtime,
+		ToolConfig:      t.ToolConfig,
+		DatabaseTypes:   append([]string{}, t.DatabaseTypes...),
+		Parameters:      params,
+		CustomData:      t.CustomData,
 	}
 }
 
@@ -260,22 +280,32 @@ func (b *TemplateBinding) fromDTO(dto TemplateDTO) *domaintemplate.Template {
 	}
 
 	tmpl := &domaintemplate.Template{
-		ID:             dto.ID,
-		Name:           dto.Name,
-		Description:    dto.Description,
-		Tool:           dto.Tool,
-		DBFamily:       dto.DBFamily,
-		WorkloadFamily: dto.WorkloadFamily,
-		IsBuiltin:      dto.IsBuiltin,
-		Version:        dto.Version,
-		CreatedAt:      dto.CreatedAt,
-		Compatibility:  dto.Compatibility,
-		Phases:         dto.Phases,
-		Runtime:        dto.Runtime,
-		ToolConfig:     dto.ToolConfig,
-		DatabaseTypes:  dto.DatabaseTypes,
-		Parameters:     params,
-		CustomData:     dto.CustomData,
+		ID:              dto.ID,
+		Name:            dto.Name,
+		Description:     dto.Description,
+		Tool:            dto.Tool,
+		ProfileType:     dto.ProfileType,
+		Goal:            dto.Goal,
+		Readonly:        dto.Readonly,
+		SourceAlignment: dto.SourceAlignment,
+		PrepareConfig:   dto.PrepareConfig,
+		RunConfig:       dto.RunConfig,
+		CleanupConfig:   dto.CleanupConfig,
+		Metrics:         dto.Metrics,
+		Tags:            dto.Tags,
+		TestPosition:    dto.TestPosition,
+		DBFamily:        dto.DBFamily,
+		WorkloadFamily:  dto.WorkloadFamily,
+		IsBuiltin:       dto.IsBuiltin,
+		Version:         dto.Version,
+		CreatedAt:       dto.CreatedAt,
+		Compatibility:   dto.Compatibility,
+		Phases:          dto.Phases,
+		Runtime:         dto.Runtime,
+		ToolConfig:      dto.ToolConfig,
+		DatabaseTypes:   dto.DatabaseTypes,
+		Parameters:      params,
+		CustomData:      dto.CustomData,
 	}
 	tmpl.Normalize()
 	return tmpl

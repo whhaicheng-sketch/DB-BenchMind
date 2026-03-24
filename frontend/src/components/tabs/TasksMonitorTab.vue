@@ -422,16 +422,12 @@ const concurrencyKey = computed(() => {
 
 const concurrencyLabel = computed(() => concurrencyKey.value === 'threads' ? 'Threads' : 'Virtual Users')
 const showThreads = computed(() => !!selectedTemplate.value)
-const actionOptions = computed(() => {
-  const phases = selectedTemplate.value?.phases || {}
-  const allowFullPipeline = Boolean(phases.prepare?.enabled && phases.run?.enabled && phases.cleanup?.enabled)
-  return [
-    { value: 'prepare', label: 'Prepare', disabled: !phases.prepare?.enabled },
-    { value: 'run', label: 'Run', disabled: !phases.run?.enabled },
-    { value: 'cleanup', label: 'Cleanup', disabled: !phases.cleanup?.enabled },
-    { value: 'full_pipeline', label: 'Run Full Flow (Prepare -> Run -> Cleanup)', disabled: !allowFullPipeline }
-  ]
-})
+const actionOptions = computed(() => [
+  { value: 'prepare', label: 'Prepare', disabled: false },
+  { value: 'run', label: 'Run', disabled: false },
+  { value: 'cleanup', label: 'Cleanup', disabled: false },
+  { value: 'full_pipeline', label: 'Run Full Flow (Prepare -> Run -> Cleanup)', disabled: false }
+])
 const selectedActionOption = computed(() => actionOptions.value.find((action) => action.value === draft.action) || null)
 const canPreview = computed(() => !!draft.database_type && !!draft.template_id && !!draft.connection_id && selectedActionOption.value && !selectedActionOption.value.disabled)
 const canStart = computed(() => canPreview.value && !taskBinding.value.startBlocked)

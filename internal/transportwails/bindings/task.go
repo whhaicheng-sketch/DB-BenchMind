@@ -756,9 +756,9 @@ func buildPhaseExecutionConfig(baseParams map[string]interface{}, phase domainta
 
 func templateSnapshot(tmpl *domaintemplate.Template, params map[string]interface{}) domaintask.TemplateSnapshot {
 	phases := map[string]bool{
-		"prepare": tmpl.Phases.Prepare.Enabled || tmpl.CommandTemplate.Prepare != "",
-		"run":     tmpl.Phases.Run.Enabled || tmpl.CommandTemplate.Run != "",
-		"cleanup": tmpl.Phases.Cleanup.Enabled || tmpl.CommandTemplate.Cleanup != "",
+		"prepare": true,
+		"run":     true,
+		"cleanup": true,
 	}
 	return domaintask.TemplateSnapshot{
 		ID:             tmpl.ID,

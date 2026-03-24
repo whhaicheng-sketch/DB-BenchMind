@@ -395,11 +395,13 @@ func (uc *TemplateUseCase) prepareTemplateForCreate(tmpl *domaintemplate.Templat
 	tmpl.Normalize()
 	tmpl.CreatedAt = now
 	tmpl.IsBuiltin = false
+	tmpl.Readonly = false
 }
 
 func (uc *TemplateUseCase) prepareTemplateForUpdate(existing, incoming *domaintemplate.Template) {
 	incoming.Normalize()
 	incoming.ID = existing.ID
 	incoming.IsBuiltin = existing.IsBuiltin
+	incoming.Readonly = existing.IsReadOnly()
 	incoming.CreatedAt = existing.CreatedAt
 }

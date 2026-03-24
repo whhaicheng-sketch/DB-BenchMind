@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintask "github.com/whhaicheng/DB-BenchMind/internal/domain/task"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
+	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/collector"
 )
 
@@ -88,10 +90,10 @@ func TestTemplateSnapshot_OnlyUsesRuntimeLifecyclePhases(t *testing.T) {
 		DBFamily:       "oracle",
 		WorkloadFamily: "order-entry",
 		Phases: domaintemplate.PhaseSet{
-			Prepare:  domaintemplate.PhaseConfig{Enabled: true},
-			Warmup:   domaintemplate.PhaseConfig{Enabled: true},
-			Run:      domaintemplate.PhaseConfig{Enabled: true, Required: true},
-			Cleanup:  domaintemplate.PhaseConfig{Enabled: true},
+			Prepare: domaintemplate.PhaseConfig{Enabled: true},
+			Warmup:  domaintemplate.PhaseConfig{Enabled: true},
+			Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+			Cleanup: domaintemplate.PhaseConfig{Enabled: true},
 		},
 		Runtime: domaintemplate.Runtime{
 			Concurrency:     domaintemplate.Concurrency{Mode: "users", Value: 8},
@@ -329,6 +331,63 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 	})
 }
 
+func TestBuiltinTestTemplates_ResolveParamsAndBuildCommands(t *testing.T) {
+	registry := adapter.NewAdapterRegistry()
+	registry.Register(adapter.NewSysbenchAdapter())
+	registry.Register(adapter.NewSwingbenchAdapter())
+	registry.Register(adapter.NewHammerDBAdapter())
+	var exercised int
+
+	for _, tmpl := range domaintemplate.DefaultSeedTemplates() {
+		if tmpl.ProfileType != "test" {
+			continue
+		}
+		exercised++
+
+		params, err := resolveParams(tmpl, nil)
+		if err != nil {
+			t.Fatalf("%s resolveParams() failed: %v", tmpl.ID, err)
+		}
+
+		conn := testConnectionForTemplate(t, tmpl)
+		cfg := &adapter.Config{
+			Connection: conn,
+			Template:   tmpl,
+			Parameters: params,
+			WorkDir:    t.TempDir(),
+		}
+
+		adapt := registry.GetByTool(tmpl.Tool)
+		if adapt == nil {
+			t.Fatalf("%s adapter missing for tool %s", tmpl.ID, tmpl.Tool)
+		}
+
+		prepareCmd, err := adapt.BuildPrepareCommand(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("%s BuildPrepareCommand() failed: %v", tmpl.ID, err)
+		}
+		runCmd, err := adapt.BuildRunCommand(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("%s BuildRunCommand() failed: %v", tmpl.ID, err)
+		}
+		cleanupCmd, err := adapt.BuildCleanupCommand(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("%s BuildCleanupCommand() failed: %v", tmpl.ID, err)
+		}
+
+		if tmpl.Tool == domaintemplate.ToolSysbench && len(prepareCmd.Commands) < 2 {
+			t.Fatalf("%s sysbench test prepare must rebuild environment with cleanup + prepare sequence", tmpl.ID)
+		}
+		if prepareCmd == nil || runCmd == nil || cleanupCmd == nil {
+			t.Fatalf("%s commands must all be built", tmpl.ID)
+		}
+	}
+
+	if exercised != 4 {
+		t.Fatalf("exercised %d builtin test templates, want 4", exercised)
+	}
+}
+
 func TestSyncTaskTimingFromPhaseHistory(t *testing.T) {
 	base := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
 	prepareEnd := base.Add(33 * time.Second)
@@ -367,6 +426,53 @@ func TestSyncTaskTimingFromPhaseHistory(t *testing.T) {
 	}
 	if got := task.Timing.RunDurationInputMs; got != 60_000 {
 		t.Fatalf("RunDurationInputMs = %d, want 60000", got)
+	}
+}
+
+func testConnectionForTemplate(t *testing.T, tmpl *domaintemplate.Template) connection.Connection {
+	t.Helper()
+
+	switch tmpl.DBFamily {
+	case "mysql":
+		return &connection.MySQLConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"},
+			Host:           "127.0.0.1",
+			Port:           3306,
+			Database:       "sbtest",
+			Username:       "root",
+			Password:       "secret",
+		}
+	case "postgresql":
+		return &connection.PostgreSQLConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-pg", Name: "PostgreSQL"},
+			Host:           "127.0.0.1",
+			Port:           5432,
+			Database:       "sbtest",
+			Username:       "postgres",
+			Password:       "secret",
+		}
+	case "oracle":
+		return &connection.OracleConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-oracle", Name: "Oracle"},
+			Host:           "127.0.0.1",
+			Port:           1521,
+			ServiceName:    "ORCL",
+			Username:       "sys",
+			Password:       "manager",
+			ConnectAs:      "sysdba",
+		}
+	case "sqlserver":
+		return &connection.SQLServerConnection{
+			BaseConnection: connection.BaseConnection{ID: "conn-sqlserver", Name: "SQL Server"},
+			Host:           "127.0.0.1",
+			Port:           1433,
+			Database:       "tpcc",
+			Username:       "sa",
+			Password:       "Password!123",
+		}
+	default:
+		t.Fatalf("unsupported db family %s", tmpl.DBFamily)
+		return nil
 	}
 }
 

@@ -84,17 +84,34 @@ test('templates UI no longer renders removed metadata fields or filters', () => 
   assert.doesNotMatch(listSource, /scope or tag filters/i)
 })
 
-test('template fallback data keeps only the single default test template without removed metadata fields', () => {
-  assert.equal((mockTemplatesSource.match(/createDefaultTemplate\(/g) || []).length, 1)
-  assert.match(mockTemplatesSource, /id:\s*'tpl_test_mysql_sysbench'/)
-  assert.doesNotMatch(mockTemplatesSource, /\bscope:\s*|\\bstatus:\s*|\btags:\s*|updatedAt/)
-  assert.doesNotMatch(mockTemplatesSource, /tpl_test_postgresql_sysbench|tpl_test_oracle_swingbench|tpl_test_sqlserver_hammerdb|tpl_sys_mysql_rw|tpl_swing_oe/)
+test('template fallback data ships the 12 built-in database templates with profile metadata', () => {
+  assert.equal((mockTemplatesSource.match(/createDefaultTemplate\(/g) || []).length, 12)
+  for (const id of [
+    'oracle_cpu_bound',
+    'oracle_io_bound',
+    'oracle_test',
+    'mysql_cpu_bound',
+    'mysql_io_bound',
+    'mysql_test',
+    'sqlserver_cpu_bound',
+    'sqlserver_io_bound',
+    'sqlserver_test',
+    'postgresql_cpu_bound',
+    'postgresql_io_bound',
+    'postgresql_test'
+  ]) {
+    assert.match(mockTemplatesSource, new RegExp(`id:\\s*'${id}'`))
+  }
+  assert.match(mockTemplatesSource, /profile_type:\s*'cpu_bound'/)
+  assert.match(mockTemplatesSource, /source_alignment:\s*'engineered_split_from_baseline'/)
+  assert.match(mockTemplatesSource, /test_position:\s*'smoke'/)
+  assert.doesNotMatch(mockTemplatesSource, /\bscope:\s*|\\bstatus:\s*|updatedAt/)
 })
 
 test('template model and store only keep compact filters and four lifecycle phases', () => {
   assert.match(modelSource, /export const PHASE_KEYS = \[\s*'prepare',\s*'warmup',\s*'run',\s*'cleanup'\s*\]/)
   assert.match(modelSource, /export function createPhaseState\(overrides = \{\}\)\s*\{\s*return \{\s*prepare: createPhaseConfig\(overrides\.prepare, \{ enabled: false, required: false \}\),\s*warmup: createPhaseConfig\(overrides\.warmup, \{ enabled: false, required: false \}\),\s*run: createPhaseConfig\(overrides\.run, \{ enabled: true, required: true \}\),\s*cleanup: createPhaseConfig\(overrides\.cleanup, \{ enabled: false, required: false \}\)\s*\}\s*\}/s)
-  assert.doesNotMatch(modelSource, /scope:\s*partial\.scope|tags:\s*partial\.tags|status:\s*partial\.status|updatedAt:\s*partial\.updatedAt/)
+  assert.doesNotMatch(modelSource, /scope:\s*partial\.scope|status:\s*partial\.status|updatedAt:\s*partial\.updatedAt/)
   assert.doesNotMatch(modelSource, /build:\s*\{|generate:\s*\{|verify:\s*\{|delete:\s*\{/)
   assert.doesNotMatch(storeSource, /scopeLabels|statusLabels|allTags|filters\.scope|filters\.tag|canEditScope|canDeleteScope|template\.scope|template\.tags|template\.status|updatedAt/)
 })
@@ -130,6 +147,17 @@ test('template preview and editor copy no longer surface removed phase guidance 
   assert.doesNotMatch(previewSectionSource, /Lifecycle|phase-grid|phase-pill|Prepare -> Run -> Cleanup/)
   assert.match(editorDialogSource, /Built-in template/)
   assert.match(editorDialogSource, /Copy in the template list/)
+})
+
+test('template detail surfaces built-in profile metadata and engineered split notes', () => {
+  assert.match(previewSectionSource, /Profile/)
+  assert.match(previewSectionSource, /Source Alignment/)
+  assert.match(previewSectionSource, /Metrics/)
+  assert.match(previewSectionSource, /Prepare/)
+  assert.match(previewSectionSource, /Run/)
+  assert.match(previewSectionSource, /Cleanup/)
+  assert.match(previewSectionSource, /Smoke/)
+  assert.match(previewSectionSource, /Engineered/)
 })
 
 test('template store opens built-in templates in readonly view, opens custom templates in editing mode, and close only discards local draft state', () => {
@@ -202,6 +230,13 @@ test('wails template models drop removed metadata fields from the frontend bindi
 
   assert.ok(templateDtoBlock, 'TemplateDTO block not found')
   assert.ok(phaseSetBlock, 'PhaseSet block not found')
-  assert.doesNotMatch(templateDtoBlock[0], /scope:\s*string;|tags:\s*string\[];|status:\s*string;|updatedAt:\s*string;/)
+  assert.match(templateDtoBlock[0], /profile_type:\s*string;/)
+  assert.match(templateDtoBlock[0], /source_alignment:\s*string;/)
+  assert.match(templateDtoBlock[0], /prepare_config:\s*Record<string, any>;/)
+  assert.match(templateDtoBlock[0], /run_config:\s*Record<string, any>;/)
+  assert.match(templateDtoBlock[0], /cleanup_config:\s*Record<string, any>;/)
+  assert.match(templateDtoBlock[0], /metrics:\s*string\[];/)
+  assert.match(templateDtoBlock[0], /tags:\s*string\[];/)
+  assert.doesNotMatch(templateDtoBlock[0], /scope:\s*string;|status:\s*string;|updatedAt:\s*string;/)
   assert.doesNotMatch(phaseSetBlock[0], /build:\s*PhaseConfig;|generate:\s*PhaseConfig;|verify:\s*PhaseConfig;|delete:\s*PhaseConfig;/)
 })

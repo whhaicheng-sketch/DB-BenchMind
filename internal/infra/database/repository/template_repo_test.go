@@ -143,14 +143,25 @@ func TestTemplateRepository_LoadBuiltinTemplates_SyncsToSingleDefaultTestTemplat
 	if err != nil {
 		t.Fatalf("FindAll() failed: %v", err)
 	}
-	if len(all) != 1 {
-		t.Fatalf("expected 1 template after sync, got %d", len(all))
+	if len(all) != 14 {
+		t.Fatalf("expected 14 templates after sync, got %d", len(all))
 	}
-	if all[0].ID != "tpl_test_mysql_sysbench" {
-		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+
+	foundBuiltin := false
+	foundCustom := false
+	for _, tmpl := range all {
+		if tmpl.ID == "oracle_cpu_bound" && tmpl.IsBuiltin {
+			foundBuiltin = true
+		}
+		if tmpl.ID == "legacy-user" && !tmpl.IsBuiltin {
+			foundCustom = true
+		}
 	}
-	if !all[0].IsBuiltin {
-		t.Fatal("remaining template should be builtin")
+	if !foundBuiltin {
+		t.Fatal("expected refreshed builtin oracle_cpu_bound after sync")
+	}
+	if !foundCustom {
+		t.Fatal("expected legacy custom template to survive builtin sync")
 	}
 }
 
@@ -160,7 +171,7 @@ func TestTemplateRepository_LoadBuiltinTemplates_ExistingDefaultTemplateKeepsSta
 	defer db.Close()
 
 	repo := NewTemplateRepository(db)
-	defaultTemplate := newTemplate("tpl_test_mysql_sysbench", true)
+	defaultTemplate := newTemplate("mysql_test", true)
 	defaultTemplate.Name = "stale default"
 	defaultTemplate.CreatedAt = "2026-01-01T00:00:00Z"
 	defaultTemplate.Normalize()
@@ -174,13 +185,13 @@ func TestTemplateRepository_LoadBuiltinTemplates_ExistingDefaultTemplateKeepsSta
 		t.Fatalf("seed legacy builtin template: %v", err)
 	}
 
-	beforeRowID := templateRowID(t, db, "tpl_test_mysql_sysbench")
+	beforeRowID := templateRowID(t, db, "mysql_test")
 
 	if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
 		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
 	}
 
-	afterRowID := templateRowID(t, db, "tpl_test_mysql_sysbench")
+	afterRowID := templateRowID(t, db, "mysql_test")
 	if beforeRowID != afterRowID {
 		t.Fatalf("default template rowid changed from %d to %d; template was recreated instead of updated", beforeRowID, afterRowID)
 	}
@@ -189,11 +200,20 @@ func TestTemplateRepository_LoadBuiltinTemplates_ExistingDefaultTemplateKeepsSta
 	if err != nil {
 		t.Fatalf("FindAll() failed: %v", err)
 	}
-	if len(all) != 1 {
-		t.Fatalf("expected 1 template after sync, got %d", len(all))
+	if len(all) != 13 {
+		t.Fatalf("expected 13 templates after sync, got %d", len(all))
 	}
-	if all[0].Name != "MySQL - Sysbench Test" {
-		t.Fatalf("default template was not refreshed to latest seed content: %s", all[0].Name)
+	found := false
+	for _, tmpl := range all {
+		if tmpl.ID == "mysql_test" {
+			found = true
+			if tmpl.Name != "MySQL Test" {
+				t.Fatalf("mysql_test was not refreshed to latest seed content: %s", tmpl.Name)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("mysql_test must exist after sync")
 	}
 }
 
@@ -214,11 +234,11 @@ func TestTemplateRepository_LoadBuiltinTemplates_IsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindAll() failed: %v", err)
 	}
-	if len(all) != 1 {
-		t.Fatalf("expected 1 template after repeated sync, got %d", len(all))
+	if len(all) != 12 {
+		t.Fatalf("expected 12 templates after repeated sync, got %d", len(all))
 	}
-	if all[0].ID != "tpl_test_mysql_sysbench" {
-		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	if _, err := repo.FindByID(ctx, "postgresql_test"); err != nil {
+		t.Fatalf("postgresql_test should exist after repeated sync: %v", err)
 	}
 }
 
@@ -237,11 +257,11 @@ func TestTemplateRepository_LoadBuiltinTemplates_FreshInstallCreatesOnlyDefaultT
 	if err != nil {
 		t.Fatalf("FindAll() failed: %v", err)
 	}
-	if len(all) != 1 {
-		t.Fatalf("expected 1 template after fresh install sync, got %d", len(all))
+	if len(all) != 12 {
+		t.Fatalf("expected 12 templates after fresh install sync, got %d", len(all))
 	}
-	if all[0].ID != "tpl_test_mysql_sysbench" {
-		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	if _, err := repo.FindByID(ctx, "sqlserver_io_bound"); err != nil {
+		t.Fatalf("sqlserver_io_bound should exist after fresh install sync: %v", err)
 	}
 }
 
@@ -251,7 +271,7 @@ func TestTemplateRepository_LoadBuiltinTemplates_PreservesDependenciesForDefault
 	defer db.Close()
 
 	repo := NewTemplateRepository(db)
-	defaultTemplate := newTemplate("tpl_test_mysql_sysbench", true)
+	defaultTemplate := newTemplate("mysql_test", true)
 	defaultTemplate.Name = "stale default"
 	defaultTemplate.Normalize()
 	if err := repo.Save(ctx, defaultTemplate); err != nil {
@@ -263,7 +283,7 @@ func TestTemplateRepository_LoadBuiltinTemplates_PreservesDependenciesForDefault
 
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO tasks (id, name, connection_id, template_id, parameters_json, options_json, tags, created_at, updated_at)
-		VALUES ('task-default', 'Task Default', 'conn-1', 'tpl_test_mysql_sysbench', '{}', '{}', '', '2026-03-20T00:00:00Z', '2026-03-20T00:00:00Z')
+		VALUES ('task-default', 'Task Default', 'conn-1', 'mysql_test', '{}', '{}', '', '2026-03-20T00:00:00Z', '2026-03-20T00:00:00Z')
 	`); err != nil {
 		t.Fatalf("seed task referencing default template: %v", err)
 	}
@@ -279,7 +299,7 @@ func TestTemplateRepository_LoadBuiltinTemplates_PreservesDependenciesForDefault
 	if count != 1 {
 		t.Fatalf("expected dependent task to survive sync, got count %d", count)
 	}
-	if templateRowID(t, db, "tpl_test_mysql_sysbench") == 0 {
+	if templateRowID(t, db, "mysql_test") == 0 {
 		t.Fatal("default template should still exist after sync")
 	}
 }

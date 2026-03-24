@@ -134,15 +134,36 @@ func (a *SysbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Confi
 
 	cmdArgs = append(cmdArgs, "prepare")
 
-	cmdLine := strings.Join(cmdArgs, " ")
+	prepareCmdLine := strings.Join(cmdArgs, " ")
 
-	slog.Info("SysbenchAdapter: Built prepare command",
-		"cmd", cmdLine)
+	cleanupCmd, err := a.BuildCleanupCommand(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("build cleanup step for prepare: %w", err)
+	}
+
+	prepareStep := &Command{
+		StepName: "Prepare Benchmark Data",
+		CmdLine:  prepareCmdLine,
+		WorkDir:  config.WorkDir,
+		Env:      a.buildEnvVars(conn),
+	}
+
+	cleanupStep := &Command{
+		StepName: "Cleanup Existing Environment",
+		CmdLine:  cleanupCmd.CmdLine,
+		WorkDir:  cleanupCmd.WorkDir,
+		Env:      cleanupCmd.Env,
+	}
+
+	slog.Info("SysbenchAdapter: Built prepare command sequence",
+		"cleanup_cmd", cleanupStep.CmdLine,
+		"prepare_cmd", prepareStep.CmdLine)
 
 	return &Command{
-		CmdLine: cmdLine,
-		WorkDir: config.WorkDir,
-		Env:     a.buildEnvVars(conn),
+		CmdLine:  prepareCmdLine,
+		WorkDir:  config.WorkDir,
+		Env:      a.buildEnvVars(conn),
+		Commands: []*Command{cleanupStep, prepareStep},
 	}, nil
 }
 
@@ -177,15 +198,15 @@ func (a *SysbenchAdapter) BuildRunCommand(ctx context.Context, config *Config) (
 		cmdArgs = append(cmdArgs, fmt.Sprintf("--time=%d", runTime))
 	}
 	if rate, ok := config.Parameters["rate"].(int); ok && rate > 0 {
-	// Add warmup (rampup) time
-	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
-		cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
-	}
+		// Add warmup (rampup) time
+		if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
+			cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
+		}
 		cmdArgs = append(cmdArgs, fmt.Sprintf("--rate=%d", rate))
-	// Add warmup (rampup) time
-	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
-		cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
-	}
+		// Add warmup (rampup) time
+		if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {
+			cmdArgs = append(cmdArgs, fmt.Sprintf("--warmup-time=%d", warmupTime))
+		}
 	}
 	// Add warmup (rampup) time
 	if warmupTime, ok := config.Parameters["rampup"].(int); ok && warmupTime > 0 {

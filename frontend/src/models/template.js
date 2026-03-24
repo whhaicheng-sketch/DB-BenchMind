@@ -27,6 +27,19 @@ export const WORKLOAD_LABELS = {
   'tproc-h': 'TPROC-H'
 }
 
+export const PROFILE_TYPE_LABELS = {
+  cpu_bound: 'CPU Bound',
+  io_bound: 'IO Bound',
+  test: 'Test'
+}
+
+export const SOURCE_ALIGNMENT_LABELS = {
+  direct_from_doc: 'Direct From Doc',
+  direct_from_doc_as_baseline: 'Direct From Doc Baseline',
+  engineered_split_from_baseline: 'Engineered Split',
+  engineered_minimal: 'Engineered Minimal'
+}
+
 export const CONCURRENCY_MODE_LABELS = {
   threads: 'Threads',
   users: 'Users',
@@ -87,6 +100,16 @@ export function createDefaultTemplate(partial = {}) {
     name: partial.name ?? 'New Template',
     description: partial.description ?? '',
     tool: partial.tool ?? 'sysbench',
+    profile_type: partial.profile_type ?? '',
+    goal: partial.goal ?? '',
+    readonly: partial.readonly ?? !!partial.is_builtin,
+    source_alignment: partial.source_alignment ?? '',
+    prepare_config: partial.prepare_config ?? {},
+    run_config: partial.run_config ?? {},
+    cleanup_config: partial.cleanup_config ?? {},
+    metrics: partial.metrics ?? [],
+    tags: partial.tags ?? [],
+    test_position: partial.test_position ?? '',
     dbFamily: partial.dbFamily ?? 'mysql',
     workloadFamily: partial.workloadFamily ?? 'oltp-read-write',
     is_builtin: partial.is_builtin ?? false,
@@ -157,6 +180,7 @@ export function normalizeTemplateRecord(template = {}) {
   const normalized = createDefaultTemplate(template)
   normalized.phases = normalizePhasesForTool(normalized.tool, normalized.phases)
   normalized.database_types = template.database_types ?? [normalized.dbFamily]
+  normalized.readonly = normalized.readonly ?? !!normalized.is_builtin
   return normalized
 }
 

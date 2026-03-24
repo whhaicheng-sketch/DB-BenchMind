@@ -637,10 +637,13 @@ func TestTemplate_FromJSON_IgnoresRemovedMetadataFieldsFromLegacyPayload(t *test
 		t.Fatalf("ToJSON() returned error: %v", err)
 	}
 
-	for _, forbidden := range []string{`"scope"`, `"status"`, `"tags"`, `"updatedAt"`} {
+	for _, forbidden := range []string{`"scope"`, `"status"`, `"updatedAt"`} {
 		if strings.Contains(string(serialized), forbidden) {
 			t.Fatalf("serialized template must omit removed metadata field %s: %s", forbidden, string(serialized))
 		}
+	}
+	if !strings.Contains(string(serialized), `"tags"`) {
+		t.Fatalf("serialized template should preserve canonical tags metadata: %s", string(serialized))
 	}
 }
 

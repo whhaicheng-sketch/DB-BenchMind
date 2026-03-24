@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
@@ -69,9 +70,19 @@ func (m *mockTemplateRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (m *mockTemplateRepository) LoadBuiltinTemplates(ctx context.Context, templates []*domaintemplate.Template) error {
+	keep := map[string]struct{}{}
 	for _, tmpl := range templates {
 		clone, _ := tmpl.Clone()
 		m.templates[tmpl.ID] = clone
+		keep[tmpl.ID] = struct{}{}
+	}
+	for id, tmpl := range m.templates {
+		if !tmpl.IsBuiltin {
+			continue
+		}
+		if _, ok := keep[id]; !ok {
+			delete(m.templates, id)
+		}
 	}
 	return nil
 }
@@ -140,18 +151,25 @@ func TestTemplateUseCase_LoadBuiltinTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTemplates() failed: %v", err)
 	}
-	if len(all) != 1 {
-		t.Fatalf("expected 1 seeded template, got %d", len(all))
+	if len(all) != 12 {
+		t.Fatalf("expected 12 seeded templates, got %d", len(all))
 	}
-	if all[0].ID != "tpl_test_mysql_sysbench" {
-		t.Fatalf("seeded template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	for _, id := range []string{"oracle_cpu_bound", "mysql_test", "sqlserver_io_bound", "postgresql_cpu_bound"} {
+		if _, err := uc.GetTemplate(ctx, id); err != nil {
+			t.Fatalf("GetTemplate(%s) failed: %v", id, err)
+		}
 	}
 }
 
-func TestTemplateUseCase_LoadBuiltinTemplates_OnlyKeepsDefaultTestTemplate(t *testing.T) {
+func TestTemplateUseCase_LoadBuiltinTemplates_KeepsCustomTemplatesAndRefreshesBuiltinSet(t *testing.T) {
 	ctx := context.Background()
 	repo := newMockTemplateRepository()
 	uc := NewTemplateUseCase(repo, "")
+
+	custom := newCanonicalTemplate("user-template", false)
+	if err := uc.CreateTemplate(ctx, custom); err != nil {
+		t.Fatalf("CreateTemplate() failed: %v", err)
+	}
 
 	if err := uc.LoadBuiltinTemplates(ctx); err != nil {
 		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
@@ -162,19 +180,12 @@ func TestTemplateUseCase_LoadBuiltinTemplates_OnlyKeepsDefaultTestTemplate(t *te
 		t.Fatalf("ListTemplates() failed: %v", err)
 	}
 
-	if len(all) != 1 {
-		t.Fatalf("expected 1 template after loading seeds, got %d", len(all))
+	if len(all) != 13 {
+		t.Fatalf("expected 13 templates after loading seeds with one custom template, got %d", len(all))
 	}
 
-	tmpl := all[0]
-	if tmpl.ID != "tpl_test_mysql_sysbench" {
-		t.Fatalf("template id = %s, want tpl_test_mysql_sysbench", tmpl.ID)
-	}
-	if tmpl.Tool != domaintemplate.ToolSysbench {
-		t.Fatalf("template tool = %s, want %s", tmpl.Tool, domaintemplate.ToolSysbench)
-	}
-	if !tmpl.SupportsDatabase("mysql") {
-		t.Fatal("default test template must support mysql")
+	if _, err := uc.GetTemplate(ctx, "user-template"); err != nil {
+		t.Fatalf("custom template should survive builtin reload: %v", err)
 	}
 }
 
@@ -196,6 +207,35 @@ func TestTemplateUseCase_CreateTemplate_DoesNotRequireRemovedMetadataFields(t *t
 	}
 	if saved.IsBuiltin {
 		t.Fatal("saved template should stay editable")
+	}
+}
+
+func TestTemplateUseCase_DuplicateBuiltinTemplateCreatesEditableCopy(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockTemplateRepository()
+	uc := NewTemplateUseCase(repo, "")
+
+	if err := uc.LoadBuiltinTemplates(ctx); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	copy, err := uc.DuplicateTemplate(ctx, "oracle_cpu_bound")
+	if err != nil {
+		t.Fatalf("DuplicateTemplate() failed: %v", err)
+	}
+	if copy.IsBuiltin {
+		t.Fatal("duplicate of builtin template must become custom")
+	}
+	if copy.ProfileType != "cpu_bound" {
+		t.Fatalf("duplicate profileType = %s, want cpu_bound", copy.ProfileType)
+	}
+	if !strings.Contains(copy.Name, "Copy") {
+		t.Fatalf("duplicate name = %s, want Copy suffix", copy.Name)
+	}
+
+	copy.Description = "customized copy"
+	if err := uc.UpdateTemplate(ctx, copy); err != nil {
+		t.Fatalf("UpdateTemplate() for duplicated builtin failed: %v", err)
 	}
 }
 

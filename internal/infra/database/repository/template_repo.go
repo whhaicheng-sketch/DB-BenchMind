@@ -207,8 +207,8 @@ func (r *TemplateRepository) LoadBuiltinTemplates(ctx context.Context, templates
 		for i, id := range keepIDs {
 			args[i] = id
 		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM templates WHERE id NOT IN ("+placeholders+")", args...); err != nil {
-			return fmt.Errorf("delete non-default templates: %w", err)
+		if _, err := tx.ExecContext(ctx, "DELETE FROM templates WHERE is_builtin = 1 AND id NOT IN ("+placeholders+")", args...); err != nil {
+			return fmt.Errorf("delete stale builtin templates: %w", err)
 		}
 	}
 

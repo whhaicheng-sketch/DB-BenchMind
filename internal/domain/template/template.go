@@ -95,10 +95,10 @@ var (
 		},
 	}
 	allowedPhases = map[string]struct{}{
-		"prepare":  {},
-		"warmup":   {},
-		"run":      {},
-		"cleanup":  {},
+		"prepare": {},
+		"warmup":  {},
+		"run":     {},
+		"cleanup": {},
 	}
 )
 
@@ -113,6 +113,17 @@ type Template struct {
 	Version     string `json:"version"`
 	CreatedAt   string `json:"createdAt,omitempty"`
 	IsBuiltin   bool   `json:"is_builtin,omitempty"`
+	ProfileType string `json:"profile_type,omitempty"`
+	Goal        string `json:"goal,omitempty"`
+	Readonly    bool   `json:"readonly,omitempty"`
+
+	SourceAlignment string                 `json:"source_alignment,omitempty"`
+	PrepareConfig   map[string]interface{} `json:"prepare_config,omitempty"`
+	RunConfig       map[string]interface{} `json:"run_config,omitempty"`
+	CleanupConfig   map[string]interface{} `json:"cleanup_config,omitempty"`
+	Metrics         []string               `json:"metrics,omitempty"`
+	Tags            []string               `json:"tags,omitempty"`
+	TestPosition    string                 `json:"test_position,omitempty"`
 
 	// Current canonical model used by Templates UI/backend CRUD.
 	DBFamily       string        `json:"dbFamily,omitempty"`
@@ -345,6 +356,7 @@ func (t *Template) Normalize() {
 	if len(t.Compatibility.SupportedDatabases) == 0 && t.DBFamily != "" {
 		t.Compatibility.SupportedDatabases = []string{t.DBFamily}
 	}
+	t.Readonly = t.IsBuiltin
 	t.Phases.normalize(t.Tool)
 	t.Runtime.normalize()
 	t.ToolConfig.normalize(t.Tool, t.DBFamily, t.WorkloadFamily, t.Runtime.Concurrency.Value)
@@ -434,7 +446,7 @@ func (c *ToolConfig) normalize(tool, dbFamily, workload string, concurrency int)
 
 // IsReadOnly returns true when the template cannot be updated/deleted directly.
 func (t *Template) IsReadOnly() bool {
-	return t.IsBuiltin
+	return t.IsBuiltin || t.Readonly
 }
 
 // SupportsDatabase checks if the template supports a specific database type.
