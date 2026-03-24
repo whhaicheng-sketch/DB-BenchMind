@@ -352,6 +352,7 @@ import { useTaskStore } from '../../stores/task'
 import { useTemplateStore } from '../../stores/template'
 import { getOracleSwingbenchMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
 import { resolveTasksMonitorBinding } from './tasksMonitorTaskState.mjs'
+import { getPreferredTemplateId } from './tasksMonitorTemplateSelection.mjs'
 import { buildStatusStripModel } from './tasksMonitorStatusStrip.mjs'
 
 const appStore = useAppStore()
@@ -603,6 +604,7 @@ onMounted(async () => {
   await Promise.all([templateStore.loadTemplates?.() || templateStore.fetchTemplates?.() || Promise.resolve(), connectionStore.fetchConnections(), taskStore.fetchTasks()])
   restoreDraft()
   sanitizeDraftState()
+  applyPreferredTemplateSelection()
   taskStore.startPolling()
   clockTimer = setInterval(() => {
     nowTick.value = Date.now()
@@ -661,12 +663,14 @@ watch(() => draft.database_type, (databaseType) => {
   if (selectedTemplate.value && !(selectedTemplate.value.dbFamily === databaseType || selectedTemplate.value.database_types?.includes(databaseType))) {
     draft.template_id = ''
   }
+  applyPreferredTemplateSelection({ preferTestTemplate: true })
 })
 
 watch(() => draft.connection_id, () => {
   if (selectedTemplate.value && !filteredTemplates.value.some((template) => template.id === selectedTemplate.value.id)) {
     draft.template_id = ''
   }
+  applyPreferredTemplateSelection({ preferTestTemplate: true })
 })
 
 watch(actionOptions, (options) => {
@@ -1069,6 +1073,19 @@ function runtimeOverridesSummary() {
     parts.push(`${concurrencyKey.value}=${Number(draft.overrides[concurrencyKey.value] || 0)}`)
   }
   return parts.join(', ')
+}
+
+function applyPreferredTemplateSelection({ preferTestTemplate = false } = {}) {
+  if (!draft.database_type || !filteredTemplates.value.length) return
+  if (draft.template_id && !preferTestTemplate) return
+
+  const preferredTemplateId = getPreferredTemplateId(filteredTemplates.value, {
+    fallbackTemplateId: draft.template_id
+  })
+
+  if (preferredTemplateId && preferredTemplateId !== draft.template_id) {
+    draft.template_id = preferredTemplateId
+  }
 }
 
 function restoreDraft() {
