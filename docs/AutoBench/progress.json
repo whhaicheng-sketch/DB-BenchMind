@@ -1,0 +1,30 @@
+{
+  "current_module": "M0",
+  "current_task": "T0.2",
+  "next_task": "T1.1",
+  "done_tasks": [
+    "T0.1",
+    "T0.2"
+  ],
+  "blocked_tasks": [],
+  "changed_files": [
+    "docs/AutoBench/progress.md",
+    "docs/AutoBench/progress.json",
+    "docs/AutoBench/autobench_tasks.md",
+    "frontend/tests/autobenchProgressDocs.test.mjs"
+  ],
+  "test_results": [
+    {
+      "command": "node --test frontend/tests/autobenchProgressDocs.test.mjs",
+      "status": "pass"
+    },
+    {
+      "command": "cd frontend && node --test tests/connectionFormRemote.test.mjs tests/connectionsTabAggregatedAiTest.test.mjs tests/connectionsTabBadges.test.mjs tests/templatesTab.test.mjs tests/tasksMonitorConnectionDefaults.test.mjs tests/tasksMonitorTemplateSelection.test.mjs tests/tasksMonitorPerformanceMetrics.test.mjs tests/tasksMonitorOracleSwingbench.test.mjs tests/tasksMonitorStatusStrip.test.mjs tests/tasksMonitorTaskState.test.mjs tests/taskBinding.test.mjs tests/appNavigation.test.mjs tests/appStore.test.mjs",
+      "status": "pass"
+    }
+  ],
+  "known_risks": [
+    "AutoBench implementation has not started; only progress infrastructure is in place.",
+    "Subsequent rounds must execute only the task named in next_task."
+  ]
+}

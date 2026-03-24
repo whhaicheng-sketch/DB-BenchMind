@@ -96,7 +96,7 @@ func buildLegacyParameters(def builtinTemplateDefinition) map[string]Parameter {
 			Type:    ParameterTypeInteger,
 			Label:   "Scale",
 			Default: 1,
-			Min:     intPtr(1),
+			Min:     intRef(1),
 		}
 		if def.ID == "oracle_test" {
 			parameters["scale"] = Parameter{
@@ -110,7 +110,7 @@ func buildLegacyParameters(def builtinTemplateDefinition) map[string]Parameter {
 			Type:    ParameterTypeInteger,
 			Label:   "Warehouses",
 			Default: extractPrepareInt(def.Prepare, "warehouses", 10),
-			Min:     intPtr(1),
+			Min:     intRef(1),
 		}
 	}
 
