@@ -7,8 +7,7 @@
       </div>
       <div v-if="templates.length > 0" class="table-head">
         <span>Name</span>
-        <span>Attributes</span>
-        <span>Updated</span>
+        <span>Config</span>
         <span>Actions</span>
       </div>
     </div>
@@ -16,7 +15,7 @@
     <div v-if="allCount === 0" class="state-wrap">
       <TemplateEmptyState
         title="No templates yet"
-        description="Create your first benchmark scenario template to start building reusable workload definitions."
+        description="Create a template to get started."
         primary-label="Create Template"
         @primary="templateStore.createTemplate()"
       />
@@ -25,7 +24,7 @@
     <div v-else-if="templates.length === 0" class="state-wrap">
       <TemplateEmptyState
         :title="hasSearchOnly ? 'No search results' : 'No templates match current filters'"
-        :description="hasSearchOnly ? 'Try another keyword or clear the search box.' : 'Adjust database, tool, scope or tag filters to broaden the result set.'"
+        :description="hasSearchOnly ? 'Try another keyword.' : 'Change the database or tool filter.'"
         primary-label="Reset Filters"
         @primary="$emit('reset-filters')"
       />
@@ -94,12 +93,12 @@ const templateStore = useTemplateStore()
 }
 
 .panel-header {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-light);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: var(--spacing-md);
+  gap: 10px;
   flex-wrap: wrap;
   background-color: var(--bg-secondary);
 }
@@ -118,10 +117,10 @@ const templateStore = useTemplateStore()
 }
 
 .table-head {
-  min-width: 540px;
+  min-width: 420px;
   display: grid;
-  grid-template-columns: minmax(280px, 1.4fr) minmax(280px, 1fr) 140px 150px;
-  gap: var(--spacing-md);
+  grid-template-columns: minmax(280px, 1.6fr) minmax(240px, 1fr) 150px;
+  gap: 10px;
   font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -133,7 +132,7 @@ const templateStore = useTemplateStore()
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-sm);
+  padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -144,7 +143,7 @@ const templateStore = useTemplateStore()
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-lg);
+  padding: 16px;
 }
 
 @media (max-width: 920px) {

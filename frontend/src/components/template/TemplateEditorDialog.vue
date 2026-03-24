@@ -11,36 +11,18 @@
             <span class="mode-badge">{{ editorLabel }}</span>
             <span class="mode-badge badge-db">{{ templateStore.dbFamilyLabels[activeTemplate.dbFamily] }}</span>
             <span class="mode-badge badge-tool">{{ templateStore.toolLabels[activeTemplate.tool] }}</span>
-            <span class="mode-badge muted">{{ templateStore.scopeLabels[activeTemplate.scope] }}</span>
-            <span class="mode-badge muted">{{ templateStore.statusLabels[activeTemplate.status] }}</span>
+            <span v-if="activeTemplate.is_builtin" class="mode-badge muted">Built-in</span>
             <span v-if="templateStore.isDirty" class="mode-badge dirty">Unsaved changes</span>
           </div>
           <h2 class="dialog-title">{{ activeTemplate.name }}</h2>
-          <p class="dialog-subtitle">{{ activeTemplate.description }}</p>
-        </div>
-
-        <div class="header-side">
-          <div class="mode-switch">
-            <button
-              v-for="mode in editorModes"
-              :key="mode.value"
-              class="mode-btn"
-              :class="{ active: templateStore.editorMode === mode.value }"
-              @click="templateStore.editorMode = mode.value"
-            >
-              {{ mode.label }}
-            </button>
-          </div>
-
-          <button class="close-btn" aria-label="Close template editor" @click="templateStore.closeEditor()">Close</button>
         </div>
       </header>
 
       <div class="dialog-body">
-        <div v-if="isReadonlyScope && templateStore.editorState === 'view'" class="readonly-banner">
+        <div v-if="isReadonlyTemplate && templateStore.editorState === 'view'" class="readonly-banner">
           <div>
-            <strong>{{ readonlyBannerTitle }}</strong>
-            <span> {{ readonlyBannerBody }}</span>
+            <strong>Built-in template</strong>
+            <span> Use Copy in the template list to create an editable duplicate.</span>
           </div>
         </div>
 
@@ -59,42 +41,14 @@
       </div>
 
       <footer class="dialog-footer">
-        <div class="footer-left">
-          <button
-            v-if="templateStore.editorState === 'view' && canDirectEdit"
-            class="btn btn-secondary"
-            @click="templateStore.startEditing()"
-          >
-            Edit Template
-          </button>
-          <button
-            v-if="canDeleteSelected"
-            class="btn btn-danger"
-            @click="templateStore.requestDeleteTemplate()"
-          >
-            Delete
-          </button>
-          <button
-            v-if="templateStore.editorState === 'editing' || templateStore.editorState === 'creating'"
-            class="btn btn-ghost"
-            @click="handleCancel"
-          >
-            Cancel
-          </button>
-        </div>
-
-        <div class="footer-right">
-          <button
-            class="btn btn-primary"
-            :disabled="isSaveBlocked"
-            @click="handleSave"
-          >
-            Save
-          </button>
-          <button class="btn btn-secondary" @click="handleSaveAs">Save As</button>
-          <button class="btn btn-secondary" @click="handleCreateTask">Create Task from Template</button>
-          <button class="btn btn-ghost" @click="templateStore.closeEditor()">Close</button>
-        </div>
+        <button
+          class="btn btn-primary"
+          :disabled="isSaveBlocked"
+          @click="handleSave"
+        >
+          Save
+        </button>
+        <button class="btn btn-secondary" @click="templateStore.closeEditor()">Close</button>
       </footer>
     </section>
   </div>
@@ -105,78 +59,27 @@ import { computed } from 'vue'
 import TemplateBasicSection from './TemplateBasicSection.vue'
 import TemplatePreviewSection from './TemplatePreviewSection.vue'
 import TemplateRuntimeSection from './TemplateRuntimeSection.vue'
-import { useAppStore } from '../../stores/app'
 import { useTemplateStore } from '../../stores/template'
 
 const templateStore = useTemplateStore()
-const appStore = useAppStore()
-
-const editorModes = [
-  { value: 'standard', label: 'Standard' },
-  { value: 'advanced', label: 'Advanced' },
-  { value: 'expert', label: 'Expert' }
-]
 
 const activeTemplate = computed(() => templateStore.activeTemplate)
 const isReadOnly = computed(() => templateStore.editorState === 'view')
-const canDirectEdit = computed(() => ['user', 'project', 'test'].includes(templateStore.selectedTemplate?.scope))
-const canDeleteSelected = computed(() => ['user', 'test'].includes(templateStore.selectedTemplate?.scope))
-const isReadonlyScope = computed(() => ['builtin', 'readonlyShared'].includes(templateStore.selectedTemplate?.scope))
-const isSaveBlocked = computed(() => isReadOnly.value && isReadonlyScope.value)
+const isReadonlyTemplate = computed(() => !!templateStore.selectedTemplate?.is_builtin)
+const isSaveBlocked = computed(() => isReadOnly.value && isReadonlyTemplate.value)
 const editorLabel = computed(() => {
   if (templateStore.editorState === 'creating') return 'New Template'
   if (templateStore.editorState === 'editing') return 'Editing'
   return 'Overview'
 })
-const readonlyBannerTitle = computed(() => {
-  if (templateStore.selectedTemplate?.scope === 'readonlyShared') {
-    return 'Readonly Shared templates are read-only.'
-  }
-  return 'Built-in templates are read-only.'
-})
-const readonlyBannerBody = computed(() => {
-  if (templateStore.selectedTemplate?.scope === 'readonlyShared') {
-    return 'Use Save As to create your own editable copy, or create a task directly from the shared template.'
-  }
-  return 'Use Save As to create a user-editable copy before making changes.'
-})
-
-const handleCancel = () => {
-  if (templateStore.editorState === 'creating') {
-    templateStore.closeEditor()
-    return
-  }
-
-  templateStore.cancelEditing()
-}
 
 const handleSave = () => {
   if (isReadOnly.value) {
-    if (['user', 'project', 'test'].includes(templateStore.selectedTemplate?.scope)) {
-      templateStore.showNotice('Switch to edit mode before saving updates.', 'info')
-    } else {
-      templateStore.placeholderAction('unsupportedEdit')
-    }
+    templateStore.showNotice('Built-in templates are read-only. Use Copy in the template list to create an editable duplicate.', 'info')
     return
   }
 
   templateStore.saveTemplate()
-}
-
-const handleSaveAs = () => {
-  if (['builtin', 'readonlyShared'].includes(templateStore.selectedTemplate?.scope) && templateStore.editorState === 'view') {
-    templateStore.placeholderAction('readonlySaveAs')
-  }
-
-  templateStore.saveAsTemplate()
-}
-
-const handleCreateTask = () => {
-  const payload = templateStore.createTaskFromTemplate()
-  if (!payload) return
-
-  appStore.queueTemplateForTask(payload)
-  templateStore.showNotice(`Task shell opened in Tasks & Monitor for template "${payload.templateName}".`, 'success')
 }
 </script>
 
@@ -185,23 +88,23 @@ const handleCreateTask = () => {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(2, 6, 23, 0.76);
+  background: rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 16px;
 }
 
 .editor-dialog {
-  width: min(80vw, 1360px);
-  height: min(86vh, 980px);
+  width: min(76vw, 1240px);
+  height: min(82vh, 900px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  border-radius: 18px;
-  border: 1px solid #334155;
-  background: linear-gradient(180deg, #111827 0%, #0b1220 100%);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 
@@ -209,9 +112,10 @@ const handleCreateTask = () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 18px;
-  padding: 20px 22px 18px;
-  border-bottom: 1px solid #1f2937;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .header-main {
@@ -221,174 +125,115 @@ const handleCreateTask = () => {
 .badge-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 5px;
+  margin-bottom: 6px;
 }
 
 .mode-badge {
-  padding: 4px 9px;
+  padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  background: rgba(59, 130, 246, 0.16);
-  color: #93c5fd;
+  background: var(--primary-light);
+  color: var(--primary);
 }
 
 .mode-badge.badge-db {
-  background: rgba(14, 165, 233, 0.16);
-  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
 }
 
 .mode-badge.badge-tool {
-  background: rgba(16, 185, 129, 0.16);
-  color: #6ee7b7;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .mode-badge.muted {
-  background: rgba(148, 163, 184, 0.14);
-  color: #cbd5e1;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
 }
 
 .mode-badge.dirty {
-  background: rgba(245, 158, 11, 0.18);
-  color: #fcd34d;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .dialog-title {
-  font-size: 24px;
+  font-size: 18px;
   line-height: 1.2;
-  color: #f8fafc;
-}
-
-.dialog-subtitle {
-  margin-top: 8px;
-  max-width: 860px;
-  color: #94a3b8;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.header-side {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-end;
-}
-
-.mode-switch {
-  display: flex;
-  gap: 4px;
-  background: #0f172a;
-  padding: 4px;
-  border-radius: 10px;
-}
-
-.mode-btn {
-  border: none;
-  border-radius: 8px;
-  padding: 8px 12px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.mode-btn.active {
-  background: #1e293b;
-  color: #f8fafc;
-}
-
-.close-btn {
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 8px 12px;
-  background: #0f172a;
-  color: #cbd5e1;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.close-btn:hover {
-  border-color: #4299e1;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .dialog-body {
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 22px 20px;
+  padding: 10px 14px 12px;
+  background: var(--bg-secondary);
 }
 
 .content-stack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
 .readonly-banner,
 .validation-summary {
-  margin-bottom: 16px;
-  border-radius: 12px;
-  border: 1px solid #334155;
-  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
 }
 
 .readonly-banner {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   align-items: flex-start;
-  background: rgba(15, 23, 42, 0.72);
-  color: #cbd5e1;
-  font-size: 13px;
-  line-height: 1.6;
+  background: var(--info-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .validation-summary {
-  background: rgba(127, 29, 29, 0.24);
-  border-color: rgba(248, 113, 113, 0.3);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
 }
 
 .validation-title {
-  color: #fecaca;
-  font-size: 13px;
+  color: var(--danger);
+  font-size: 12px;
   font-weight: 700;
 }
 
 .validation-list {
-  margin: 10px 0 0 18px;
-  color: #fecaca;
-  font-size: 12px;
-  line-height: 1.7;
+  margin: 8px 0 0 16px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .dialog-footer {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 16px 22px 18px;
-  border-top: 1px solid #1f2937;
-  background: rgba(10, 15, 27, 0.94);
-}
-
-.footer-left,
-.footer-right {
-  display: flex;
-  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .btn {
-  border: 1px solid #334155;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 7px 10px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .btn:disabled {
@@ -403,43 +248,24 @@ const handleCreateTask = () => {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #2b6cb0;
+  background: var(--primary-hover);
 }
 
 .btn-secondary {
-  background: #111827;
-  color: #cbd5e0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-.btn-secondary:hover:not(:disabled),
-.btn-ghost:hover:not(:disabled) {
-  border-color: #4299e1;
-  color: #fff;
-}
-
-.btn-ghost {
-  background: #0f172a;
-  color: #cbd5e1;
-}
-
-.btn-danger {
-  background: rgba(127, 29, 29, 0.2);
-  border-color: rgba(248, 113, 113, 0.28);
-  color: #fca5a5;
-}
-
-.btn-danger:hover:not(:disabled) {
-  background: rgba(153, 27, 27, 0.28);
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 @media (max-width: 1180px) {
-  .modal-overlay {
-    padding: 16px;
-  }
-
   .editor-dialog {
-    width: min(100vw - 32px, 1360px);
-    height: min(90vh, 980px);
+    width: min(100vw - 24px, 1240px);
+    height: min(88vh, 900px);
   }
 
   .dialog-header,
@@ -447,31 +273,16 @@ const handleCreateTask = () => {
     flex-direction: column;
     align-items: stretch;
   }
-
-  .header-side {
-    align-items: stretch;
-  }
-
-  .footer-right,
-  .footer-left {
-    width: 100%;
-  }
 }
 
 @media (max-width: 760px) {
-  .mode-switch {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .dialog-body {
-    padding: 16px;
+    padding: 12px;
   }
 
   .dialog-header,
   .dialog-footer {
-    padding: 16px;
+    padding: 12px;
   }
 }
 </style>

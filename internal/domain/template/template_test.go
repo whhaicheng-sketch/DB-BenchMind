@@ -2,6 +2,7 @@
 package template
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -595,6 +596,141 @@ func TestTemplate_Clone(t *testing.T) {
 	}
 }
 
+func TestTemplate_FromJSON_IgnoresRemovedMetadataFieldsFromLegacyPayload(t *testing.T) {
+	payload := []byte(`{
+		"id": "legacy-template",
+		"name": "Legacy Template",
+		"description": "legacy payload",
+		"tool": "sysbench",
+		"version": "1.0.0",
+		"database_types": ["mysql"],
+		"scope": "user",
+		"status": "draft",
+		"tags": ["smoke", "legacy"],
+		"updatedAt": "2026-03-23T00:00:00Z",
+		"parameters": {
+			"threads": {
+				"type": "integer",
+				"label": "Threads",
+				"default": 8
+			}
+		},
+		"command_template": {
+			"run": "sysbench oltp run"
+		},
+		"output_parser": {
+			"type": "regex"
+		}
+	}`)
+
+	tmpl, err := FromJSON(payload)
+	if err != nil {
+		t.Fatalf("FromJSON() should accept legacy payload with removed metadata fields: %v", err)
+	}
+
+	if tmpl.ID != "legacy-template" {
+		t.Fatalf("template id = %s, want legacy-template", tmpl.ID)
+	}
+
+	serialized, err := tmpl.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() returned error: %v", err)
+	}
+
+	for _, forbidden := range []string{`"scope"`, `"status"`, `"tags"`, `"updatedAt"`} {
+		if strings.Contains(string(serialized), forbidden) {
+			t.Fatalf("serialized template must omit removed metadata field %s: %s", forbidden, string(serialized))
+		}
+	}
+}
+
+func TestTemplate_FromJSON_AbsorbsLegacyPhasesIntoCanonicalPhases(t *testing.T) {
+	payload := []byte(`{
+		"id": "legacy-phase-template",
+		"name": "Legacy Phase Template",
+		"description": "legacy phases",
+		"tool": "sysbench",
+		"version": "1.0.0",
+		"dbFamily": "mysql",
+		"workloadFamily": "oltp-read-write",
+		"compatibility": {
+			"supportedDatabases": ["mysql"],
+			"supportedVersions": ["test"]
+		},
+		"phases": {
+			"build": {
+				"enabled": true,
+				"params": { "threads": 4 }
+			},
+			"generate": {
+				"enabled": true,
+				"params": { "dataset": "small" }
+			},
+			"run": {
+				"enabled": true,
+				"required": true,
+				"params": { "time": 60 }
+			},
+			"verify": {
+				"enabled": true,
+				"params": { "checks": true }
+			},
+			"delete": {
+				"enabled": true,
+				"params": { "drop": true }
+			}
+		},
+		"runtime": {
+			"concurrency": { "mode": "threads", "value": 4 },
+			"durationSeconds": 60,
+			"reportIntervalSeconds": 1
+		},
+		"toolConfig": {
+			"sysbench": {
+				"dbDriver": "mysql",
+				"scriptType": "oltp_read_write",
+				"tables": 1,
+				"tableSize": 1000
+			}
+		}
+	}`)
+
+	tmpl, err := FromJSON(payload)
+	if err != nil {
+		t.Fatalf("FromJSON() should accept legacy phase payload: %v", err)
+	}
+
+	if !tmpl.Phases.Prepare.Enabled {
+		t.Fatal("prepare should be enabled after absorbing build/generate")
+	}
+	if !tmpl.Phases.Cleanup.Enabled {
+		t.Fatal("cleanup should be enabled after absorbing verify/delete")
+	}
+	if tmpl.Phases.Prepare.Params["threads"] != float64(4) {
+		t.Fatalf("prepare params should preserve legacy build payload, got %#v", tmpl.Phases.Prepare.Params)
+	}
+	if tmpl.Phases.Prepare.Params["dataset"] != "small" {
+		t.Fatalf("prepare params should preserve legacy generate payload, got %#v", tmpl.Phases.Prepare.Params)
+	}
+	if tmpl.Phases.Cleanup.Params["checks"] != true {
+		t.Fatalf("cleanup params should preserve legacy verify payload, got %#v", tmpl.Phases.Cleanup.Params)
+	}
+	if tmpl.Phases.Cleanup.Params["drop"] != true {
+		t.Fatalf("cleanup params should preserve legacy delete payload, got %#v", tmpl.Phases.Cleanup.Params)
+	}
+
+	serialized, err := tmpl.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() returned error: %v", err)
+	}
+
+	for _, forbidden := range []string{`"build"`, `"generate"`, `"verify"`, `"delete"`} {
+		if strings.Contains(string(serialized), forbidden) {
+			t.Fatalf("serialized template must omit legacy phase %s: %s", forbidden, string(serialized))
+		}
+	}
+}
+
 // Helper function
 func intPtr(i int) *int {
 	return &i
@@ -607,8 +743,6 @@ func canonicalTemplateForTest() *Template {
 		Tool:           ToolSysbench,
 		DBFamily:       "mysql",
 		WorkloadFamily: "oltp-read-write",
-		Scope:          "user",
-		Status:         "draft",
 		Compatibility: Compatibility{
 			SupportedDatabases: []string{"mysql"},
 			SupportedVersions:  []string{"test"},

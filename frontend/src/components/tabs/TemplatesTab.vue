@@ -11,8 +11,6 @@
       :filters="templateStore.filters"
       :tool-options="toolOptions"
       :db-options="dbOptions"
-      :tag-options="tagOptions"
-      :scope-options="scopeOptions"
       @filter-change="handleFilterChange"
       @reset="templateStore.resetFilters()"
     />
@@ -48,7 +46,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { DB_OPTIONS, TOOL_OPTIONS } from '../../constants/templateCapabilities'
 import TemplateEditorDialog from '../template/TemplateEditorDialog.vue'
 import TemplateFilterBar from '../template/TemplateFilterBar.vue'
@@ -60,10 +58,6 @@ const templateStore = useTemplateStore()
 
 const toolOptions = TOOL_OPTIONS
 const dbOptions = DB_OPTIONS
-
-const scopeOptions = Object.entries(templateStore.scopeLabels).map(([value, label]) => ({ value, label }))
-
-const tagOptions = computed(() => templateStore.allTags.map((tag) => ({ value: tag, label: tag })))
 
 const handleFilterChange = ({ key, value }) => {
   templateStore.setFilter(key, value)

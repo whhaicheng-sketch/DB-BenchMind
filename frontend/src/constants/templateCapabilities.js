@@ -6,7 +6,7 @@ export const TEMPLATE_CAPABILITIES = {
     dbFamilies: ['mysql', 'postgresql'],
     workloads: ['oltp-read-write', 'oltp-read-only', 'oltp-write-only', 'oltp-point-select'],
     concurrencyModes: ['threads'],
-    allowedPhases: ['prepare', 'warmup', 'run', 'verify', 'cleanup'],
+    allowedPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     requiredPhases: ['run'],
     defaultEnabledPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     workloadFieldMap: {
@@ -77,9 +77,9 @@ export const TEMPLATE_CAPABILITIES = {
     dbFamilies: ['oracle', 'sqlserver', 'db2', 'postgresql', 'mysql', 'mariadb'],
     workloads: ['tproc-c', 'tproc-h'],
     concurrencyModes: ['virtualUsers'],
-    allowedPhases: ['build', 'prepare', 'run', 'verify', 'cleanup', 'delete'],
+    allowedPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     requiredPhases: ['run'],
-    defaultEnabledPhases: ['build', 'prepare', 'run', 'cleanup'],
+    defaultEnabledPhases: ['prepare', 'warmup', 'run', 'cleanup'],
     workloadFieldMap: {
       'tproc-c': { benchmark: 'tproc-c' },
       'tproc-h': { benchmark: 'tproc-h' }

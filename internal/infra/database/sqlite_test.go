@@ -85,8 +85,8 @@ func TestInitializeSQLite_ForeignKeyEnabled(t *testing.T) {
 	}
 }
 
-// Test 4: 测试内置模板已插入
-func TestInitializeSQLite_BuiltinTemplates(t *testing.T) {
+// Test 4: 测试数据库 schema 初始化时不再插入历史模板数据
+func TestInitializeSQLite_DoesNotSeedTemplatesInSchema(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
@@ -97,12 +97,12 @@ func TestInitializeSQLite_BuiltinTemplates(t *testing.T) {
 	defer db.Close()
 
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM templates WHERE is_builtin=1").Scan(&count)
+	err = db.QueryRow("SELECT COUNT(*) FROM templates").Scan(&count)
 	if err != nil {
-		t.Fatalf("Failed to count builtin templates: %v", err)
+		t.Fatalf("Failed to count templates: %v", err)
 	}
-	if count != 7 {
-		t.Errorf("Expected 7 builtin templates, got %d", count)
+	if count != 0 {
+		t.Errorf("Expected 0 templates after raw schema init, got %d", count)
 	}
 }
 
@@ -142,13 +142,13 @@ func TestInitializeSQLite_ReopenExisting(t *testing.T) {
 	}
 	defer db2.Close()
 
-	// Verify data persistence
+	// Verify schema init remains idempotent and does not inject legacy templates
 	var count int
 	err = db2.QueryRow("SELECT COUNT(*) FROM templates").Scan(&count)
 	if err != nil {
 		t.Fatalf("Failed to query templates: %v", err)
 	}
-	if count != 7 {
-		t.Errorf("Expected 7 templates after reopen, got %d", count)
+	if count != 0 {
+		t.Errorf("Expected 0 templates after reopen, got %d", count)
 	}
 }

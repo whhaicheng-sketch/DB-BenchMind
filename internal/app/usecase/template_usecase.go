@@ -81,9 +81,6 @@ func (uc *TemplateUseCase) CreateTemplate(ctx context.Context, tmpl *domaintempl
 		return fmt.Errorf("%w: template payload is required", ErrTemplateInvalid)
 	}
 	uc.prepareTemplateForCreate(tmpl)
-	if tmpl.IsReadonlyScope() {
-		return fmt.Errorf("%w: cannot create readonly scope '%s'", ErrTemplateInvalid, tmpl.Scope)
-	}
 	if err := tmpl.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", ErrTemplateInvalid, err)
 	}
@@ -108,7 +105,7 @@ func (uc *TemplateUseCase) UpdateTemplate(ctx context.Context, tmpl *domaintempl
 		}
 		return fmt.Errorf("get existing template: %w", err)
 	}
-	if existing.IsReadonlyScope() {
+	if existing.IsReadOnly() {
 		return ErrReadonlyTemplateCannotBeEdited
 	}
 
@@ -133,14 +130,8 @@ func (uc *TemplateUseCase) DeleteTemplate(ctx context.Context, id string) error 
 		}
 		return fmt.Errorf("get template: %w", err)
 	}
-	if tmpl.Scope == domaintemplate.ScopeBuiltin {
+	if tmpl.IsBuiltin {
 		return ErrBuiltinTemplateCannotBeDeleted
-	}
-	if tmpl.Scope == domaintemplate.ScopeReadonlyShared {
-		return ErrReadonlyTemplateCannotBeEdited
-	}
-	if tmpl.Scope == domaintemplate.ScopeProject {
-		return fmt.Errorf("%w: project templates cannot be deleted in this phase", ErrTemplateInvalid)
 	}
 	if err := uc.repo.Delete(ctx, id); err != nil {
 		if errors.Is(err, ErrTemplateNotFound) {
@@ -167,11 +158,9 @@ func (uc *TemplateUseCase) DuplicateTemplate(ctx context.Context, id string) (*d
 	now := time.Now().UTC().Format(time.RFC3339)
 	cloned.ID = generateTemplateID()
 	cloned.Name = fmt.Sprintf("%s Copy", original.Name)
-	cloned.Scope = domaintemplate.ScopeUser
-	cloned.Status = domaintemplate.StatusDraft
+	cloned.IsBuiltin = false
 	cloned.Version = "0.1.0"
 	cloned.CreatedAt = now
-	cloned.UpdatedAt = now
 	cloned.Normalize()
 
 	if err := cloned.Validate(); err != nil {
@@ -271,10 +260,8 @@ func (uc *TemplateUseCase) CloneTemplate(ctx context.Context, id string) (*domai
 	}
 	cloned.ID = generateTemplateID()
 	cloned.Name = fmt.Sprintf("%s Copy", original.Name)
-	cloned.Scope = domaintemplate.ScopeUser
-	cloned.Status = domaintemplate.StatusDraft
+	cloned.IsBuiltin = false
 	cloned.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	cloned.UpdatedAt = cloned.CreatedAt
 	cloned.Normalize()
 	return cloned, nil
 }
@@ -313,7 +300,7 @@ func (uc *TemplateUseCase) GetTemplateMetadata(ctx context.Context, id string) (
 		Name:        tmpl.Name,
 		Description: tmpl.Description,
 		Tool:        tmpl.Tool,
-		IsBuiltin:   tmpl.Scope == domaintemplate.ScopeBuiltin,
+		IsBuiltin:   tmpl.IsBuiltin,
 		ParamCount:  len(tmpl.Parameters),
 		DBTypes:     tmpl.DatabaseTypes,
 	}, nil
@@ -407,19 +394,12 @@ func (uc *TemplateUseCase) prepareTemplateForCreate(tmpl *domaintemplate.Templat
 	}
 	tmpl.Normalize()
 	tmpl.CreatedAt = now
-	tmpl.UpdatedAt = now
-	if tmpl.Scope == "" {
-		tmpl.Scope = domaintemplate.ScopeUser
-	}
-	if tmpl.Status == "" {
-		tmpl.Status = domaintemplate.StatusDraft
-	}
+	tmpl.IsBuiltin = false
 }
 
 func (uc *TemplateUseCase) prepareTemplateForUpdate(existing, incoming *domaintemplate.Template) {
 	incoming.Normalize()
 	incoming.ID = existing.ID
-	incoming.Scope = existing.Scope
+	incoming.IsBuiltin = existing.IsBuiltin
 	incoming.CreatedAt = existing.CreatedAt
-	incoming.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 }

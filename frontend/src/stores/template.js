@@ -15,14 +15,13 @@ import {
   DB_FAMILY_LABELS,
   createPhaseState,
   PHASE_KEYS,
-  TEMPLATE_SCOPE_LABELS,
-  TEMPLATE_STATUS_LABELS,
   TEMPLATE_TOOL_LABELS,
   WORKLOAD_LABELS
 } from '../models/template'
 import { templateMocks } from '../mock/templates'
 
 const ENABLE_TEMPLATE_BACKEND = typeof window !== 'undefined' && !!window.go?.bindings?.TemplateBinding
+const TEMPLATE_FILTER_KEYS = ['search', 'dbFamily', 'tool']
 
 function filterTemplate(template, filters) {
   const search = filters.search.trim().toLowerCase()
@@ -31,16 +30,13 @@ function filterTemplate(template, filters) {
     template.description,
     template.dbFamily,
     template.tool,
-    template.workloadFamily,
-    ...(template.tags || [])
+    template.workloadFamily
   ].join(' ').toLowerCase().includes(search)
 
   const inDb = !filters.dbFamily || template.dbFamily === filters.dbFamily
   const inTool = !filters.tool || template.tool === filters.tool
-  const inScope = !filters.scope || template.scope === filters.scope
-  const inTag = !filters.tag || template.tags.includes(filters.tag)
 
-  return inSearch && inDb && inTool && inScope && inTag
+  return inSearch && inDb && inTool
 }
 
 function getValueByPath(obj, path) {
@@ -59,29 +55,17 @@ function buildValidationErrorKey(fieldPath) {
   return map[fieldPath] || fieldPath.replace(/\./g, '_')
 }
 
-function canEditScope(scope) {
-  return ['user', 'project', 'test'].includes(scope)
-}
-
-function canDeleteScope(scope) {
-  return ['user', 'test'].includes(scope)
-}
-
 function applyPhaseRules(template, capability, changeLabels) {
   const nextPhases = createPhaseState(template.phases)
 
   PHASE_KEYS.forEach((phase) => {
     const allowed = capability.allowedPhases.includes(phase)
     const wasEnabled = !!nextPhases[phase].enabled
-    nextPhases[phase].enabled = allowed ? nextPhases[phase].enabled : false
+    nextPhases[phase].enabled = allowed
     nextPhases[phase].required = capability.requiredPhases.includes(phase)
 
-    if (!allowed && wasEnabled) {
+    if (wasEnabled !== nextPhases[phase].enabled) {
       changeLabels.push(`phase:${phase}`)
-    }
-
-    if (nextPhases[phase].required) {
-      nextPhases[phase].enabled = true
     }
   })
 
@@ -185,27 +169,16 @@ export const useTemplateStore = defineStore('template', {
     isEditorOpen: false,
     editingTemplateDraft: null,
     editorState: 'view',
-    editorMode: 'standard',
     loading: false,
     error: null,
     notice: null,
     filters: {
       search: '',
       dbFamily: '',
-      tool: '',
-      scope: '',
-      tag: ''
+      tool: ''
     },
     templateParams: [],
     paramValues: {},
-    pendingApi: {
-      loadTemplates: null,
-      createTemplate: null,
-      updateTemplate: null,
-      deleteTemplate: null,
-      duplicateTemplate: null,
-      createTaskFromTemplate: null
-    },
     isDirty: false,
     validationErrors: {},
     deleteCandidateId: ''
@@ -214,8 +187,6 @@ export const useTemplateStore = defineStore('template', {
   getters: {
     toolLabels: () => TEMPLATE_TOOL_LABELS,
     dbFamilyLabels: () => DB_FAMILY_LABELS,
-    scopeLabels: () => TEMPLATE_SCOPE_LABELS,
-    statusLabels: () => TEMPLATE_STATUS_LABELS,
     workloadLabels: () => WORKLOAD_LABELS,
     selectedTemplate: (state) => state.templates.find((template) => template.id === state.selectedTemplateId) || null,
     activeTemplate: (state) => {
@@ -236,15 +207,10 @@ export const useTemplateStore = defineStore('template', {
     hasActiveFilters: (state) => Object.values(state.filters).some(Boolean),
     hasSearchOnly: (state) => !!state.filters.search.trim() &&
       !state.filters.dbFamily &&
-      !state.filters.tool &&
-      !state.filters.scope &&
-      !state.filters.tag,
-    allTags() {
-      return [...new Set(this.displayTemplates.flatMap((template) => template.tags || []))].sort()
-    },
+      !state.filters.tool,
     canEditSelected(state) {
       const selected = state.templates.find((template) => template.id === state.selectedTemplateId)
-      return !!selected && canEditScope(selected.scope)
+      return !!selected && !selected.is_builtin
     },
     supportsDatabase: (state) => (dbType) => {
       const template = state.editingTemplateDraft || state.templates.find((item) => item.id === state.selectedTemplateId)
@@ -304,6 +270,7 @@ export const useTemplateStore = defineStore('template', {
     },
 
     setFilter(key, value) {
+      if (!TEMPLATE_FILTER_KEYS.includes(key)) return
       this.filters[key] = value
     },
 
@@ -311,9 +278,7 @@ export const useTemplateStore = defineStore('template', {
       this.filters = {
         search: '',
         dbFamily: '',
-        tool: '',
-        scope: '',
-        tag: ''
+        tool: ''
       }
     },
 
@@ -335,11 +300,12 @@ export const useTemplateStore = defineStore('template', {
         this.showNotice('Unsaved changes were discarded when switching templates.', 'warning')
       }
 
+      const selected = this.templates.find((template) => template.id === id)
       this.selectedTemplateId = id
       this.isEditorOpen = true
-      this.editorState = 'view'
+      this.editorState = selected && !selected.is_builtin ? 'editing' : 'view'
       this.isDirty = false
-      this.editingTemplateDraft = null
+      this.editingTemplateDraft = selected && !selected.is_builtin ? cloneTemplate(selected) : null
       this.validationErrors = {}
     },
 
@@ -369,30 +335,10 @@ export const useTemplateStore = defineStore('template', {
       this.validationErrors = {}
     },
 
-    startEditing() {
-      if (!this.selectedTemplate || !canEditScope(this.selectedTemplate.scope)) return
-      this.editingTemplateDraft = cloneTemplate(this.selectedTemplate)
-      this.isEditorOpen = true
-      this.editorState = 'editing'
-      this.isDirty = false
-      this.validationErrors = {}
-    },
-
-    cancelEditing() {
-      if (this.editorState === 'creating') {
-        this.clearSelection()
-      } else {
-        this.editorState = 'view'
-        this.editingTemplateDraft = null
-        this.isDirty = false
-        this.validationErrors = {}
-      }
-    },
-
     createTemplate() {
       const draft = createDefaultTemplate({
         id: createTemplateId(),
-        name: `New Template ${this.templates.filter((template) => template.scope === 'user').length + 1}`
+        name: `New Template ${this.templates.filter((template) => !template.is_builtin).length + 1}`
       })
 
       this.selectedTemplateId = draft.id
@@ -471,19 +417,6 @@ export const useTemplateStore = defineStore('template', {
 
       if (!Number.isFinite(Number(targetTemplate.runtime?.durationSeconds)) || Number(targetTemplate.runtime?.durationSeconds) < 1) {
         errors.durationSeconds = 'Duration must be at least 1 second.'
-      }
-
-      const enabledPhases = Object.entries(targetTemplate.phases || {})
-        .filter(([, config]) => config.enabled)
-        .map(([phase]) => phase)
-
-      if (!enabledPhases.includes('run')) {
-        errors.phaseRun = 'Run phase is mandatory for every template.'
-      }
-
-      const invalidPhases = enabledPhases.filter((phase) => capability && !capability.allowedPhases.includes(phase))
-      if (invalidPhases.length > 0) {
-        errors.phaseCombination = `${TEMPLATE_TOOL_LABELS[targetTemplate.tool]} does not use ${invalidPhases.join(', ')} in this workflow.`
       }
 
       if (targetTemplate.tool === 'sysbench' && targetTemplate.toolConfig.sysbench?.scriptType && !Object.values(capability.workloadFieldMap).some((entry) => entry.scriptType === targetTemplate.toolConfig.sysbench.scriptType)) {
@@ -598,14 +531,6 @@ export const useTemplateStore = defineStore('template', {
       this.validateTemplate(this.editingTemplateDraft)
     },
 
-    updateDraftPhase(phase, enabled) {
-      if (!this.editingTemplateDraft) return
-      this.editingTemplateDraft.phases[phase].enabled = enabled
-      this.editingTemplateDraft = this.applyNormalization(this.editingTemplateDraft, 'changing phases')
-      this.markDirty()
-      this.validateTemplate(this.editingTemplateDraft)
-    },
-
     async saveTemplate() {
       const draft = this.editingTemplateDraft
       if (!draft) return
@@ -613,9 +538,6 @@ export const useTemplateStore = defineStore('template', {
       if (!this.validateTemplate(draft)) {
         return
       }
-
-      draft.updatedAt = new Date().toISOString()
-      draft.status = draft.status === 'deprecated' ? 'deprecated' : 'ready'
 
       try {
         let savedTemplate = cloneTemplate(draft)
@@ -671,12 +593,10 @@ export const useTemplateStore = defineStore('template', {
         } else {
           copy = cloneTemplate(source)
           copy.id = createTemplateId()
-          copy.scope = 'user'
-          copy.status = 'draft'
+          copy.is_builtin = false
           copy.name = `${source.name} Copy`
           copy.version = '0.1.0'
           copy.createdAt = new Date().toISOString()
-          copy.updatedAt = copy.createdAt
         }
 
         this.templates = sortTemplates([copy, ...this.templates.filter((template) => template.id !== copy.id)])
@@ -693,32 +613,10 @@ export const useTemplateStore = defineStore('template', {
       }
     },
 
-    saveAsTemplate() {
-      const source = this.activeTemplate
-      if (!source) return
-
-      const copy = cloneTemplate(source)
-      copy.id = createTemplateId()
-      copy.scope = 'user'
-      copy.status = 'draft'
-      copy.name = `${source.name} Save As`
-      copy.version = '0.1.0'
-      copy.createdAt = new Date().toISOString()
-      copy.updatedAt = copy.createdAt
-
-      this.selectedTemplateId = copy.id
-      this.isEditorOpen = true
-      this.editorState = 'creating'
-      this.editingTemplateDraft = copy
-      this.isDirty = true
-      this.validationErrors = {}
-      this.showNotice('Save As created a new user template draft.', 'info')
-    },
-
     requestDeleteTemplate(id = this.selectedTemplateId) {
       const template = this.templates.find((item) => item.id === id)
-      if (!template || !canDeleteScope(template.scope)) {
-        this.showNotice('Only editable user or test templates can be deleted in this phase.', 'warning')
+      if (!template || template.is_builtin) {
+        this.showNotice('Built-in templates cannot be deleted.', 'warning')
         return
       }
 
@@ -732,9 +630,9 @@ export const useTemplateStore = defineStore('template', {
     async confirmDeleteTemplate() {
       const id = this.deleteCandidateId
       const template = this.templates.find((item) => item.id === id)
-      if (!template || !canDeleteScope(template.scope)) {
+      if (!template || template.is_builtin) {
         this.deleteCandidateId = ''
-        this.showNotice('Only editable user or test templates can be deleted in this phase.', 'warning')
+        this.showNotice('Built-in templates cannot be deleted.', 'warning')
         return
       }
 
@@ -759,35 +657,6 @@ export const useTemplateStore = defineStore('template', {
         this.deleteCandidateId = ''
         this.showNotice(this.error, 'warning')
       }
-    },
-
-    createTaskFromTemplate() {
-      const template = this.activeTemplate || this.selectedTemplate
-      if (!template) {
-        this.showNotice('Select a template before creating a task shell.', 'warning')
-        return null
-      }
-
-      return {
-        templateId: template.id,
-        templateName: template.name,
-        tool: template.tool,
-        dbFamily: template.dbFamily,
-        workloadFamily: template.workloadFamily,
-        createdAt: new Date().toISOString(),
-        source: 'templates'
-      }
-    },
-
-    placeholderAction(action) {
-      const messages = {
-        createTask: 'Create Task from Template is reserved for Tasks & Monitor integration.',
-        save: 'Save placeholder executed.',
-        unsupportedEdit: 'This template is read-only. Use Save As to create an editable copy.',
-        readonlySaveAs: 'This template remains read-only. Save As creates a user-editable copy.'
-      }
-
-      this.showNotice(messages[action] || 'This action is reserved for a later phase.', 'info')
     },
 
     clearNotice() {

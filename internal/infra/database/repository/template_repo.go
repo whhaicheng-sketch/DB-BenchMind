@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -30,19 +31,25 @@ func (r *TemplateRepository) Save(ctx context.Context, tmpl *domaintemplate.Temp
 	if tmpl == nil {
 		return fmt.Errorf("template is required")
 	}
+	_, err := r.saveTemplate(ctx, r.db, tmpl)
+	return err
+}
+
+func (r *TemplateRepository) saveTemplate(ctx context.Context, execer interface {
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+}, tmpl *domaintemplate.Template) (sql.Result, error) {
+	if tmpl == nil {
+		return nil, fmt.Errorf("template is required")
+	}
 	tmpl.Normalize()
 
 	configJSON, err := json.Marshal(tmpl)
 	if err != nil {
-		return fmt.Errorf("marshal template: %w", err)
-	}
-	tagsJSON, err := json.Marshal(tmpl.Tags)
-	if err != nil {
-		return fmt.Errorf("marshal tags: %w", err)
+		return nil, fmt.Errorf("marshal template: %w", err)
 	}
 	dbTypesJSON, err := json.Marshal(tmpl.DatabaseTypes)
 	if err != nil {
-		return fmt.Errorf("marshal database types: %w", err)
+		return nil, fmt.Errorf("marshal database types: %w", err)
 	}
 	parametersJSON := "[]"
 	commandJSON := "{}"
@@ -64,19 +71,15 @@ func (r *TemplateRepository) Save(ctx context.Context, tmpl *domaintemplate.Temp
 	if createdAt == "" {
 		createdAt = now
 	}
-	updatedAt := tmpl.UpdatedAt
-	if updatedAt == "" {
-		updatedAt = now
-	}
-	isBuiltin := tmpl.Scope == domaintemplate.ScopeBuiltin
+	isBuiltin := tmpl.IsBuiltin
 
 	query := `
 		INSERT INTO templates (
 			id, name, description, tool, database_types, version,
 			parameters_json, command_template_json, output_parser_json,
-			scope, status, tags_json, config_json, is_builtin, created_at, updated_at
+			config_json, is_builtin, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			description = excluded.description,
@@ -86,14 +89,11 @@ func (r *TemplateRepository) Save(ctx context.Context, tmpl *domaintemplate.Temp
 			parameters_json = excluded.parameters_json,
 			command_template_json = excluded.command_template_json,
 			output_parser_json = excluded.output_parser_json,
-			scope = excluded.scope,
-			status = excluded.status,
-			tags_json = excluded.tags_json,
 			config_json = excluded.config_json,
 			is_builtin = excluded.is_builtin,
 			updated_at = excluded.updated_at
 	`
-	_, err = r.db.ExecContext(ctx, query,
+	result, err := execer.ExecContext(ctx, query,
 		tmpl.ID,
 		tmpl.Name,
 		tmpl.Description,
@@ -103,40 +103,38 @@ func (r *TemplateRepository) Save(ctx context.Context, tmpl *domaintemplate.Temp
 		parametersJSON,
 		commandJSON,
 		parserJSON,
-		tmpl.Scope,
-		tmpl.Status,
-		string(tagsJSON),
 		string(configJSON),
 		isBuiltin,
 		createdAt,
-		updatedAt,
+		now,
 	)
 	if err != nil {
-		return fmt.Errorf("save template: %w", err)
+		return nil, fmt.Errorf("save template: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 func (r *TemplateRepository) FindByID(ctx context.Context, id string) (*domaintemplate.Template, error) {
 	query := `
-		SELECT config_json
+		SELECT config_json, is_builtin
 		FROM templates
 		WHERE id = ? AND config_json IS NOT NULL AND config_json != ''
 	`
 	var configJSON string
-	err := r.db.QueryRowContext(ctx, query, id).Scan(&configJSON)
+	var isBuiltin bool
+	err := r.db.QueryRowContext(ctx, query, id).Scan(&configJSON, &isBuiltin)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTemplateNotFound
 		}
 		return nil, fmt.Errorf("query template: %w", err)
 	}
-	return r.unmarshalTemplate(configJSON)
+	return r.unmarshalTemplate(configJSON, isBuiltin)
 }
 
 func (r *TemplateRepository) FindAll(ctx context.Context) ([]*domaintemplate.Template, error) {
 	return r.findByQuery(ctx, `
-		SELECT config_json
+		SELECT config_json, is_builtin
 		FROM templates
 		WHERE config_json IS NOT NULL AND config_json != ''
 		ORDER BY name
@@ -145,32 +143,32 @@ func (r *TemplateRepository) FindAll(ctx context.Context) ([]*domaintemplate.Tem
 
 func (r *TemplateRepository) FindBuiltin(ctx context.Context) ([]*domaintemplate.Template, error) {
 	return r.findByQuery(ctx, `
-		SELECT config_json
+		SELECT config_json, is_builtin
 		FROM templates
-		WHERE scope = 'builtin' AND config_json IS NOT NULL AND config_json != ''
+		WHERE is_builtin = 1 AND config_json IS NOT NULL AND config_json != ''
 		ORDER BY name
 	`)
 }
 
 func (r *TemplateRepository) FindCustom(ctx context.Context) ([]*domaintemplate.Template, error) {
 	return r.findByQuery(ctx, `
-		SELECT config_json
+		SELECT config_json, is_builtin
 		FROM templates
-		WHERE scope IN ('user', 'project', 'test') AND config_json IS NOT NULL AND config_json != ''
+		WHERE is_builtin = 0 AND config_json IS NOT NULL AND config_json != ''
 		ORDER BY name
 	`)
 }
 
 func (r *TemplateRepository) Delete(ctx context.Context, id string) error {
-	var scope string
-	err := r.db.QueryRowContext(ctx, "SELECT scope FROM templates WHERE id = ?", id).Scan(&scope)
+	var isBuiltin bool
+	err := r.db.QueryRowContext(ctx, "SELECT is_builtin FROM templates WHERE id = ?", id).Scan(&isBuiltin)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrTemplateNotFound
 		}
-		return fmt.Errorf("query template scope: %w", err)
+		return fmt.Errorf("query template builtin flag: %w", err)
 	}
-	if scope == domaintemplate.ScopeBuiltin {
+	if isBuiltin {
 		return ErrBuiltinTemplateCannotBeDeleted
 	}
 
@@ -186,10 +184,36 @@ func (r *TemplateRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *TemplateRepository) LoadBuiltinTemplates(ctx context.Context, templates []*domaintemplate.Template) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin template sync: %w", err)
+	}
+	defer tx.Rollback()
+
+	keepIDs := make([]string, 0, len(templates))
 	for _, tmpl := range templates {
-		if err := r.Save(ctx, tmpl); err != nil {
+		if tmpl == nil {
+			continue
+		}
+		keepIDs = append(keepIDs, tmpl.ID)
+		if _, err := r.saveTemplate(ctx, tx, tmpl); err != nil {
 			return err
 		}
+	}
+
+	if len(keepIDs) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(keepIDs)), ",")
+		args := make([]interface{}, len(keepIDs))
+		for i, id := range keepIDs {
+			args[i] = id
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM templates WHERE id NOT IN ("+placeholders+")", args...); err != nil {
+			return fmt.Errorf("delete non-default templates: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit template sync: %w", err)
 	}
 	return nil
 }
@@ -204,10 +228,11 @@ func (r *TemplateRepository) findByQuery(ctx context.Context, query string) ([]*
 	var templates []*domaintemplate.Template
 	for rows.Next() {
 		var configJSON string
-		if scanErr := rows.Scan(&configJSON); scanErr != nil {
+		var isBuiltin bool
+		if scanErr := rows.Scan(&configJSON, &isBuiltin); scanErr != nil {
 			return nil, fmt.Errorf("scan template: %w", scanErr)
 		}
-		tmpl, unmarshalErr := r.unmarshalTemplate(configJSON)
+		tmpl, unmarshalErr := r.unmarshalTemplate(configJSON, isBuiltin)
 		if unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
@@ -219,11 +244,12 @@ func (r *TemplateRepository) findByQuery(ctx context.Context, query string) ([]*
 	return templates, nil
 }
 
-func (r *TemplateRepository) unmarshalTemplate(configJSON string) (*domaintemplate.Template, error) {
+func (r *TemplateRepository) unmarshalTemplate(configJSON string, isBuiltin bool) (*domaintemplate.Template, error) {
 	var tmpl domaintemplate.Template
 	if err := json.Unmarshal([]byte(configJSON), &tmpl); err != nil {
 		return nil, fmt.Errorf("unmarshal template config: %w", err)
 	}
+	tmpl.IsBuiltin = isBuiltin
 	tmpl.Normalize()
 	return &tmpl, nil
 }

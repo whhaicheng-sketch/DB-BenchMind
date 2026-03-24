@@ -2,170 +2,12 @@ package template
 
 import "time"
 
-// DefaultSeedTemplates returns built-in and readonly shared templates used by
-// the Templates module before user-created templates exist.
+// DefaultSeedTemplates returns the only template that should exist after
+// startup synchronization: the default MySQL sysbench smoke test template.
 func DefaultSeedTemplates() []*Template {
 	now := time.Date(2026, 3, 13, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
 
 	return []*Template{
-		mustTemplate(&Template{
-			ID:             "tpl_sys_mysql_rw",
-			Name:           "Sysbench-MySQL-OLTP_RW-10x100k-32th-300s",
-			Description:    "Built-in MySQL OLTP read/write baseline for fast smoke validation.",
-			Tool:           ToolSysbench,
-			DBFamily:       "mysql",
-			WorkloadFamily: "oltp-read-write",
-			Scope:          ScopeBuiltin,
-			Status:         StatusReady,
-			Tags:           []string{"mysql", "baseline", "oltp"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Compatibility: Compatibility{
-				SupportedDatabases: []string{"mysql"},
-				SupportedVersions:  []string{"MySQL 8.0+", "MariaDB 10.6+"},
-				CompatibilityNotes: "Prepared for transactional OLTP verification and regression checks.",
-				RequiresPrivileges: []string{"CREATE", "DROP"},
-				Constraints:        []string{"Connection binding happens in Tasks & Monitor."},
-			},
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Warmup:  PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "threads", Value: 32},
-				DurationSeconds:       300,
-				WarmupSeconds:         30,
-				RampUpSeconds:         15,
-				ReportIntervalSeconds: 10,
-				Percentile:            95,
-				ValidationEnabled:     true,
-				Notes:                 "Recommended as default baseline before environment-specific tuning.",
-			},
-			ToolConfig: ToolConfig{
-				Sysbench: SysbenchConfig{
-					DBDriver:     "mysql",
-					ScriptType:   "oltp_read_write",
-					Tables:       10,
-					TableSize:    100000,
-					ReportChecks: true,
-					ExtraCLIArgs: "--db-ps-mode=disable",
-				},
-			},
-		}),
-		mustTemplate(&Template{
-			ID:             "tpl_swing_oe",
-			Name:           "Swingbench-Oracle-OE-Medium-64u-30m",
-			Description:    "Built-in OrderEntry scenario aligned to Oracle 11g compatible target.",
-			Tool:           ToolSwingbench,
-			DBFamily:       "oracle",
-			WorkloadFamily: "order-entry",
-			Scope:          ScopeBuiltin,
-			Status:         StatusReady,
-			Tags:           []string{"oracle", "orderentry", "baseline"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Warmup:  PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "users", Value: 64},
-				DurationSeconds:       1800,
-				WarmupSeconds:         120,
-				RampUpSeconds:         60,
-				ReportIntervalSeconds: 30,
-				Percentile:            95,
-			},
-			ToolConfig: ToolConfig{
-				Swingbench: SwingbenchConfig{
-					Benchmark:       "orderEntry",
-					Frontend:        "charbench",
-					ConfigMode:      "managed",
-					WizardOperation: "generate",
-					UserCount:       64,
-					RunTimeSeconds:  1800,
-					MaxThinkTime:    2,
-				},
-			},
-		}),
-		mustTemplate(&Template{
-			ID:             "tpl_hammer_oracle_c",
-			Name:           "HammerDB-Oracle-TPROC-C-1000W-96vu-30m",
-			Description:    "Built-in Oracle TPROC-C workflow with build, run and cleanup stages.",
-			Tool:           ToolHammerDB,
-			DBFamily:       "oracle",
-			WorkloadFamily: "tproc-c",
-			Scope:          ScopeBuiltin,
-			Status:         StatusReady,
-			Tags:           []string{"oracle", "tproc-c", "workflow"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Phases: PhaseSet{
-				Build:   PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Delete:  PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "virtualUsers", Value: 96},
-				DurationSeconds:       1800,
-				WarmupSeconds:         120,
-				RampUpSeconds:         60,
-				ReportIntervalSeconds: 20,
-				Percentile:            95,
-				Iterations:            1,
-			},
-			ToolConfig: ToolConfig{
-				HammerDB: HammerDBConfig{
-					Benchmark:    "tproc-c",
-					VirtualUsers: 96,
-					Warehouses:   1000,
-					ScaleFactor:  10,
-					TimeProfile:  true,
-				},
-			},
-		}),
-		mustTemplate(&Template{
-			ID:             "tpl_shared_pg_ro",
-			Name:           "Shared-PostgreSQL-ReadOnly-Validation",
-			Description:    "Readonly shared template for PostgreSQL read-only validation across teams.",
-			Tool:           ToolSysbench,
-			DBFamily:       "postgresql",
-			WorkloadFamily: "oltp-read-only",
-			Scope:          ScopeReadonlyShared,
-			Status:         StatusReady,
-			Tags:           []string{"shared", "postgresql", "readonly"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "threads", Value: 24},
-				DurationSeconds:       240,
-				ReportIntervalSeconds: 10,
-				Percentile:            95,
-			},
-			ToolConfig: ToolConfig{
-				Sysbench: SysbenchConfig{
-					DBDriver:   "pgsql",
-					ScriptType: "oltp_read_only",
-					Tables:     8,
-					TableSize:  50000,
-				},
-			},
-		}),
 		mustTemplate(&Template{
 			ID:             "tpl_test_mysql_sysbench",
 			Name:           "MySQL - Sysbench Test",
@@ -173,12 +15,9 @@ func DefaultSeedTemplates() []*Template {
 			Tool:           ToolSysbench,
 			DBFamily:       "mysql",
 			WorkloadFamily: "oltp-read-write",
-			Scope:          ScopeTest,
-			Status:         StatusReady,
-			Tags:           []string{"test", "mysql", "sysbench", "smoke"},
+			IsBuiltin:      true,
 			Version:        "1.0.0",
 			CreatedAt:      now,
-			UpdatedAt:      now,
 			Compatibility: Compatibility{
 				SupportedDatabases: []string{"mysql"},
 				CompatibilityNotes: "Minimal dataset for functional validation, not performance baseline testing.",
@@ -187,6 +26,7 @@ func DefaultSeedTemplates() []*Template {
 			},
 			Phases: PhaseSet{
 				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
+				Warmup:  PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
 				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 			},
@@ -210,173 +50,13 @@ func DefaultSeedTemplates() []*Template {
 				},
 			},
 		}),
-		mustTemplate(&Template{
-			ID:             "tpl_test_postgresql_sysbench",
-			Name:           "PostgreSQL - Sysbench Test",
-			Description:    "Minimal PostgreSQL sysbench smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.",
-			Tool:           ToolSysbench,
-			DBFamily:       "postgresql",
-			WorkloadFamily: "oltp-read-write",
-			Scope:          ScopeTest,
-			Status:         StatusReady,
-			Tags:           []string{"test", "postgresql", "sysbench", "smoke"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Compatibility: Compatibility{
-				SupportedDatabases: []string{"postgresql"},
-				CompatibilityNotes: "Minimal dataset for functional validation, not performance baseline testing.",
-				RequiresPrivileges: []string{"CREATE", "DROP"},
-				Constraints:        []string{"Use for smoke validation and task-chain verification."},
-			},
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "threads", Value: 1},
-				DurationSeconds:       30,
-				WarmupSeconds:         0,
-				RampUpSeconds:         3,
-				ReportIntervalSeconds: 1,
-				Percentile:            95,
-				ValidationEnabled:     true,
-				Notes:                 "Lowest-volume sysbench workflow intended to finish quickly and exercise the full chain.",
-			},
-			ToolConfig: ToolConfig{
-				Sysbench: SysbenchConfig{
-					DBDriver:     "pgsql",
-					ScriptType:   "oltp_read_write",
-					Tables:       1,
-					TableSize:    1000,
-					ReportChecks: true,
-				},
-			},
-		}),
-		mustTemplate(&Template{
-			ID:             "tpl_test_oracle_swingbench",
-			Name:           "Oracle - Swingbench Test",
-			Description:    "Minimal Oracle Swingbench smoke template where prepare rebuilds SOE from scratch, run can be repeated, and cleanup fully removes the benchmark state.",
-			Tool:           ToolSwingbench,
-			DBFamily:       "oracle",
-			WorkloadFamily: "order-entry",
-			Scope:          ScopeTest,
-			Status:         StatusReady,
-			Tags:           []string{"test", "oracle", "swingbench", "smoke"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Parameters: map[string]Parameter{
-				"scale": {
-					Type:    ParameterTypeInteger,
-					Label:   "Scale",
-					Default: 0.1,
-				},
-			},
-			Compatibility: Compatibility{
-				SupportedDatabases: []string{"oracle"},
-				CompatibilityNotes: "Smallest managed Swingbench profile for end-to-end smoke validation.",
-				RequiresPrivileges: []string{"CREATE USER", "CREATE TABLESPACE"},
-				Constraints:        []string{"Prepare phase creates SOE schema; cleanup removes it."},
-			},
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "users", Value: 1},
-				DurationSeconds:       60,
-				WarmupSeconds:         0,
-				RampUpSeconds:         0,
-				ReportIntervalSeconds: 5,
-				Percentile:            95,
-				ValidationEnabled:     true,
-				Notes:                 "One-user Oracle smoke profile to validate schema build and charbench execution.",
-			},
-			ToolConfig: ToolConfig{
-				Swingbench: SwingbenchConfig{
-					Benchmark:       "orderEntry",
-					Frontend:        "charbench",
-					ConfigMode:      "managed",
-					WizardOperation: "generate",
-					UserCount:       1,
-					RunTimeSeconds:  60,
-					MinThinkTime:    0,
-					MaxThinkTime:    0,
-				},
-			},
-		}),
-		mustTemplate(&Template{
-			ID:             "tpl_test_sqlserver_hammerdb",
-			Name:           "SQL Server - HammerDB Test",
-			Description:    "Minimal SQL Server HammerDB smoke template where prepare rebuilds the environment, run can be repeated, and cleanup fully removes the benchmark state.",
-			Tool:           ToolHammerDB,
-			DBFamily:       "sqlserver",
-			WorkloadFamily: "tproc-c",
-			Scope:          ScopeTest,
-			Status:         StatusReady,
-			Tags:           []string{"test", "sqlserver", "hammerdb", "smoke"},
-			Version:        "1.0.0",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Compatibility: Compatibility{
-				SupportedDatabases: []string{"sqlserver"},
-				CompatibilityNotes: "Single-warehouse HammerDB smoke workflow for SQL Server functional validation.",
-				RequiresPrivileges: []string{"CREATE DATABASE", "DROP DATABASE"},
-				Constraints:        []string{"Timed TPROC-C run tuned for fast smoke execution."},
-			},
-			Phases: PhaseSet{
-				Prepare: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-				Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-				Cleanup: PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
-			},
-			Runtime: Runtime{
-				Concurrency:           Concurrency{Mode: "virtualUsers", Value: 1},
-				DurationSeconds:       60,
-				WarmupSeconds:         0,
-				RampUpSeconds:         0,
-				ReportIntervalSeconds: 1,
-				Percentile:            95,
-				Iterations:            1,
-				ValidationEnabled:     true,
-				Notes:                 "Timed single-user SQL Server smoke run intended to verify HammerDB task flow quickly.",
-			},
-			Parameters: map[string]Parameter{
-				"duration": {
-					Type:    ParameterTypeInteger,
-					Label:   "Duration (seconds)",
-					Default: 60,
-				},
-				"rampup": {
-					Type:    ParameterTypeInteger,
-					Label:   "Rampup (seconds)",
-					Default: 0,
-				},
-				"iterations": {
-					Type:    ParameterTypeInteger,
-					Label:   "Iterations",
-					Default: 1,
-				},
-			},
-			ToolConfig: ToolConfig{
-				HammerDB: HammerDBConfig{
-					Benchmark:    "tproc-c",
-					VirtualUsers: 1,
-					Warehouses:   1,
-					ScaleFactor:  1,
-					TimeProfile:  true,
-				},
-			},
-		}),
 	}
 }
 
-func mustTemplate(t *Template) *Template {
-	t.Normalize()
-	if err := t.Validate(); err != nil {
+func mustTemplate(tmpl *Template) *Template {
+	tmpl.Normalize()
+	if err := tmpl.Validate(); err != nil {
 		panic(err)
 	}
-	return t
+	return tmpl
 }

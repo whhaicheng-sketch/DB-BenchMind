@@ -1,6 +1,7 @@
 package template
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -16,9 +17,6 @@ func TestDefaultSeedTemplates_OnlyKeepSingleDefaultTestTemplate(t *testing.T) {
 	if tmpl.ID != "tpl_test_mysql_sysbench" {
 		t.Fatalf("default template id = %s, want tpl_test_mysql_sysbench", tmpl.ID)
 	}
-	if tmpl.Scope != ScopeTest {
-		t.Fatalf("default template scope = %s, want %s", tmpl.Scope, ScopeTest)
-	}
 	if tmpl.Tool != ToolSysbench {
 		t.Fatalf("default template tool = %s, want %s", tmpl.Tool, ToolSysbench)
 	}
@@ -28,11 +26,8 @@ func TestDefaultSeedTemplates_OnlyKeepSingleDefaultTestTemplate(t *testing.T) {
 	if !tmpl.SupportsDatabase("mysql") {
 		t.Fatal("default template must support mysql")
 	}
-	if !containsTag(tmpl.Tags, "test") {
-		t.Fatalf("default template must include 'test' tag: %v", tmpl.Tags)
-	}
-	if !tmpl.Phases.Prepare.Enabled || !tmpl.Phases.Run.Enabled || !tmpl.Phases.Cleanup.Enabled {
-		t.Fatal("default template must support prepare/run/cleanup")
+	if !tmpl.Phases.Prepare.Enabled || !tmpl.Phases.Warmup.Enabled || !tmpl.Phases.Run.Enabled || !tmpl.Phases.Cleanup.Enabled {
+		t.Fatal("default template must support prepare/warmup/run/cleanup")
 	}
 }
 
@@ -69,15 +64,18 @@ func TestDefaultSeedTemplates_DefaultTestDoesNotCarryLegacyCrossDatabaseEntries(
 	if len(tmpl.Parameters) != 0 {
 		t.Fatalf("default test template should not carry legacy parameters, got %v", tmpl.Parameters)
 	}
-}
-
-func containsTag(tags []string, target string) bool {
-	for _, tag := range tags {
-		if tag == target {
-			return true
+	if tmpl.CreatedAt == "" {
+		t.Fatal("default test template should keep created_at for persistence")
+	}
+	payload, err := json.Marshal(tmpl)
+	if err != nil {
+		t.Fatalf("marshal template: %v", err)
+	}
+	for _, forbidden := range []string{`"updatedAt"`, `"scope"`, `"status"`, `"tags"`} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("default test template should not expose %s metadata: %s", forbidden, string(payload))
 		}
 	}
-	return false
 }
 
 func containsTextFold(text, target string) bool {

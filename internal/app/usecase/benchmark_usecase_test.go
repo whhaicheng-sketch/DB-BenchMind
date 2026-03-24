@@ -459,6 +459,10 @@ func (c *successfulTestConnection) GetDSN() string             { return "test-ds
 func (c *successfulTestConnection) GetDSNWithPassword() string { return "test-dsn-with-password" }
 func (c *successfulTestConnection) Redact() string             { return "test-redacted" }
 func (c *successfulTestConnection) ToJSON() ([]byte, error)    { return []byte(`{}`), nil }
+func (c *successfulTestConnection) GetAIAssistants() []connection.AIAssistantConfig {
+	return nil
+}
+func (c *successfulTestConnection) SetAIAssistants(assistants []connection.AIAssistantConfig) {}
 
 type prepareOnlySequenceAdapter struct {
 	prepare *adapter.Command

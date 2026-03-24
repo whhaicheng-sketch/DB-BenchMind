@@ -2,8 +2,7 @@
   <section class="section-card">
     <div class="section-header">
       <div>
-        <h3 class="section-title">Basic Information</h3>
-        <p class="section-subtitle">Core identity, scope and applicability for the selected template.</p>
+        <h3 class="section-title">Basic</h3>
       </div>
     </div>
 
@@ -73,36 +72,6 @@
           @input="templateStore.markDirty()"
         />
       </label>
-
-      <label class="field">
-        <span class="field-label">Tags</span>
-        <input
-          :value="(templateModel.tags || []).join(', ')"
-          class="field-input"
-          :disabled="readonly"
-          placeholder="baseline, smoke, custom"
-          @input="handleTagsInput($event.target.value)"
-        >
-      </label>
-
-      <label class="field">
-        <span class="field-label">Scope</span>
-        <input class="field-input" :value="templateStore.scopeLabels[templateModel.scope]" disabled>
-      </label>
-
-      <label class="field">
-        <span class="field-label">Status</span>
-        <select v-model="templateModel.status" class="field-input" :disabled="readonly" @change="templateStore.markDirty()">
-          <option value="draft">Draft</option>
-          <option value="ready">Ready</option>
-          <option value="deprecated">Deprecated</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span class="field-label">Last Updated</span>
-        <input class="field-input" :value="formatTemplateDate(templateModel.updatedAt)" disabled>
-      </label>
     </div>
   </section>
 </template>
@@ -110,7 +79,6 @@
 <script setup>
 import { computed } from 'vue'
 import { DB_OPTIONS, TEMPLATE_CAPABILITIES, getToolsForDbFamily } from '../../constants/templateCapabilities'
-import { formatTemplateDate } from '../../models/template'
 import { useTemplateStore } from '../../stores/template'
 
 const props = defineProps({
@@ -144,11 +112,6 @@ const handleWorkloadChange = (value) => {
   templateStore.updateDraftWorkload(value)
 }
 
-const handleTagsInput = (value) => {
-  props.templateModel.tags = value.split(',').map((tag) => tag.trim()).filter(Boolean)
-  templateStore.markDirty()
-}
-
 const handleFieldInput = () => {
   templateStore.markDirty()
   templateStore.validateTemplate(props.templateModel)
@@ -160,37 +123,31 @@ const handleFieldInput = () => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
-  padding: 16px;
+  padding: 10px;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .section-title {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-primary);
-}
-
-.section-subtitle {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 8px 10px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .field-wide {
@@ -203,12 +160,12 @@ const handleFieldInput = () => {
 }
 
 .field-input {
-  min-height: 40px;
+  min-height: 34px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding: 10px 12px;
+  padding: 7px 9px;
 }
 
 select.field-input {
@@ -248,7 +205,7 @@ select.field-input option {
 }
 
 .textarea {
-  min-height: 88px;
+  min-height: 64px;
   resize: vertical;
 }
 

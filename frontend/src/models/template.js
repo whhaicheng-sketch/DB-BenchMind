@@ -15,20 +15,6 @@ export const DB_FAMILY_LABELS = {
   db2: 'Db2'
 }
 
-export const TEMPLATE_SCOPE_LABELS = {
-  builtin: 'Built-in',
-  user: 'User',
-  project: 'Project',
-  readonlyShared: 'Readonly Shared',
-  test: 'Test'
-}
-
-export const TEMPLATE_STATUS_LABELS = {
-  draft: 'Draft',
-  ready: 'Ready',
-  deprecated: 'Deprecated'
-}
-
 export const WORKLOAD_LABELS = {
   'oltp-read-write': 'OLTP Read Write',
   'oltp-read-only': 'OLTP Read Only',
@@ -48,48 +34,43 @@ export const CONCURRENCY_MODE_LABELS = {
 }
 
 export const PHASE_KEYS = [
-  'build',
   'prepare',
-  'generate',
   'warmup',
   'run',
-  'verify',
-  'cleanup',
-  'delete'
+  'cleanup'
 ]
+
+function createPhaseConfig(overrides, defaults) {
+  return {
+    enabled: defaults.enabled,
+    required: defaults.required,
+    params: {},
+    ...(overrides || {})
+  }
+}
 
 export function createPhaseState(overrides = {}) {
   return {
-    build: { enabled: false, required: false, params: {} },
-    prepare: { enabled: false, required: false, params: {} },
-    generate: { enabled: false, required: false, params: {} },
-    warmup: { enabled: false, required: false, params: {} },
-    run: { enabled: true, required: true, params: {} },
-    verify: { enabled: false, required: false, params: {} },
-    cleanup: { enabled: false, required: false, params: {} },
-    delete: { enabled: false, required: false, params: {} },
-    ...overrides
+    prepare: createPhaseConfig(overrides.prepare, { enabled: false, required: false }),
+    warmup: createPhaseConfig(overrides.warmup, { enabled: false, required: false }),
+    run: createPhaseConfig(overrides.run, { enabled: true, required: true }),
+    cleanup: createPhaseConfig(overrides.cleanup, { enabled: false, required: false })
   }
 }
 
 function normalizePhasesForTool(tool, phases = {}) {
-  const normalized = createPhaseState(phases)
+  const normalized = createPhaseState({
+    prepare: phases.prepare,
+    warmup: phases.warmup,
+    run: phases.run,
+    cleanup: phases.cleanup
+  })
 
-  if (tool === 'swingbench') {
-    const usesLegacySwingbenchPhases = normalized.build.enabled ||
-      normalized.generate.enabled ||
-      normalized.delete.enabled ||
-      (normalized.run.enabled && !normalized.prepare.enabled && !normalized.cleanup.enabled)
-
-    if (usesLegacySwingbenchPhases) {
-      normalized.prepare.enabled = true
-      normalized.cleanup.enabled = true
-    }
-  }
-
-  if (normalized.run.required) {
-    normalized.run.enabled = true
-  }
+  normalized.prepare.enabled = true
+  normalized.warmup.enabled = true
+  normalized.run.enabled = true
+  normalized.run.required = true
+  normalized.cleanup.enabled = true
 
   return normalized
 }
@@ -104,13 +85,11 @@ export function createDefaultTemplate(partial = {}) {
   return {
     id: partial.id ?? createTemplateId(),
     name: partial.name ?? 'New Template',
-    description: partial.description ?? 'Benchmark scenario draft for future task binding.',
+    description: partial.description ?? '',
     tool: partial.tool ?? 'sysbench',
     dbFamily: partial.dbFamily ?? 'mysql',
     workloadFamily: partial.workloadFamily ?? 'oltp-read-write',
-    scope: partial.scope ?? 'user',
-    tags: partial.tags ?? ['draft'],
-    status: partial.status ?? 'draft',
+    is_builtin: partial.is_builtin ?? false,
     version: partial.version ?? '0.1.0',
     compatibility: {
       supportedDatabases: partial.compatibility?.supportedDatabases ?? [partial.dbFamily ?? 'mysql'],
@@ -170,7 +149,6 @@ export function createDefaultTemplate(partial = {}) {
       }
     },
     createdAt: partial.createdAt ?? now,
-    updatedAt: partial.updatedAt ?? now,
     database_types: partial.database_types ?? [partial.dbFamily ?? 'mysql']
   }
 }
@@ -184,16 +162,4 @@ export function normalizeTemplateRecord(template = {}) {
 
 export function createTemplateId() {
   return `tpl_${Math.random().toString(36).slice(2, 10)}`
-}
-
-export function formatTemplateDate(value) {
-  if (!value) return 'Unknown'
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value))
 }

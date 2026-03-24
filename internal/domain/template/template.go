@@ -28,16 +28,6 @@ const (
 	ToolSysbench   = "sysbench"
 	ToolSwingbench = "swingbench"
 	ToolHammerDB   = "hammerdb"
-
-	ScopeBuiltin        = "builtin"
-	ScopeUser           = "user"
-	ScopeProject        = "project"
-	ScopeReadonlyShared = "readonlyShared"
-	ScopeTest           = "test"
-
-	StatusDraft      = "draft"
-	StatusReady      = "ready"
-	StatusDeprecated = "deprecated"
 )
 
 var (
@@ -45,18 +35,6 @@ var (
 		ToolSysbench:   {},
 		ToolSwingbench: {},
 		ToolHammerDB:   {},
-	}
-	validScopes = map[string]struct{}{
-		ScopeBuiltin:        {},
-		ScopeUser:           {},
-		ScopeProject:        {},
-		ScopeReadonlyShared: {},
-		ScopeTest:           {},
-	}
-	validStatuses = map[string]struct{}{
-		StatusDraft:      {},
-		StatusReady:      {},
-		StatusDeprecated: {},
 	}
 	validDBFamilies = map[string]struct{}{
 		"mysql":      {},
@@ -117,14 +95,10 @@ var (
 		},
 	}
 	allowedPhases = map[string]struct{}{
-		"build":    {},
 		"prepare":  {},
-		"generate": {},
 		"warmup":   {},
 		"run":      {},
-		"verify":   {},
 		"cleanup":  {},
-		"delete":   {},
 	}
 )
 
@@ -138,14 +112,11 @@ type Template struct {
 	Tool        string `json:"tool"`
 	Version     string `json:"version"`
 	CreatedAt   string `json:"createdAt,omitempty"`
-	UpdatedAt   string `json:"updatedAt,omitempty"`
+	IsBuiltin   bool   `json:"is_builtin,omitempty"`
 
 	// Current canonical model used by Templates UI/backend CRUD.
 	DBFamily       string        `json:"dbFamily,omitempty"`
 	WorkloadFamily string        `json:"workloadFamily,omitempty"`
-	Scope          string        `json:"scope,omitempty"`
-	Tags           []string      `json:"tags,omitempty"`
-	Status         string        `json:"status,omitempty"`
 	Compatibility  Compatibility `json:"compatibility,omitempty"`
 	Phases         PhaseSet      `json:"phases,omitempty"`
 	Runtime        Runtime       `json:"runtime,omitempty"`
@@ -174,14 +145,83 @@ type PhaseConfig struct {
 }
 
 type PhaseSet struct {
-	Build    PhaseConfig `json:"build"`
-	Prepare  PhaseConfig `json:"prepare"`
-	Generate PhaseConfig `json:"generate"`
-	Warmup   PhaseConfig `json:"warmup"`
-	Run      PhaseConfig `json:"run"`
-	Verify   PhaseConfig `json:"verify"`
-	Cleanup  PhaseConfig `json:"cleanup"`
-	Delete   PhaseConfig `json:"delete"`
+	Prepare PhaseConfig `json:"prepare"`
+	Warmup  PhaseConfig `json:"warmup"`
+	Run     PhaseConfig `json:"run"`
+	Cleanup PhaseConfig `json:"cleanup"`
+}
+
+func (p *PhaseSet) UnmarshalJSON(data []byte) error {
+	type phaseSetJSON struct {
+		Prepare  PhaseConfig `json:"prepare"`
+		Warmup   PhaseConfig `json:"warmup"`
+		Run      PhaseConfig `json:"run"`
+		Cleanup  PhaseConfig `json:"cleanup"`
+		Build    PhaseConfig `json:"build"`
+		Generate PhaseConfig `json:"generate"`
+		Verify   PhaseConfig `json:"verify"`
+		Delete   PhaseConfig `json:"delete"`
+	}
+
+	var payload phaseSetJSON
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	p.Prepare = payload.Prepare
+	p.Warmup = payload.Warmup
+	p.Run = payload.Run
+	p.Cleanup = payload.Cleanup
+
+	absorbLegacyPhase(&p.Prepare, payload.Build)
+	absorbLegacyPhase(&p.Prepare, payload.Generate)
+	absorbLegacyPhase(&p.Cleanup, payload.Verify)
+	absorbLegacyPhase(&p.Cleanup, payload.Delete)
+	if p.Run.Enabled && !p.Prepare.Enabled && !p.Cleanup.Enabled && (payload.Build.Enabled || payload.Generate.Enabled || payload.Delete.Enabled) {
+		p.Prepare.Enabled = true
+		p.Cleanup.Enabled = true
+	}
+	p.normalize("")
+	return nil
+}
+
+func absorbLegacyPhase(target *PhaseConfig, legacy PhaseConfig) {
+	if !legacy.Enabled && !legacy.Required && len(legacy.Params) == 0 {
+		return
+	}
+	if legacy.Enabled {
+		target.Enabled = true
+	}
+	if legacy.Required {
+		target.Required = true
+	}
+	if len(legacy.Params) == 0 {
+		return
+	}
+	if target.Params == nil {
+		target.Params = map[string]interface{}{}
+	}
+	for key, value := range legacy.Params {
+		if _, exists := target.Params[key]; !exists {
+			target.Params[key] = value
+		}
+	}
+}
+
+func (p PhaseSet) MarshalJSON() ([]byte, error) {
+	type phaseSetJSON struct {
+		Prepare PhaseConfig `json:"prepare"`
+		Warmup  PhaseConfig `json:"warmup"`
+		Run     PhaseConfig `json:"run"`
+		Cleanup PhaseConfig `json:"cleanup"`
+	}
+
+	return json.Marshal(phaseSetJSON{
+		Prepare: p.Prepare,
+		Warmup:  p.Warmup,
+		Run:     p.Run,
+		Cleanup: p.Cleanup,
+	})
 }
 
 type Runtime struct {
@@ -283,14 +323,10 @@ const (
 // NewPhaseSet returns the default phase configuration.
 func NewPhaseSet() PhaseSet {
 	return PhaseSet{
-		Build:    PhaseConfig{Params: map[string]interface{}{}},
-		Prepare:  PhaseConfig{Params: map[string]interface{}{}},
-		Generate: PhaseConfig{Params: map[string]interface{}{}},
-		Warmup:   PhaseConfig{Params: map[string]interface{}{}},
-		Run:      PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
-		Verify:   PhaseConfig{Params: map[string]interface{}{}},
-		Cleanup:  PhaseConfig{Params: map[string]interface{}{}},
-		Delete:   PhaseConfig{Params: map[string]interface{}{}},
+		Prepare: PhaseConfig{Params: map[string]interface{}{}},
+		Warmup:  PhaseConfig{Params: map[string]interface{}{}},
+		Run:     PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+		Cleanup: PhaseConfig{Params: map[string]interface{}{}},
 	}
 }
 
@@ -300,20 +336,8 @@ func (t *Template) Normalize() {
 	if t.Version == "" {
 		t.Version = "0.1.0"
 	}
-	if t.Scope == "" {
-		t.Scope = ScopeUser
-	}
-	if t.Status == "" {
-		t.Status = StatusDraft
-	}
 	if t.CreatedAt == "" {
 		t.CreatedAt = now
-	}
-	if t.UpdatedAt == "" {
-		t.UpdatedAt = t.CreatedAt
-	}
-	if t.Tags == nil {
-		t.Tags = []string{}
 	}
 	if t.DBFamily != "" {
 		t.DatabaseTypes = []string{t.DBFamily}
@@ -340,25 +364,10 @@ func (p *PhaseSet) normalize(tool string) {
 			target.Enabled = fallback.Enabled
 		}
 	}
-	mergePhase(&p.Build, defaults.Build)
 	mergePhase(&p.Prepare, defaults.Prepare)
-	mergePhase(&p.Generate, defaults.Generate)
 	mergePhase(&p.Warmup, defaults.Warmup)
 	mergePhase(&p.Run, defaults.Run)
-	mergePhase(&p.Verify, defaults.Verify)
 	mergePhase(&p.Cleanup, defaults.Cleanup)
-	mergePhase(&p.Delete, defaults.Delete)
-	if tool == ToolSwingbench {
-		legacySwingbenchPhases := p.Build.Enabled || p.Generate.Enabled || p.Delete.Enabled || (p.Run.Enabled && !p.Prepare.Enabled && !p.Cleanup.Enabled)
-		if legacySwingbenchPhases {
-			if !p.Prepare.Enabled {
-				p.Prepare.Enabled = true
-			}
-			if !p.Cleanup.Enabled {
-				p.Cleanup.Enabled = true
-			}
-		}
-	}
 	if !p.Run.Enabled {
 		p.Run.Enabled = true
 	}
@@ -423,9 +432,9 @@ func (c *ToolConfig) normalize(tool, dbFamily, workload string, concurrency int)
 	}
 }
 
-// IsReadonlyScope returns true when the template cannot be updated/deleted directly.
-func (t *Template) IsReadonlyScope() bool {
-	return t.Scope == ScopeBuiltin || t.Scope == ScopeReadonlyShared
+// IsReadOnly returns true when the template cannot be updated/deleted directly.
+func (t *Template) IsReadOnly() bool {
+	return t.IsBuiltin
 }
 
 // SupportsDatabase checks if the template supports a specific database type.
@@ -451,7 +460,16 @@ func (t *Template) Validate() error {
 }
 
 func (t *Template) usesCanonicalModel() bool {
-	return t.DBFamily != "" || t.WorkloadFamily != "" || t.Scope != "" || t.Runtime.DurationSeconds != 0 || t.Phases.Run.Enabled
+	return t.DBFamily != "" ||
+		t.WorkloadFamily != "" ||
+		t.Runtime.DurationSeconds != 0 ||
+		t.Runtime.Concurrency.Value != 0 ||
+		t.Runtime.Concurrency.Mode != "" ||
+		len(t.Compatibility.SupportedDatabases) > 0 ||
+		len(t.Compatibility.SupportedVersions) > 0 ||
+		t.ToolConfig.Sysbench.ScriptType != "" ||
+		t.ToolConfig.Swingbench.Benchmark != "" ||
+		t.ToolConfig.HammerDB.Benchmark != ""
 }
 
 func (t *Template) validateCanonical() error {
@@ -468,12 +486,6 @@ func (t *Template) validateCanonical() error {
 	}
 	if _, ok := validDBFamilies[t.DBFamily]; !ok {
 		return fmt.Errorf("%w: invalid dbFamily '%s'", ErrTemplateInvalid, t.DBFamily)
-	}
-	if _, ok := validScopes[t.Scope]; !ok {
-		return fmt.Errorf("%w: invalid scope '%s'", ErrTemplateInvalid, t.Scope)
-	}
-	if _, ok := validStatuses[t.Status]; !ok {
-		return fmt.Errorf("%w: invalid status '%s'", ErrTemplateInvalid, t.Status)
 	}
 	if _, ok := toolDBMatrix[t.Tool][t.DBFamily]; !ok {
 		return fmt.Errorf("%w: tool '%s' does not support dbFamily '%s'", ErrTemplateInvalid, t.Tool, t.DBFamily)
@@ -510,14 +522,10 @@ func (t *Template) validateCanonical() error {
 
 func (t *Template) validatePhaseSet() error {
 	phaseChecks := map[string]PhaseConfig{
-		"build":    t.Phases.Build,
-		"prepare":  t.Phases.Prepare,
-		"generate": t.Phases.Generate,
-		"warmup":   t.Phases.Warmup,
-		"run":      t.Phases.Run,
-		"verify":   t.Phases.Verify,
-		"cleanup":  t.Phases.Cleanup,
-		"delete":   t.Phases.Delete,
+		"prepare": t.Phases.Prepare,
+		"warmup":  t.Phases.Warmup,
+		"run":     t.Phases.Run,
+		"cleanup": t.Phases.Cleanup,
 	}
 	for phase, cfg := range phaseChecks {
 		if _, ok := allowedPhases[phase]; !ok {

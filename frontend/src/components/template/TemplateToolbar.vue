@@ -14,7 +14,7 @@ defineEmits(['create'])
 <style scoped>
 .toolbar {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -24,9 +24,9 @@ defineEmits(['create'])
   gap: 6px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 8px 16px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
+  padding: 7px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
   background-color: var(--bg-primary);

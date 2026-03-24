@@ -392,10 +392,11 @@ func TestConnectionBinding_CreateConnection_WithSSH(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			binding, _, _ := newTestBinding()
-			dto := binding.CreateConnection(tt.req)
+			result := binding.CreateConnection(tt.req)
+			dto := result.Connection
 
 			if dto == nil {
-				t.Fatalf("CreateConnection() returned nil")
+				t.Fatalf("CreateConnection() returned nil connection, error=%q", result.Error)
 			}
 
 			// Check SSH status in DTO
@@ -526,10 +527,11 @@ func TestConnectionBinding_CreateConnection_WithWinRM(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			binding, _, _ := newTestBinding()
-			dto := binding.CreateConnection(tt.req)
+			result := binding.CreateConnection(tt.req)
+			dto := result.Connection
 
 			if dto == nil {
-				t.Fatalf("CreateConnection() returned nil")
+				t.Fatalf("CreateConnection() returned nil connection, error=%q", result.Error)
 			}
 
 			// Check WinRM status in DTO
@@ -583,10 +585,13 @@ func TestConnectionBinding_CreateConnection_UnknownType(t *testing.T) {
 		Password: "secret",
 	}
 
-	dto := binding.CreateConnection(req)
+	result := binding.CreateConnection(req)
 
-	if dto != nil {
-		t.Error("CreateConnection() should return nil for unknown type")
+	if result.Connection != nil {
+		t.Error("CreateConnection() should return nil connection for unknown type")
+	}
+	if result.Error == "" {
+		t.Error("CreateConnection() should return error for unknown type")
 	}
 }
 
@@ -610,9 +615,10 @@ func TestConnectionBinding_UpdateConnection_WithSSH(t *testing.T) {
 		SSLMode:    "preferred",
 		SSHEnabled: false,
 	}
-	createdDTO := binding.CreateConnection(createReq)
+	createResult := binding.CreateConnection(createReq)
+	createdDTO := createResult.Connection
 	if createdDTO == nil {
-		t.Fatal("Failed to create connection")
+		t.Fatalf("Failed to create connection: %s", createResult.Error)
 	}
 
 	// Now update with SSH enabled
@@ -631,9 +637,10 @@ func TestConnectionBinding_UpdateConnection_WithSSH(t *testing.T) {
 		SSHPassword: "sshpass",
 	}
 
-	updatedDTO := binding.UpdateConnection(updateReq)
+	updateResult := binding.UpdateConnection(updateReq)
+	updatedDTO := updateResult.Connection
 	if updatedDTO == nil {
-		t.Fatal("UpdateConnection() returned nil")
+		t.Fatalf("UpdateConnection() returned nil connection, error=%q", updateResult.Error)
 	}
 
 	if updatedDTO.Name != "Updated MySQL with SSH" {
@@ -684,9 +691,10 @@ func TestConnectionBinding_UpdateConnection_DisableSSH(t *testing.T) {
 		SSHUsername: "sshuser",
 		SSHPassword: "sshpass",
 	}
-	createdDTO := binding.CreateConnection(createReq)
+	createResult := binding.CreateConnection(createReq)
+	createdDTO := createResult.Connection
 	if createdDTO == nil {
-		t.Fatal("Failed to create connection")
+		t.Fatalf("Failed to create connection: %s", createResult.Error)
 	}
 
 	// Update to disable SSH
@@ -705,9 +713,10 @@ func TestConnectionBinding_UpdateConnection_DisableSSH(t *testing.T) {
 		SSHPassword: "",
 	}
 
-	updatedDTO := binding.UpdateConnection(updateReq)
+	updateResult := binding.UpdateConnection(updateReq)
+	updatedDTO := updateResult.Connection
 	if updatedDTO == nil {
-		t.Fatal("UpdateConnection() returned nil")
+		t.Fatalf("UpdateConnection() returned nil connection, error=%q", updateResult.Error)
 	}
 
 	if updatedDTO.SSHEnabled {
@@ -741,9 +750,10 @@ func TestConnectionBinding_UpdateConnection_WithWinRM(t *testing.T) {
 		Password:     "secret",
 		WinRMEnabled: false,
 	}
-	createdDTO := binding.CreateConnection(createReq)
+	createResult := binding.CreateConnection(createReq)
+	createdDTO := createResult.Connection
 	if createdDTO == nil {
-		t.Fatal("Failed to create connection")
+		t.Fatalf("Failed to create connection: %s", createResult.Error)
 	}
 
 	// Update with WinRM enabled
@@ -762,9 +772,10 @@ func TestConnectionBinding_UpdateConnection_WithWinRM(t *testing.T) {
 		WinRMPassword: "winrmpass",
 	}
 
-	updatedDTO := binding.UpdateConnection(updateReq)
+	updateResult := binding.UpdateConnection(updateReq)
+	updatedDTO := updateResult.Connection
 	if updatedDTO == nil {
-		t.Fatal("UpdateConnection() returned nil")
+		t.Fatalf("UpdateConnection() returned nil connection, error=%q", updateResult.Error)
 	}
 
 	if !updatedDTO.WinRMEnabled {
@@ -811,9 +822,10 @@ func TestConnectionBinding_UpdateConnection_DisableWinRM(t *testing.T) {
 		WinRMUsername: "admin",
 		WinRMPassword: "winrmpass",
 	}
-	createdDTO := binding.CreateConnection(createReq)
+	createResult := binding.CreateConnection(createReq)
+	createdDTO := createResult.Connection
 	if createdDTO == nil {
-		t.Fatal("Failed to create connection")
+		t.Fatalf("Failed to create connection: %s", createResult.Error)
 	}
 
 	// Update to disable WinRM
@@ -832,9 +844,10 @@ func TestConnectionBinding_UpdateConnection_DisableWinRM(t *testing.T) {
 		WinRMPassword: "",
 	}
 
-	updatedDTO := binding.UpdateConnection(updateReq)
+	updateResult := binding.UpdateConnection(updateReq)
+	updatedDTO := updateResult.Connection
 	if updatedDTO == nil {
-		t.Fatal("UpdateConnection() returned nil")
+		t.Fatalf("UpdateConnection() returned nil connection, error=%q", updateResult.Error)
 	}
 
 	if updatedDTO.WinRMEnabled {
@@ -1268,5 +1281,3 @@ func getWinRMConfig(conn connection.Connection) *connection.WinRMConfig {
 		return nil
 	}
 }
-
-

@@ -41,7 +41,7 @@ func (m *mockTemplateRepository) FindAll(ctx context.Context) ([]*domaintemplate
 func (m *mockTemplateRepository) FindBuiltin(ctx context.Context) ([]*domaintemplate.Template, error) {
 	var out []*domaintemplate.Template
 	for _, tmpl := range m.templates {
-		if tmpl.Scope == domaintemplate.ScopeBuiltin {
+		if tmpl.IsBuiltin {
 			clone, _ := tmpl.Clone()
 			out = append(out, clone)
 		}
@@ -52,7 +52,7 @@ func (m *mockTemplateRepository) FindBuiltin(ctx context.Context) ([]*domaintemp
 func (m *mockTemplateRepository) FindCustom(ctx context.Context) ([]*domaintemplate.Template, error) {
 	var out []*domaintemplate.Template
 	for _, tmpl := range m.templates {
-		if tmpl.Scope == domaintemplate.ScopeUser || tmpl.Scope == domaintemplate.ScopeProject || tmpl.Scope == domaintemplate.ScopeTest {
+		if !tmpl.IsBuiltin {
 			clone, _ := tmpl.Clone()
 			out = append(out, clone)
 		}
@@ -81,7 +81,7 @@ func TestTemplateUseCase_CreateUpdateDeleteAndDuplicate(t *testing.T) {
 	repo := newMockTemplateRepository()
 	uc := NewTemplateUseCase(repo, "")
 
-	tmpl := newCanonicalTemplate("uc-user-1", domaintemplate.ScopeUser)
+	tmpl := newCanonicalTemplate("uc-user-1", false)
 	if err := uc.CreateTemplate(ctx, tmpl); err != nil {
 		t.Fatalf("CreateTemplate() failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestTemplateUseCase_CreateUpdateDeleteAndDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DuplicateTemplate() failed: %v", err)
 	}
-	if dup.ID == created.ID || dup.Scope != domaintemplate.ScopeUser {
+	if dup.ID == created.ID || dup.IsBuiltin {
 		t.Fatalf("duplicate not normalized correctly: %+v", dup)
 	}
 
@@ -113,9 +113,8 @@ func TestTemplateUseCase_ReadonlyProtection(t *testing.T) {
 	repo := newMockTemplateRepository()
 	uc := NewTemplateUseCase(repo, "")
 
-	builtin := newCanonicalTemplate("uc-builtin-1", domaintemplate.ScopeBuiltin)
-	shared := newCanonicalTemplate("uc-shared-1", domaintemplate.ScopeReadonlyShared)
-	if err := repo.LoadBuiltinTemplates(ctx, []*domaintemplate.Template{builtin, shared}); err != nil {
+	builtin := newCanonicalTemplate("uc-builtin-1", true)
+	if err := repo.LoadBuiltinTemplates(ctx, []*domaintemplate.Template{builtin}); err != nil {
 		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
 	}
 
@@ -125,9 +124,6 @@ func TestTemplateUseCase_ReadonlyProtection(t *testing.T) {
 	}
 	if err := uc.DeleteTemplate(ctx, builtin.ID); err != ErrBuiltinTemplateCannotBeDeleted {
 		t.Fatalf("DeleteTemplate() builtin err=%v want=%v", err, ErrBuiltinTemplateCannotBeDeleted)
-	}
-	if err := uc.DeleteTemplate(ctx, shared.ID); err != ErrReadonlyTemplateCannotBeEdited {
-		t.Fatalf("DeleteTemplate() shared err=%v want=%v", err, ErrReadonlyTemplateCannotBeEdited)
 	}
 }
 
@@ -144,37 +140,15 @@ func TestTemplateUseCase_LoadBuiltinTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTemplates() failed: %v", err)
 	}
-	if len(all) == 0 {
-		t.Fatal("expected seeded templates")
+	if len(all) != 1 {
+		t.Fatalf("expected 1 seeded template, got %d", len(all))
+	}
+	if all[0].ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("seeded template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
 	}
 }
 
-func TestTemplateUseCase_LoadBuiltinTemplates_SwingbenchSupportsPrepareRunCleanup(t *testing.T) {
-	ctx := context.Background()
-	repo := newMockTemplateRepository()
-	uc := NewTemplateUseCase(repo, "")
-
-	if err := uc.LoadBuiltinTemplates(ctx); err != nil {
-		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
-	}
-
-	tmpl, err := uc.GetTemplate(ctx, "tpl_swing_oe")
-	if err != nil {
-		t.Fatalf("GetTemplate() failed: %v", err)
-	}
-
-	if !tmpl.Phases.Prepare.Enabled {
-		t.Fatal("swingbench builtin should enable prepare phase")
-	}
-	if !tmpl.Phases.Run.Enabled {
-		t.Fatal("swingbench builtin should enable run phase")
-	}
-	if !tmpl.Phases.Cleanup.Enabled {
-		t.Fatal("swingbench builtin should enable cleanup phase")
-	}
-}
-
-func TestTemplateUseCase_LoadBuiltinTemplates_IncludesDatabaseTestCoverage(t *testing.T) {
+func TestTemplateUseCase_LoadBuiltinTemplates_OnlyKeepsDefaultTestTemplate(t *testing.T) {
 	ctx := context.Background()
 	repo := newMockTemplateRepository()
 	uc := NewTemplateUseCase(repo, "")
@@ -188,51 +162,44 @@ func TestTemplateUseCase_LoadBuiltinTemplates_IncludesDatabaseTestCoverage(t *te
 		t.Fatalf("ListTemplates() failed: %v", err)
 	}
 
-	want := map[string]string{
-		"mysql":      domaintemplate.ToolSysbench,
-		"postgresql": domaintemplate.ToolSysbench,
-		"oracle":     domaintemplate.ToolSwingbench,
-		"sqlserver":  domaintemplate.ToolHammerDB,
+	if len(all) != 1 {
+		t.Fatalf("expected 1 template after loading seeds, got %d", len(all))
 	}
 
-	found := map[string]*domaintemplate.Template{}
-	for _, tmpl := range all {
-		if tmpl.Scope != domaintemplate.ScopeTest {
-			continue
-		}
-		found[tmpl.DBFamily] = tmpl
+	tmpl := all[0]
+	if tmpl.ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("template id = %s, want tpl_test_mysql_sysbench", tmpl.ID)
 	}
-
-	for dbFamily, tool := range want {
-		tmpl := found[dbFamily]
-		if tmpl == nil {
-			t.Fatalf("missing test template for %s", dbFamily)
-		}
-		if tmpl.Tool != tool {
-			t.Fatalf("test template for %s uses tool %s, want %s", dbFamily, tmpl.Tool, tool)
-		}
-		if tmpl.Scope != domaintemplate.ScopeTest {
-			t.Fatalf("test template for %s scope = %s, want %s", dbFamily, tmpl.Scope, domaintemplate.ScopeTest)
-		}
-		if !containsString(tmpl.Tags, "test") {
-			t.Fatalf("test template for %s must include tag 'test': %v", dbFamily, tmpl.Tags)
-		}
-		if !tmpl.SupportsDatabase(dbFamily) {
-			t.Fatalf("test template for %s does not support its own database family", dbFamily)
-		}
+	if tmpl.Tool != domaintemplate.ToolSysbench {
+		t.Fatalf("template tool = %s, want %s", tmpl.Tool, domaintemplate.ToolSysbench)
+	}
+	if !tmpl.SupportsDatabase("mysql") {
+		t.Fatal("default test template must support mysql")
 	}
 }
 
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
+func TestTemplateUseCase_CreateTemplate_DoesNotRequireRemovedMetadataFields(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockTemplateRepository()
+	uc := NewTemplateUseCase(repo, "")
+
+	tmpl := newCanonicalTemplate("uc-minimal-1", false)
+	tmpl.IsBuiltin = false
+
+	if err := uc.CreateTemplate(ctx, tmpl); err != nil {
+		t.Fatalf("CreateTemplate() failed without scope/status/tags/updatedAt: %v", err)
 	}
-	return false
+
+	saved, err := uc.GetTemplate(ctx, tmpl.ID)
+	if err != nil {
+		t.Fatalf("GetTemplate() failed: %v", err)
+	}
+	if saved.IsBuiltin {
+		t.Fatal("saved template should stay editable")
+	}
 }
 
-func newCanonicalTemplate(id, scope string) *domaintemplate.Template {
+func newCanonicalTemplate(id string, isBuiltin bool) *domaintemplate.Template {
 	tmpl := &domaintemplate.Template{
 		ID:             id,
 		Name:           id,
@@ -240,13 +207,13 @@ func newCanonicalTemplate(id, scope string) *domaintemplate.Template {
 		Tool:           domaintemplate.ToolSysbench,
 		DBFamily:       "mysql",
 		WorkloadFamily: "oltp-read-write",
-		Scope:          scope,
-		Status:         domaintemplate.StatusDraft,
-		Tags:           []string{"test"},
+		IsBuiltin:      isBuiltin,
 		Version:        "0.1.0",
 		Phases: domaintemplate.PhaseSet{
 			Prepare: domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
+			Warmup:  domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 			Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+			Cleanup: domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 		},
 		Runtime: domaintemplate.Runtime{
 			Concurrency:           domaintemplate.Concurrency{Mode: "threads", Value: 4},

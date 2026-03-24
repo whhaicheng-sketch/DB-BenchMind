@@ -35,29 +35,6 @@
       </select>
     </label>
 
-    <label class="filter-field">
-      <span class="field-label">Scope / Tag</span>
-      <div class="filter-pair">
-        <select
-          class="field-select"
-          :value="filters.scope"
-          @change="$emit('filter-change', { key: 'scope', value: $event.target.value })"
-        >
-          <option value="">All Scopes</option>
-          <option v-for="option in scopeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
-
-        <select
-          class="field-select"
-          :value="filters.tag"
-          @change="$emit('filter-change', { key: 'tag', value: $event.target.value })"
-        >
-          <option value="">All Tags</option>
-          <option v-for="option in tagOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
-      </div>
-    </label>
-
     <button class="reset-btn" @click="$emit('reset')">Reset</button>
   </div>
 </template>
@@ -75,14 +52,6 @@ defineProps({
   dbOptions: {
     type: Array,
     default: () => []
-  },
-  tagOptions: {
-    type: Array,
-    default: () => []
-  },
-  scopeOptions: {
-    type: Array,
-    default: () => []
   }
 })
 
@@ -92,10 +61,10 @@ defineEmits(['filter-change', 'reset'])
 <style scoped>
 .filter-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(140px, 0.8fr)) auto;
-  gap: var(--spacing-sm);
+  grid-template-columns: minmax(220px, 1.5fr) repeat(2, minmax(140px, 0.8fr)) auto;
+  gap: 10px;
   align-items: end;
-  padding: var(--spacing-md);
+  padding: 10px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background-color: var(--bg-primary);
@@ -105,7 +74,7 @@ defineEmits(['filter-change', 'reset'])
 .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .field-label {
@@ -117,8 +86,8 @@ defineEmits(['filter-change', 'reset'])
 .field-input,
 .field-select {
   width: 100%;
-  min-height: 32px;
-  padding: 5px 10px;
+  min-height: 30px;
+  padding: 4px 10px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--bg-input);
@@ -152,15 +121,9 @@ defineEmits(['filter-change', 'reset'])
   color: var(--text-placeholder);
 }
 
-.filter-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--spacing-xs);
-}
-
 .reset-btn {
-  min-height: 32px;
-  padding: 0 var(--spacing-md);
+  min-height: 30px;
+  padding: 0 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
@@ -179,22 +142,12 @@ defineEmits(['filter-change', 'reset'])
 
 @media (max-width: 1200px) {
   .filter-bar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 900px) {
   .filter-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 680px) {
-  .filter-bar {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-pair {
     grid-template-columns: 1fr;
   }
 }

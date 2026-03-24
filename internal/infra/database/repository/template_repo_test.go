@@ -18,7 +18,7 @@ func TestTemplateRepository_SaveFindAndDelete(t *testing.T) {
 	defer db.Close()
 
 	repo := NewTemplateRepository(db)
-	tmpl := newTemplate("repo-user-1", domaintemplate.ScopeUser)
+	tmpl := newTemplate("repo-user-1", false)
 
 	if err := repo.Save(ctx, tmpl); err != nil {
 		t.Fatalf("Save() failed: %v", err)
@@ -47,12 +47,11 @@ func TestTemplateRepository_FindFiltersAndBuiltinProtection(t *testing.T) {
 	defer db.Close()
 
 	repo := NewTemplateRepository(db)
-	builtin := newTemplate("repo-builtin-1", domaintemplate.ScopeBuiltin)
-	shared := newTemplate("repo-shared-1", domaintemplate.ScopeReadonlyShared)
-	user := newTemplate("repo-user-2", domaintemplate.ScopeUser)
-	testTemplate := newTemplate("repo-test-1", domaintemplate.ScopeTest)
+	builtin := newTemplate("repo-builtin-1", true)
+	user := newTemplate("repo-user-2", false)
+	testTemplate := newTemplate("repo-test-1", false)
 
-	if err := repo.LoadBuiltinTemplates(ctx, []*domaintemplate.Template{builtin, shared}); err != nil {
+	if err := repo.LoadBuiltinTemplates(ctx, []*domaintemplate.Template{builtin}); err != nil {
 		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
 	}
 	if err := repo.Save(ctx, user); err != nil {
@@ -63,7 +62,7 @@ func TestTemplateRepository_FindFiltersAndBuiltinProtection(t *testing.T) {
 	}
 
 	all, err := repo.FindAll(ctx)
-	if err != nil || len(all) != 4 {
+	if err != nil || len(all) != 3 {
 		t.Fatalf("FindAll() err=%v len=%d", err, len(all))
 	}
 
@@ -91,7 +90,7 @@ func TestTemplateRepository_PersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("InitializeSQLite() failed: %v", err)
 	}
 	repo := NewTemplateRepository(db)
-	tmpl := newTemplate("repo-persist-1", domaintemplate.ScopeUser)
+	tmpl := newTemplate("repo-persist-1", false)
 	if err := repo.Save(ctx, tmpl); err != nil {
 		t.Fatalf("Save() failed: %v", err)
 	}
@@ -113,6 +112,178 @@ func TestTemplateRepository_PersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestTemplateRepository_LoadBuiltinTemplates_SyncsToSingleDefaultTestTemplate(t *testing.T) {
+	ctx := context.Background()
+	db := setupTemplateTestDB(t)
+	defer db.Close()
+
+	repo := NewTemplateRepository(db)
+
+	legacyBuiltin := newTemplate("legacy-builtin", true)
+	legacyUser := newTemplate("legacy-user", false)
+	legacyUser.ID = "legacy-user"
+	legacyUser.Name = "legacy-user"
+	legacyTest := newTemplate("tpl_test_postgresql_sysbench", false)
+	legacyTest.DBFamily = "postgresql"
+	legacyTest.DatabaseTypes = []string{"postgresql"}
+	legacyTest.ToolConfig.Sysbench.DBDriver = "pgsql"
+
+	for _, tmpl := range []*domaintemplate.Template{legacyBuiltin, legacyUser, legacyTest} {
+		tmpl.Normalize()
+		if err := repo.Save(ctx, tmpl); err != nil {
+			t.Fatalf("seed legacy template %s: %v", tmpl.ID, err)
+		}
+	}
+
+	if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll() failed: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 template after sync, got %d", len(all))
+	}
+	if all[0].ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	}
+	if !all[0].IsBuiltin {
+		t.Fatal("remaining template should be builtin")
+	}
+}
+
+func TestTemplateRepository_LoadBuiltinTemplates_ExistingDefaultTemplateKeepsStableRecord(t *testing.T) {
+	ctx := context.Background()
+	db := setupTemplateTestDB(t)
+	defer db.Close()
+
+	repo := NewTemplateRepository(db)
+	defaultTemplate := newTemplate("tpl_test_mysql_sysbench", true)
+	defaultTemplate.Name = "stale default"
+	defaultTemplate.CreatedAt = "2026-01-01T00:00:00Z"
+	defaultTemplate.Normalize()
+	if err := repo.Save(ctx, defaultTemplate); err != nil {
+		t.Fatalf("seed default template: %v", err)
+	}
+	if err := repo.Save(ctx, newTemplate("legacy-user", false)); err != nil {
+		t.Fatalf("seed legacy user template: %v", err)
+	}
+	if err := repo.Save(ctx, newTemplate("legacy-builtin", true)); err != nil {
+		t.Fatalf("seed legacy builtin template: %v", err)
+	}
+
+	beforeRowID := templateRowID(t, db, "tpl_test_mysql_sysbench")
+
+	if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	afterRowID := templateRowID(t, db, "tpl_test_mysql_sysbench")
+	if beforeRowID != afterRowID {
+		t.Fatalf("default template rowid changed from %d to %d; template was recreated instead of updated", beforeRowID, afterRowID)
+	}
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll() failed: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 template after sync, got %d", len(all))
+	}
+	if all[0].Name != "MySQL - Sysbench Test" {
+		t.Fatalf("default template was not refreshed to latest seed content: %s", all[0].Name)
+	}
+}
+
+func TestTemplateRepository_LoadBuiltinTemplates_IsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	db := setupTemplateTestDB(t)
+	defer db.Close()
+
+	repo := NewTemplateRepository(db)
+
+	for i := 0; i < 3; i++ {
+		if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
+			t.Fatalf("LoadBuiltinTemplates() run %d failed: %v", i+1, err)
+		}
+	}
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll() failed: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 template after repeated sync, got %d", len(all))
+	}
+	if all[0].ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	}
+}
+
+func TestTemplateRepository_LoadBuiltinTemplates_FreshInstallCreatesOnlyDefaultTemplate(t *testing.T) {
+	ctx := context.Background()
+	db := setupTemplateTestDB(t)
+	defer db.Close()
+
+	repo := NewTemplateRepository(db)
+
+	if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll() failed: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 template after fresh install sync, got %d", len(all))
+	}
+	if all[0].ID != "tpl_test_mysql_sysbench" {
+		t.Fatalf("remaining template id = %s, want tpl_test_mysql_sysbench", all[0].ID)
+	}
+}
+
+func TestTemplateRepository_LoadBuiltinTemplates_PreservesDependenciesForDefaultTemplate(t *testing.T) {
+	ctx := context.Background()
+	db := setupTemplateTestDB(t)
+	defer db.Close()
+
+	repo := NewTemplateRepository(db)
+	defaultTemplate := newTemplate("tpl_test_mysql_sysbench", true)
+	defaultTemplate.Name = "stale default"
+	defaultTemplate.Normalize()
+	if err := repo.Save(ctx, defaultTemplate); err != nil {
+		t.Fatalf("seed default template: %v", err)
+	}
+	if err := repo.Save(ctx, newTemplate("legacy-user", false)); err != nil {
+		t.Fatalf("seed legacy user template: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO tasks (id, name, connection_id, template_id, parameters_json, options_json, tags, created_at, updated_at)
+		VALUES ('task-default', 'Task Default', 'conn-1', 'tpl_test_mysql_sysbench', '{}', '{}', '', '2026-03-20T00:00:00Z', '2026-03-20T00:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed task referencing default template: %v", err)
+	}
+
+	if err := repo.LoadBuiltinTemplates(ctx, domaintemplate.DefaultSeedTemplates()); err != nil {
+		t.Fatalf("LoadBuiltinTemplates() failed: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE id = 'task-default'").Scan(&count); err != nil {
+		t.Fatalf("count dependent tasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected dependent task to survive sync, got count %d", count)
+	}
+	if templateRowID(t, db, "tpl_test_mysql_sysbench") == 0 {
+		t.Fatal("default template should still exist after sync")
+	}
+}
+
 func setupTemplateTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -121,7 +292,15 @@ func setupTemplateTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open sqlite: %v", err)
 	}
 
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
+		db.Close()
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+
 	_, err = db.Exec(`
+		CREATE TABLE connections (
+			id TEXT PRIMARY KEY
+		);
 		CREATE TABLE templates (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -132,14 +311,25 @@ func setupTemplateTestDB(t *testing.T) *sql.DB {
 			parameters_json TEXT NOT NULL,
 			command_template_json TEXT NOT NULL,
 			output_parser_json TEXT NOT NULL,
-			scope TEXT NOT NULL DEFAULT 'builtin',
-			status TEXT NOT NULL DEFAULT 'ready',
-			tags_json TEXT NOT NULL DEFAULT '[]',
 			config_json TEXT NOT NULL DEFAULT '',
 			is_builtin INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+		CREATE TABLE tasks (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			connection_id TEXT NOT NULL,
+			template_id TEXT NOT NULL,
+			parameters_json TEXT NOT NULL,
+			options_json TEXT,
+			tags TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE,
+			FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+		);
+		INSERT INTO connections (id) VALUES ('conn-1');
 	`)
 	if err != nil {
 		db.Close()
@@ -149,7 +339,17 @@ func setupTemplateTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func newTemplate(id, scope string) *domaintemplate.Template {
+func templateRowID(t *testing.T, db *sql.DB, id string) int64 {
+	t.Helper()
+
+	var rowID int64
+	if err := db.QueryRow("SELECT rowid FROM templates WHERE id = ?", id).Scan(&rowID); err != nil {
+		t.Fatalf("query template rowid for %s: %v", id, err)
+	}
+	return rowID
+}
+
+func newTemplate(id string, isBuiltin bool) *domaintemplate.Template {
 	tmpl := &domaintemplate.Template{
 		ID:             id,
 		Name:           id,
@@ -157,13 +357,13 @@ func newTemplate(id, scope string) *domaintemplate.Template {
 		Tool:           domaintemplate.ToolSysbench,
 		DBFamily:       "mysql",
 		WorkloadFamily: "oltp-read-write",
-		Scope:          scope,
-		Status:         domaintemplate.StatusReady,
-		Tags:           []string{"repo"},
+		IsBuiltin:      isBuiltin,
 		Version:        "1.0.0",
 		Phases: domaintemplate.PhaseSet{
 			Prepare: domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
+			Warmup:  domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 			Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true, Params: map[string]interface{}{}},
+			Cleanup: domaintemplate.PhaseConfig{Enabled: true, Params: map[string]interface{}{}},
 		},
 		Runtime: domaintemplate.Runtime{
 			Concurrency:           domaintemplate.Concurrency{Mode: "threads", Value: 8},

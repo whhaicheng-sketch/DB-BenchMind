@@ -79,7 +79,7 @@ func (r *MemoryTemplateRepository) FindCustom(ctx context.Context) ([]*domaintem
 
 	var templates []*domaintemplate.Template
 	for id, tmpl := range r.templates {
-		if r.builtinTemplateIDs[id] || tmpl.Scope == domaintemplate.ScopeReadonlyShared {
+		if r.builtinTemplateIDs[id] || tmpl.IsBuiltin {
 			continue
 		}
 		templates = append(templates, tmpl)
@@ -104,9 +104,6 @@ func (r *MemoryTemplateRepository) Delete(ctx context.Context, id string) error 
 	defer r.mu.Unlock()
 	if r.builtinTemplateIDs[id] {
 		return ErrBuiltinTemplateCannotBeDeleted
-	}
-	if tmpl, ok := r.templates[id]; ok && tmpl.Scope == domaintemplate.ScopeReadonlyShared {
-		return ErrReadonlyTemplateCannotBeEdited
 	}
 	if _, ok := r.templates[id]; !ok {
 		return ErrTemplateNotFound

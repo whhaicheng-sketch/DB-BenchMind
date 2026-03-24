@@ -65,10 +65,8 @@ func InitializeSQLite(ctx context.Context, dbPath string) (*sql.DB, error) {
 
 func ensureTemplateColumns(ctx context.Context, db *sql.DB) error {
 	columns := map[string]string{
-		"scope":       "ALTER TABLE templates ADD COLUMN scope TEXT NOT NULL DEFAULT 'builtin'",
-		"status":      "ALTER TABLE templates ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'",
-		"tags_json":   "ALTER TABLE templates ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'",
 		"config_json": "ALTER TABLE templates ADD COLUMN config_json TEXT NOT NULL DEFAULT ''",
+		"is_builtin":  "ALTER TABLE templates ADD COLUMN is_builtin BOOLEAN NOT NULL DEFAULT 0",
 	}
 
 	existing := map[string]bool{}

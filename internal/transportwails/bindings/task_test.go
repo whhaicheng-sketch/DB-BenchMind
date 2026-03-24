@@ -80,7 +80,7 @@ func TestValidateReadiness(t *testing.T) {
 	}
 }
 
-func TestTemplateSnapshot_SwingbenchPhasesDriveTaskActions(t *testing.T) {
+func TestTemplateSnapshot_OnlyUsesRuntimeLifecyclePhases(t *testing.T) {
 	tmpl := &domaintemplate.Template{
 		ID:             "tpl_swing",
 		Name:           "Swingbench Oracle",
@@ -88,9 +88,10 @@ func TestTemplateSnapshot_SwingbenchPhasesDriveTaskActions(t *testing.T) {
 		DBFamily:       "oracle",
 		WorkloadFamily: "order-entry",
 		Phases: domaintemplate.PhaseSet{
-			Build:    domaintemplate.PhaseConfig{Enabled: true},
-			Generate: domaintemplate.PhaseConfig{Enabled: true},
+			Prepare:  domaintemplate.PhaseConfig{Enabled: true},
+			Warmup:   domaintemplate.PhaseConfig{Enabled: true},
 			Run:      domaintemplate.PhaseConfig{Enabled: true, Required: true},
+			Cleanup:  domaintemplate.PhaseConfig{Enabled: true},
 		},
 		Runtime: domaintemplate.Runtime{
 			Concurrency:     domaintemplate.Concurrency{Mode: "users", Value: 8},
@@ -109,16 +110,53 @@ func TestTemplateSnapshot_SwingbenchPhasesDriveTaskActions(t *testing.T) {
 	snapshot := templateSnapshot(tmpl, map[string]interface{}{"time": 60})
 
 	if !snapshot.Phases["prepare"] {
-		t.Fatal("templateSnapshot() should expose prepare action for legacy swingbench phases")
+		t.Fatal("templateSnapshot() should expose prepare action")
 	}
 	if !snapshot.Phases["run"] {
 		t.Fatal("templateSnapshot() should expose run action for swingbench")
 	}
 	if !snapshot.Phases["cleanup"] {
-		t.Fatal("templateSnapshot() should expose cleanup action for legacy swingbench phases")
+		t.Fatal("templateSnapshot() should expose cleanup action")
+	}
+	if len(snapshot.Phases) != 3 {
+		t.Fatalf("templateSnapshot() phases = %v, want only prepare/run/cleanup", snapshot.Phases)
 	}
 	if !actionSupported(domaintask.ActionFullPipeline, snapshot.Phases) {
 		t.Fatal("full pipeline should be supported when prepare/run/cleanup are enabled")
+	}
+}
+
+func TestTemplateSnapshot_IgnoresLegacyTemplatePhaseTogglesForActionSupport(t *testing.T) {
+	tmpl := &domaintemplate.Template{
+		ID:             "tpl_legacy",
+		Name:           "Legacy Template",
+		Tool:           domaintemplate.ToolSysbench,
+		DBFamily:       "mysql",
+		WorkloadFamily: "oltp-read-write",
+		Phases: domaintemplate.PhaseSet{
+			Prepare: domaintemplate.PhaseConfig{Enabled: false},
+			Warmup:  domaintemplate.PhaseConfig{Enabled: false},
+			Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+			Cleanup: domaintemplate.PhaseConfig{Enabled: false},
+		},
+	}
+
+	snapshot := templateSnapshot(tmpl, map[string]interface{}{})
+
+	if !snapshot.Phases["prepare"] || !snapshot.Phases["run"] || !snapshot.Phases["cleanup"] {
+		t.Fatalf("templateSnapshot() should always expose prepare/run/cleanup actions, got %v", snapshot.Phases)
+	}
+	if !actionSupported(domaintask.ActionPrepare, snapshot.Phases) {
+		t.Fatal("prepare action should stay supported")
+	}
+	if !actionSupported(domaintask.ActionRun, snapshot.Phases) {
+		t.Fatal("run action should stay supported")
+	}
+	if !actionSupported(domaintask.ActionCleanup, snapshot.Phases) {
+		t.Fatal("cleanup action should stay supported")
+	}
+	if !actionSupported(domaintask.ActionFullPipeline, snapshot.Phases) {
+		t.Fatal("full pipeline should stay supported")
 	}
 }
 
@@ -150,11 +188,9 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 			Tool:           domaintemplate.ToolSysbench,
 			DBFamily:       "mysql",
 			WorkloadFamily: "oltp-read-write",
-			Scope:          domaintemplate.ScopeTest,
-			Status:         domaintemplate.StatusReady,
-			Tags:           []string{"test"},
 			Phases: domaintemplate.PhaseSet{
 				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Warmup:  domaintemplate.PhaseConfig{Enabled: true},
 				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
 				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
 			},
@@ -199,9 +235,6 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 			Tool:           domaintemplate.ToolSwingbench,
 			DBFamily:       "oracle",
 			WorkloadFamily: "order-entry",
-			Scope:          domaintemplate.ScopeTest,
-			Status:         domaintemplate.StatusReady,
-			Tags:           []string{"test"},
 			Parameters: map[string]domaintemplate.Parameter{
 				"scale": {
 					Type:    domaintemplate.ParameterTypeInteger,
@@ -211,6 +244,7 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 			},
 			Phases: domaintemplate.PhaseSet{
 				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Warmup:  domaintemplate.PhaseConfig{Enabled: true},
 				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
 				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
 			},
@@ -250,11 +284,9 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 			Tool:           domaintemplate.ToolHammerDB,
 			DBFamily:       "sqlserver",
 			WorkloadFamily: "tproc-c",
-			Scope:          domaintemplate.ScopeTest,
-			Status:         domaintemplate.StatusReady,
-			Tags:           []string{"test"},
 			Phases: domaintemplate.PhaseSet{
 				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Warmup:  domaintemplate.PhaseConfig{Enabled: true},
 				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
 				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
 			},

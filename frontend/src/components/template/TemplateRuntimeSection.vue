@@ -2,32 +2,8 @@
   <section class="section-card">
     <div class="section-header">
       <div>
-        <h3 class="section-title">Workload / Benchmark Settings</h3>
-        <p class="section-subtitle">Phase switches, runtime controls and tool-specific benchmark parameters.</p>
+        <h3 class="section-title">Runtime</h3>
       </div>
-    </div>
-
-    <div class="phase-grid">
-      <label
-        v-for="phase in visiblePhaseKeys"
-        :key="phase"
-        class="phase-pill"
-        :class="{
-          active: templateModel.phases[phase]?.enabled,
-          unavailable: !isPhaseAllowed(phase),
-          required: isPhaseRequired(phase)
-        }"
-      >
-        <input
-          type="checkbox"
-          :checked="templateModel.phases[phase]?.enabled"
-          :disabled="readonly || !isPhaseAllowed(phase) || isPhaseRequired(phase)"
-          @change="handlePhaseToggle(phase, $event.target.checked)"
-        >
-        <span>{{ phase }}</span>
-        <small v-if="!isPhaseAllowed(phase)">Unavailable</small>
-        <small v-else-if="isPhaseRequired(phase)">Required</small>
-      </label>
     </div>
 
     <div class="runtime-grid">
@@ -94,15 +70,11 @@
         <span class="field-label">Rate Limit</span>
         <input v-model.number="templateModel.runtime.rateLimit" class="field-input" type="number" min="0" :disabled="readonly" @input="handleRuntimeInput">
       </label>
-      <label v-if="errors.phaseCombination || errors.phaseRun" class="field field-wide">
-        <span class="field-error">{{ errors.phaseCombination || errors.phaseRun }}</span>
-      </label>
     </div>
 
     <div class="tool-fields">
       <div class="tool-header">
-        <h4>{{ templateStore.toolLabels[templateModel.tool] }} Specific</h4>
-        <span class="tool-note">{{ templateStore.editorMode === 'standard' ? 'High-frequency fields only' : 'Expanded field set placeholder for later phases' }}</span>
+        <h4>{{ templateStore.toolLabels[templateModel.tool] }}</h4>
       </div>
 
       <div class="runtime-grid">
@@ -150,7 +122,6 @@
             v-model="templateModel.runtime.notes"
             class="field-input textarea"
             :disabled="readonly"
-            placeholder="Add operator guidance or future backend mapping notes"
             @input="handleRuntimeInput"
           />
         </label>
@@ -162,7 +133,7 @@
 <script setup>
 import { computed } from 'vue'
 import { TEMPLATE_CAPABILITIES } from '../../constants/templateCapabilities'
-import { CONCURRENCY_MODE_LABELS, PHASE_KEYS } from '../../models/template'
+import { CONCURRENCY_MODE_LABELS } from '../../models/template'
 import { useTemplateStore } from '../../stores/template'
 
 const props = defineProps({
@@ -179,30 +150,15 @@ const props = defineProps({
 const templateStore = useTemplateStore()
 const errors = computed(() => templateStore.validationErrors)
 
-const phaseKeys = PHASE_KEYS
 const concurrencyLabels = CONCURRENCY_MODE_LABELS
 
 const capability = computed(() => TEMPLATE_CAPABILITIES[props.templateModel.tool] || TEMPLATE_CAPABILITIES.sysbench)
 const availableModes = computed(() => capability.value.concurrencyModes)
 const toolModel = computed(() => props.templateModel.toolConfig[props.templateModel.tool])
-const visiblePhaseKeys = computed(() => {
-  if (templateStore.editorMode === 'standard') {
-    return phaseKeys.filter((phase) => capability.value.allowedPhases.includes(phase))
-  }
-
-  return phaseKeys
-})
 const visibleToolFields = computed(() => capability.value.toolFields.filter((field) => {
   if (!field.visibleWhen) return true
   return field.visibleWhen(props.templateModel)
 }))
-
-const handlePhaseToggle = (phase, enabled) => {
-  templateStore.updateDraftPhase(phase, enabled)
-}
-
-const isPhaseAllowed = (phase) => capability.value.allowedPhases.includes(phase)
-const isPhaseRequired = (phase) => capability.value.requiredPhases.includes(phase)
 
 const handleRuntimeInput = () => {
   templateStore.markDirty()
@@ -262,75 +218,28 @@ const isFieldPinned = (field) => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
-  padding: 16px;
+  padding: 10px;
 }
 
 .section-header {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 
 .section-title {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-primary);
-}
-
-.section-subtitle,
-.tool-note {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.phase-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.phase-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  text-transform: capitalize;
-  font-size: 12px;
-}
-
-.phase-pill.active {
-  border-color: var(--primary);
-  background: var(--primary-light);
-}
-
-.phase-pill.unavailable {
-  opacity: 0.45;
-  background: var(--bg-secondary);
-}
-
-.phase-pill.required {
-  border-color: var(--primary);
-}
-
-.phase-pill small {
-  font-size: 10px;
-  color: var(--text-muted);
 }
 
 .runtime-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 8px 10px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .field-wide {
@@ -343,12 +252,12 @@ const isFieldPinned = (field) => {
 }
 
 .field-input {
-  min-height: 40px;
+  min-height: 34px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding: 10px 12px;
+  padding: 7px 9px;
 }
 
 select.field-input {
@@ -382,29 +291,25 @@ select.field-input option {
 }
 
 .textarea {
-  min-height: 88px;
+  min-height: 64px;
   resize: vertical;
 }
 
 .tool-fields {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border-light);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 
 .tool-header {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 @media (max-width: 980px) {
-  .phase-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .runtime-grid {
     grid-template-columns: 1fr;
   }

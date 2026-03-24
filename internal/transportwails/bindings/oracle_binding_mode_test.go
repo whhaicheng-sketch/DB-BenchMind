@@ -31,10 +31,9 @@ func TestOracleBindingCreateConnection_BasicServiceName(t *testing.T) {
 		Host:              "db.local",
 		Port:              1521,
 		Username:          "system",
-		ConnectType:       "basic",
-		OracleConnectMode: "basic",
-		IdentifierType:    "service_name",
-		ServiceName:       "ORCL",
+		ConnectType:    "basic",
+		IdentifierType: "service_name",
+		ServiceName:    "ORCL",
 	})
 	if result.Error != "" {
 		t.Fatalf("CreateConnection() error = %s", result.Error)
@@ -71,10 +70,9 @@ func TestOracleBindingCreateConnection_TNS(t *testing.T) {
 	result := binding.CreateConnection(ConnectionCreateRequest{
 		Name:              "oracle-tns",
 		Type:              "oracle",
-		Username:          "system",
-		ConnectType:       "tns",
-		OracleConnectMode: "tns",
-		TNSName:           "ORCLCDB_HIGH",
+		Username:    "system",
+		ConnectType: "tns",
+		TNSName:     "ORCLCDB_HIGH",
 	})
 	if result.Error != "" {
 		t.Fatalf("CreateConnection() error = %s", result.Error)

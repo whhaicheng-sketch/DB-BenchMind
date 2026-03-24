@@ -24,12 +24,9 @@ type TemplateDTO struct {
 	Tool           string                       `json:"tool"`
 	DBFamily       string                       `json:"dbFamily"`
 	WorkloadFamily string                       `json:"workloadFamily"`
-	Scope          string                       `json:"scope"`
-	Tags           []string                     `json:"tags"`
-	Status         string                       `json:"status"`
+	IsBuiltin      bool                         `json:"is_builtin"`
 	Version        string                       `json:"version"`
 	CreatedAt      string                       `json:"createdAt"`
-	UpdatedAt      string                       `json:"updatedAt"`
 	Compatibility  domaintemplate.Compatibility `json:"compatibility"`
 	Phases         domaintemplate.PhaseSet      `json:"phases"`
 	Runtime        domaintemplate.Runtime       `json:"runtime"`
@@ -235,12 +232,9 @@ func (b *TemplateBinding) toDTO(t *domaintemplate.Template) TemplateDTO {
 		Tool:           t.Tool,
 		DBFamily:       t.DBFamily,
 		WorkloadFamily: t.WorkloadFamily,
-		Scope:          t.Scope,
-		Tags:           append([]string{}, t.Tags...),
-		Status:         t.Status,
+		IsBuiltin:      t.IsBuiltin,
 		Version:        t.Version,
 		CreatedAt:      t.CreatedAt,
-		UpdatedAt:      t.UpdatedAt,
 		Compatibility:  t.Compatibility,
 		Phases:         t.Phases,
 		Runtime:        t.Runtime,
@@ -272,12 +266,9 @@ func (b *TemplateBinding) fromDTO(dto TemplateDTO) *domaintemplate.Template {
 		Tool:           dto.Tool,
 		DBFamily:       dto.DBFamily,
 		WorkloadFamily: dto.WorkloadFamily,
-		Scope:          dto.Scope,
-		Tags:           dto.Tags,
-		Status:         dto.Status,
+		IsBuiltin:      dto.IsBuiltin,
 		Version:        dto.Version,
 		CreatedAt:      dto.CreatedAt,
-		UpdatedAt:      dto.UpdatedAt,
 		Compatibility:  dto.Compatibility,
 		Phases:         dto.Phases,
 		Runtime:        dto.Runtime,
