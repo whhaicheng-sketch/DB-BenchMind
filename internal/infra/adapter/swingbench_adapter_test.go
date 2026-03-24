@@ -94,6 +94,7 @@ func TestSwingbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	assert.Contains(t, step4Create.CmdLine, "-scale 0.1")
 	assert.Contains(t, step4Create.CmdLine, "-ts SOE")
 	assert.Contains(t, step4Create.CmdLine, "-normalfile")
+	assert.Contains(t, step4Create.CmdLine, "-tc 4")
 	assert.Contains(t, step4Create.CmdLine, "-create")
 	assert.Contains(t, step4Create.CmdLine, "-v")
 	assert.Contains(t, step4Create.CmdLine, "-debugf /tmp/test/oewizard-create-debug.log")

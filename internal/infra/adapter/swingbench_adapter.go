@@ -1686,6 +1686,10 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		return "", "", "", err
 	}
 	debugLog := filepath.Join(config.WorkDir, "oewizard-create-debug.log")
+	prepareThreads := config.PrepareThreads
+	if prepareThreads <= 0 {
+		prepareThreads = 4
+	}
 
 	cmdArgs := []string{
 		"./oewizard",
@@ -1698,6 +1702,7 @@ func (a *SwingbenchAdapter) buildOewizardCreateCommand(conn *connection.OracleCo
 		"-scale", formatSwingbenchScale(scaleFloat),
 		"-ts", "SOE",
 		"-normalfile",
+		"-tc", fmt.Sprintf("%d", prepareThreads),
 		"-create",
 		"-v",
 		"-debugf", debugLog,

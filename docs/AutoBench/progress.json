@@ -1,21 +1,28 @@
 {
-  "current_module": "M0",
-  "current_task": "T0.2",
-  "next_task": "T1.1",
+  "current_module": "M1",
+  "current_task": "T1.3",
+  "next_task": "T2.1",
   "done_tasks": [
     "T0.1",
-    "T0.2"
+    "T0.2",
+    "T1.1",
+    "T1.2",
+    "T1.3"
   ],
   "blocked_tasks": [],
   "changed_files": [
+    "internal/app/usecase/autobench_usecase.go",
+    "internal/app/usecase/autobench_usecase_test.go",
     "docs/AutoBench/progress.md",
-    "docs/AutoBench/progress.json",
-    "docs/AutoBench/autobench_tasks.md",
-    "frontend/tests/autobenchProgressDocs.test.mjs"
+    "docs/AutoBench/progress.json"
   ],
   "test_results": [
     {
-      "command": "node --test frontend/tests/autobenchProgressDocs.test.mjs",
+      "command": "go test ./internal/app/usecase -run AutoBenchSuiteUseCase",
+      "status": "pass"
+    },
+    {
+      "command": "go test ./internal/domain/autobench",
       "status": "pass"
     },
     {
@@ -24,7 +31,8 @@
     }
   ],
   "known_risks": [
-    "AutoBench implementation has not started; only progress infrastructure is in place.",
-    "Subsequent rounds must execute only the task named in next_task."
+    "AutoBench currently has only domain models and a use case skeleton; no real execution, UI, binding, persistence, or reporting is wired yet.",
+    "CreateSuite/GetSuiteStatus are intentionally in-memory placeholders for stage one orchestration design.",
+    "Repository baseline issue: go test ./internal/domain/... is currently blocked by an existing problem in internal/domain/connection/ssh_tunnel.go."
   ]
 }

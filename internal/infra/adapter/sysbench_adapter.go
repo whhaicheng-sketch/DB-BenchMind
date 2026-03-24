@@ -131,6 +131,11 @@ func (a *SysbenchAdapter) BuildPrepareCommand(ctx context.Context, config *Confi
 	if tableSize, ok := config.Parameters["table_size"].(int); ok {
 		cmdArgs = append(cmdArgs, fmt.Sprintf("--table-size=%d", tableSize))
 	}
+	prepareThreads := config.PrepareThreads
+	if prepareThreads <= 0 {
+		prepareThreads = 4
+	}
+	cmdArgs = append(cmdArgs, fmt.Sprintf("--threads=%d", prepareThreads))
 
 	cmdArgs = append(cmdArgs, "prepare")
 

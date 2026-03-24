@@ -102,7 +102,10 @@ func (a *HammerDBAdapter) buildBuildschemaCommand(ctx context.Context, config *C
 	// Get HammerDB parameters
 	databaseName := a.getStringParam(config.Parameters, "database_name", "tpcc")
 	warehouses := a.getIntParam(config.Parameters, "warehouses", 1)
-	buildUsers := a.getIntParam(config.Parameters, "build_users", 1)
+	buildUsers := config.PrepareThreads
+	if buildUsers <= 0 {
+		buildUsers = 4
+	}
 
 	// Build TCL script for buildschema
 	var script strings.Builder

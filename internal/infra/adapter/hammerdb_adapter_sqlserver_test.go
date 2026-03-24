@@ -141,6 +141,7 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 	config := &Config{
 		Connection: conn,
 		WorkDir:    "/tmp",
+		PrepareThreads: 4,
 		Parameters: map[string]interface{}{
 			"database_name": "tpcc",
 			"virtual_users": 10,
@@ -196,6 +197,9 @@ func TestHammerDBAdapter_SQLServer_RunCommand_Script(t *testing.T) {
 		// Verify TPC-C settings
 		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_count_ware") {
 			t.Errorf("Buildschema script should set warehouses, got:\n%s", buildschemaScript)
+		}
+		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_num_vu 4") {
+			t.Errorf("Buildschema script should use prepare threads as build users, got:\n%s", buildschemaScript)
 		}
 		if !strings.Contains(buildschemaScript, "diset tpcc mssqls_dbase tpcc") {
 			t.Errorf("Buildschema script should set database name, got:\n%s", buildschemaScript)

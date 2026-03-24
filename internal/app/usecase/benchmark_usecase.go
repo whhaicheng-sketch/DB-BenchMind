@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +27,7 @@ import (
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
+	"golang.org/x/crypto/ssh"
 )
 
 var (
@@ -116,6 +118,69 @@ var (
 			oracleSwingbenchSchemaCountValue(sequenceCount),
 		), nil
 	}
+
+	benchmarkPrepareRemoteCPUCount = func(ctx context.Context, cfg *connection.SSHTunnelConfig) (int, error) {
+		if cfg == nil {
+			return 0, fmt.Errorf("ssh config is required")
+		}
+		if cfg.Port <= 0 || cfg.Port > 65535 {
+			cfg.Port = 22
+		}
+
+		auth := make([]ssh.AuthMethod, 0, 2)
+		if cfg.Password != "" {
+			auth = append(auth, ssh.Password(cfg.Password))
+		}
+		if cfg.KeyPath != "" {
+			keyBytes, err := os.ReadFile(cfg.KeyPath)
+			if err != nil {
+				keyBytes = []byte(cfg.KeyPath)
+			}
+			signer, err := ssh.ParsePrivateKey(keyBytes)
+			if err != nil {
+				return 0, fmt.Errorf("parse ssh private key: %w", err)
+			}
+			auth = append(auth, ssh.PublicKeys(signer))
+		}
+		if len(auth) == 0 {
+			return 0, fmt.Errorf("ssh requires password or private key")
+		}
+
+		sshConfig := &ssh.ClientConfig{
+			User:            cfg.Username,
+			Auth:            auth,
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         10 * time.Second,
+		}
+
+		client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", cfg.Host, cfg.Port), sshConfig)
+		if err != nil {
+			return 0, fmt.Errorf("ssh dial: %w", err)
+		}
+		defer client.Close()
+
+		session, err := client.NewSession()
+		if err != nil {
+			return 0, fmt.Errorf("ssh new session: %w", err)
+		}
+		defer session.Close()
+
+		out, err := session.Output("nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null")
+		if err != nil {
+			return 0, fmt.Errorf("ssh cpu probe: %w", err)
+		}
+
+		count, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		if err != nil {
+			return 0, fmt.Errorf("parse remote cpu count %q: %w", strings.TrimSpace(string(out)), err)
+		}
+		return count, nil
+	}
+)
+
+const (
+	defaultPrepareThreads   = 4
+	maxRemotePrepareThreads = 32
 )
 
 const (
@@ -423,6 +488,15 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 		Options:    task.Options,
 		WorkDir:    run.WorkDir,
 	}
+	prepareThreads, resolveErr := resolvePrepareThreads(ctx, conn)
+	if resolveErr != nil {
+		slog.Warn("Benchmark: Failed to resolve prepare threads, using default",
+			"run_id", run.ID,
+			"error", resolveErr,
+			"default_prepare_threads", defaultPrepareThreads)
+		prepareThreads = defaultPrepareThreads
+	}
+	config.PrepareThreads = prepareThreads
 
 	slog.Info("Benchmark: executeBenchmark started",
 		"run_id", run.ID,
@@ -603,6 +677,42 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 
 	// Mark as completed
 	uc.markAsCompleted(ctx, run.ID, duration)
+}
+
+func resolvePrepareThreads(ctx context.Context, conn connection.Connection) (int, error) {
+	sshCfg := sshConfigForConnection(conn)
+	if sshCfg == nil || !sshCfg.Enabled || strings.TrimSpace(sshCfg.Host) == "" {
+		return defaultPrepareThreads, nil
+	}
+
+	cpuCount, err := benchmarkPrepareRemoteCPUCount(ctx, sshCfg)
+	if err != nil {
+		return defaultPrepareThreads, err
+	}
+
+	threads := cpuCount / 2
+	if threads < 1 {
+		threads = 1
+	}
+	if threads > maxRemotePrepareThreads {
+		threads = maxRemotePrepareThreads
+	}
+	return threads, nil
+}
+
+func sshConfigForConnection(conn connection.Connection) *connection.SSHTunnelConfig {
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		return c.SSH
+	case *connection.PostgreSQLConnection:
+		return c.SSH
+	case *connection.OracleConnection:
+		return c.SSH
+	case *connection.SQLServerConnection:
+		return c.SSH
+	default:
+		return nil
+	}
 }
 
 // preChecks performs pre-execution checks.

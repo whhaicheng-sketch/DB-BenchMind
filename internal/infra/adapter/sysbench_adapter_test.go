@@ -85,6 +85,9 @@ func TestSysbenchAdapter_BuildPrepareCommand(t *testing.T) {
 	if !strings.Contains(cmd.CmdLine, "--table-size=10000") {
 		t.Errorf("CmdLine should contain '--table-size=10000', got: %s", cmd.CmdLine)
 	}
+	if !strings.Contains(cmd.CmdLine, "--threads=4") {
+		t.Errorf("CmdLine should contain '--threads=4', got: %s", cmd.CmdLine)
+	}
 	if !strings.Contains(cmd.CmdLine, "prepare") {
 		t.Errorf("CmdLine should contain 'prepare', got: %s", cmd.CmdLine)
 	}

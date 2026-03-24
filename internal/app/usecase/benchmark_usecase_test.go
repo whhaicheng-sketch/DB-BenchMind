@@ -651,6 +651,84 @@ func TestBenchmarkUseCase_StartBenchmark(t *testing.T) {
 	}
 }
 
+func TestResolvePrepareThreads_DefaultsToFourWithoutSSH(t *testing.T) {
+	threads, err := resolvePrepareThreads(context.Background(), &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-no-ssh"},
+		Host:           "localhost",
+		Port:           3306,
+		Database:       "db",
+		Username:       "root",
+	})
+	if err != nil {
+		t.Fatalf("resolvePrepareThreads() failed: %v", err)
+	}
+	if threads != 4 {
+		t.Fatalf("resolvePrepareThreads() = %d, want 4", threads)
+	}
+}
+
+func TestResolvePrepareThreads_UsesHalfRemoteCPUCappedAt32(t *testing.T) {
+	restore := benchmarkPrepareRemoteCPUCount
+	benchmarkPrepareRemoteCPUCount = func(ctx context.Context, cfg *connection.SSHTunnelConfig) (int, error) {
+		return 96, nil
+	}
+	defer func() {
+		benchmarkPrepareRemoteCPUCount = restore
+	}()
+
+	threads, err := resolvePrepareThreads(context.Background(), &connection.SQLServerConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-sqlserver-ssh"},
+		Host:           "db.internal",
+		Port:           1433,
+		Database:       "tpcc",
+		Username:       "sa",
+		SSH: &connection.SSHTunnelConfig{
+			Enabled:  true,
+			Host:     "ssh.internal",
+			Port:     22,
+			Username: "ops",
+			Password: "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolvePrepareThreads() failed: %v", err)
+	}
+	if threads != 32 {
+		t.Fatalf("resolvePrepareThreads() = %d, want 32", threads)
+	}
+}
+
+func TestResolvePrepareThreads_UsesHalfRemoteCPUMinimumOne(t *testing.T) {
+	restore := benchmarkPrepareRemoteCPUCount
+	benchmarkPrepareRemoteCPUCount = func(ctx context.Context, cfg *connection.SSHTunnelConfig) (int, error) {
+		return 1, nil
+	}
+	defer func() {
+		benchmarkPrepareRemoteCPUCount = restore
+	}()
+
+	threads, err := resolvePrepareThreads(context.Background(), &connection.PostgreSQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-pg-ssh"},
+		Host:           "db.internal",
+		Port:           5432,
+		Database:       "bench",
+		Username:       "postgres",
+		SSH: &connection.SSHTunnelConfig{
+			Enabled:  true,
+			Host:     "ssh.internal",
+			Port:     22,
+			Username: "ops",
+			Password: "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolvePrepareThreads() failed: %v", err)
+	}
+	if threads != 1 {
+		t.Fatalf("resolvePrepareThreads() = %d, want 1", threads)
+	}
+}
+
 // TestBenchmarkUseCase_StopBenchmark tests stopping a benchmark.
 func TestBenchmarkUseCase_StopBenchmark(t *testing.T) {
 	ctx := context.Background()

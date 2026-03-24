@@ -13,6 +13,7 @@ import { navigationTabs } from './constants/navigationTabs.mjs'
 import ConnectionsTab from './components/tabs/ConnectionsTab.vue'
 import TemplatesTab from './components/tabs/TemplatesTab.vue'
 import TasksMonitorTab from './components/tabs/TasksMonitorTab.vue'
+import AutoBenchTab from './components/tabs/AutoBenchTab.vue'
 import HistoryTab from './components/tabs/HistoryTab.vue'
 
 // Global error state
@@ -103,6 +104,7 @@ onUnmounted(async () => {
       <ConnectionsTab v-if="appStore.activeTab === 'connections'" />
       <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
       <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
+      <AutoBenchTab v-else-if="appStore.activeTab === 'autobench'" />
       <HistoryTab v-else-if="appStore.activeTab === 'history'" />
     </div>
   </div>
