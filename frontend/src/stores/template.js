@@ -132,19 +132,27 @@ function normalizeDraftForCapability(template) {
     normalized.toolConfig.hammerdb.virtualUsers = normalized.runtime.concurrency.value
 
     if (normalized.workloadFamily === 'tproc-c') {
-      const nextScaleFactor = Math.max(1, normalized.toolConfig.hammerdb.scaleFactor || 10)
-      if (normalized.toolConfig.hammerdb.scaleFactor !== nextScaleFactor) {
-        changeLabels.push('scaleFactor')
-      }
-      normalized.toolConfig.hammerdb.scaleFactor = nextScaleFactor
-    }
-
-    if (normalized.workloadFamily === 'tproc-h') {
       const nextWarehouses = Math.max(1, normalized.toolConfig.hammerdb.warehouses || 10)
       if (normalized.toolConfig.hammerdb.warehouses !== nextWarehouses) {
         changeLabels.push('warehouses')
       }
       normalized.toolConfig.hammerdb.warehouses = nextWarehouses
+      if (normalized.toolConfig.hammerdb.scaleFactor !== undefined) {
+        changeLabels.push('scaleFactor')
+      }
+      normalized.toolConfig.hammerdb.scaleFactor = undefined
+    }
+
+    if (normalized.workloadFamily === 'tproc-h') {
+      const nextScaleFactor = Math.max(1, normalized.toolConfig.hammerdb.scaleFactor || 10)
+      if (normalized.toolConfig.hammerdb.scaleFactor !== nextScaleFactor) {
+        changeLabels.push('scaleFactor')
+      }
+      normalized.toolConfig.hammerdb.scaleFactor = nextScaleFactor
+      if (normalized.toolConfig.hammerdb.warehouses !== undefined) {
+        changeLabels.push('warehouses')
+      }
+      normalized.toolConfig.hammerdb.warehouses = undefined
     }
   }
 

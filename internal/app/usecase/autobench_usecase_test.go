@@ -2,7 +2,9 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	domainautobench "github.com/whhaicheng/DB-BenchMind/internal/domain/autobench"
@@ -250,6 +252,184 @@ func TestAutoBenchSuiteUseCase_GetSuiteStatusReturnsNotFoundForUnknownSuite(t *t
 	}
 }
 
+func TestAutoBenchSuiteUseCase_BuildSuiteReportJSONAggregatesCurrentSuiteSnapshot(t *testing.T) {
+	ctx := context.Background()
+	uc := NewAutoBenchSuiteUseCase()
+
+	suite, err := uc.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "report-json",
+		ConnectionIDs: []string{"conn-a", "conn-b"},
+		Profiles: []domainautobench.ProfileType{
+			domainautobench.ProfileTest,
+			domainautobench.ProfileCPU,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	if err := uc.mutateSuite(suite.ID, func(suite *domainautobench.Suite) error {
+		suite.Status = domainautobench.SuiteStatusPartialSuccess
+		suite.ReportJSONPath = "reports/report-json.json"
+		suite.ReportPath = "reports/report-json.html"
+
+		suite.Items[0].DatabaseType = "mysql"
+		suite.Items[0].TemplateID = "mysql_test"
+		suite.Items[0].Status = domainautobench.SuiteItemStatusSuccess
+		suite.Items[0].PhaseStatus = "completed"
+		suite.Items[0].LinkedTaskID = "task-1"
+
+		suite.Items[1].DatabaseType = "mysql"
+		suite.Items[1].TemplateID = "mysql_cpu"
+		suite.Items[1].Status = domainautobench.SuiteItemStatusFailed
+		suite.Items[1].PhaseStatus = "failed"
+		suite.Items[1].LinkedTaskID = "task-2"
+		suite.Items[1].ErrorSummary = "benchmark run ended with state failed"
+
+		suite.Items[2].DatabaseType = "postgresql"
+		suite.Items[2].TemplateID = "pg_test"
+		suite.Items[2].Status = domainautobench.SuiteItemStatusSkipped
+		suite.Items[2].ErrorSummary = "skipped after earlier connection failure"
+
+		suite.Items[3].DatabaseType = "postgresql"
+		suite.Items[3].TemplateID = "pg_cpu"
+		suite.Items[3].Status = domainautobench.SuiteItemStatusSkipped
+		suite.Items[3].ErrorSummary = "skipped after earlier connection failure"
+		return nil
+	}); err != nil {
+		t.Fatalf("mutateSuite() failed: %v", err)
+	}
+
+	report, err := uc.BuildSuiteReport(ctx, suite.ID)
+	if err != nil {
+		t.Fatalf("BuildSuiteReport() failed: %v", err)
+	}
+
+	if report.SuiteID != suite.ID {
+		t.Fatalf("SuiteID = %q, want %q", report.SuiteID, suite.ID)
+	}
+	if report.Summary.Status != domainautobench.SuiteStatusPartialSuccess {
+		t.Fatalf("Summary.Status = %q, want %q", report.Summary.Status, domainautobench.SuiteStatusPartialSuccess)
+	}
+	if report.Summary.TotalItems != 4 {
+		t.Fatalf("Summary.TotalItems = %d, want 4", report.Summary.TotalItems)
+	}
+	if report.Summary.SuccessItemCount != 1 {
+		t.Fatalf("Summary.SuccessItemCount = %d, want 1", report.Summary.SuccessItemCount)
+	}
+	if report.Summary.FailedItemCount != 1 {
+		t.Fatalf("Summary.FailedItemCount = %d, want 1", report.Summary.FailedItemCount)
+	}
+	if report.Summary.SkippedItemCount != 2 {
+		t.Fatalf("Summary.SkippedItemCount = %d, want 2", report.Summary.SkippedItemCount)
+	}
+	if len(report.ConnectionRows) != 2 {
+		t.Fatalf("len(ConnectionRows) = %d, want 2", len(report.ConnectionRows))
+	}
+	if len(report.Failures) != 3 {
+		t.Fatalf("len(Failures) = %d, want 3", len(report.Failures))
+	}
+	if report.ArtifactPaths.JSON != "reports/report-json.json" {
+		t.Fatalf("ArtifactPaths.JSON = %q, want reports/report-json.json", report.ArtifactPaths.JSON)
+	}
+	if report.ArtifactPaths.HTML != "reports/report-json.html" {
+		t.Fatalf("ArtifactPaths.HTML = %q, want reports/report-json.html", report.ArtifactPaths.HTML)
+	}
+
+	data, err := uc.BuildSuiteReportJSON(ctx, suite.ID)
+	if err != nil {
+		t.Fatalf("BuildSuiteReportJSON() failed: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded["suite_id"] != suite.ID {
+		t.Fatalf("suite_id = %#v, want %q", decoded["suite_id"], suite.ID)
+	}
+	summary, ok := decoded["summary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("summary = %#v, want object", decoded["summary"])
+	}
+	if summary["status"] != string(domainautobench.SuiteStatusPartialSuccess) {
+		t.Fatalf("summary.status = %#v, want %q", summary["status"], domainautobench.SuiteStatusPartialSuccess)
+	}
+	artifactPaths, ok := decoded["artifact_paths"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("artifact_paths = %#v, want object", decoded["artifact_paths"])
+	}
+	if artifactPaths["json"] != "reports/report-json.json" {
+		t.Fatalf("artifact_paths.json = %#v, want reports/report-json.json", artifactPaths["json"])
+	}
+}
+
+func TestAutoBenchSuiteUseCase_BuildSuiteReportHTMLRendersSectionsFromSuiteSnapshot(t *testing.T) {
+	ctx := context.Background()
+	uc := NewAutoBenchSuiteUseCase()
+
+	suite, err := uc.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "html-report",
+		ConnectionIDs: []string{"conn-a", "conn-b"},
+		Profiles: []domainautobench.ProfileType{
+			domainautobench.ProfileTest,
+			domainautobench.ProfileCPU,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	if err := uc.mutateSuite(suite.ID, func(suite *domainautobench.Suite) error {
+		suite.Status = domainautobench.SuiteStatusPartialSuccess
+		suite.ReportPath = "reports/html-report.html"
+		suite.ReportJSONPath = "reports/html-report.json"
+
+		suite.Items[0].DatabaseType = "mysql"
+		suite.Items[0].Status = domainautobench.SuiteItemStatusSuccess
+		suite.Items[0].TemplateID = "mysql_test"
+
+		suite.Items[1].DatabaseType = "mysql"
+		suite.Items[1].Status = domainautobench.SuiteItemStatusFailed
+		suite.Items[1].TemplateID = "mysql_cpu"
+		suite.Items[1].LinkedTaskID = "task-2"
+		suite.Items[1].ErrorSummary = "benchmark run ended with state failed"
+
+		suite.Items[2].DatabaseType = "postgresql"
+		suite.Items[2].Status = domainautobench.SuiteItemStatusSuccess
+		suite.Items[2].TemplateID = "pg_test"
+
+		suite.Items[3].DatabaseType = "postgresql"
+		suite.Items[3].Status = domainautobench.SuiteItemStatusSkipped
+		suite.Items[3].TemplateID = "pg_cpu"
+		suite.Items[3].ErrorSummary = "skipped after earlier connection failure"
+		return nil
+	}); err != nil {
+		t.Fatalf("mutateSuite() failed: %v", err)
+	}
+
+	htmlData, err := uc.BuildSuiteReportHTML(ctx, suite.ID)
+	if err != nil {
+		t.Fatalf("BuildSuiteReportHTML() failed: %v", err)
+	}
+
+	html := string(htmlData)
+	assertContains(t, html, "<!DOCTYPE html>")
+	assertContains(t, html, "<title>AutoBench Suite Report")
+	assertContains(t, html, "Executive Summary")
+	assertContains(t, html, "Connection Summary")
+	assertContains(t, html, "Failure Analysis")
+	assertContains(t, html, "Recommendations")
+	assertContains(t, html, suite.ID)
+	assertContains(t, html, "partial_success")
+	assertContains(t, html, "conn-a")
+	assertContains(t, html, "conn-b")
+	assertContains(t, html, "benchmark run ended with state failed")
+	assertContains(t, html, "skipped after earlier connection failure")
+	assertContains(t, html, "reports/html-report.json")
+}
+
 func assertProfileOrder(t *testing.T, got, want []domainautobench.ProfileType) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -259,5 +439,12 @@ func assertProfileOrder(t *testing.T, got, want []domainautobench.ProfileType) {
 		if got[i] != want[i] {
 			t.Fatalf("ProfileOrder[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func assertContains(t *testing.T, haystack, needle string) {
+	t.Helper()
+	if !strings.Contains(haystack, needle) {
+		t.Fatalf("expected %q to contain %q", haystack, needle)
 	}
 }

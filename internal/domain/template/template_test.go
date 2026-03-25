@@ -305,6 +305,50 @@ func TestTemplate_ValidateCanonical_RejectsToolDatabaseMismatch(t *testing.T) {
 	}
 }
 
+func TestTemplate_NormalizeHammerDBWorkloadSpecificDefaults(t *testing.T) {
+	t.Run("tproc-c sets warehouses but leaves scale factor unset", func(t *testing.T) {
+		tmpl := canonicalTemplateForTest()
+		tmpl.Tool = ToolHammerDB
+		tmpl.DBFamily = "sqlserver"
+		tmpl.WorkloadFamily = "tproc-c"
+		tmpl.Runtime.Concurrency.Mode = "virtualUsers"
+		tmpl.ToolConfig.HammerDB = HammerDBConfig{
+			Benchmark:    "tproc-c",
+			VirtualUsers: 8,
+		}
+
+		tmpl.Normalize()
+
+		if got := tmpl.ToolConfig.HammerDB.Warehouses; got != 10 {
+			t.Fatalf("Warehouses = %d, want 10", got)
+		}
+		if got := tmpl.ToolConfig.HammerDB.ScaleFactor; got != 0 {
+			t.Fatalf("ScaleFactor = %d, want 0", got)
+		}
+	})
+
+	t.Run("tproc-h sets scale factor but leaves warehouses unset", func(t *testing.T) {
+		tmpl := canonicalTemplateForTest()
+		tmpl.Tool = ToolHammerDB
+		tmpl.DBFamily = "oracle"
+		tmpl.WorkloadFamily = "tproc-h"
+		tmpl.Runtime.Concurrency.Mode = "virtualUsers"
+		tmpl.ToolConfig.HammerDB = HammerDBConfig{
+			Benchmark:    "tproc-h",
+			VirtualUsers: 8,
+		}
+
+		tmpl.Normalize()
+
+		if got := tmpl.ToolConfig.HammerDB.ScaleFactor; got != 10 {
+			t.Fatalf("ScaleFactor = %d, want 10", got)
+		}
+		if got := tmpl.ToolConfig.HammerDB.Warehouses; got != 0 {
+			t.Fatalf("Warehouses = %d, want 0", got)
+		}
+	})
+}
+
 // TestTemplate_GetParameter tests retrieving parameters by name.
 func TestTemplate_GetParameter(t *testing.T) {
 	tmpl := &Template{

@@ -25,10 +25,10 @@ test('AutoBench progress json keeps the required fixed schema and advances one n
     'next_task',
     'test_results'
   ])
-  assert.equal(progress.current_module, 'M3')
-  assert.equal(progress.current_task, 'T3.3')
-  assert.deepEqual(progress.done_tasks, ['T0.1', 'T0.2', 'T1.1', 'T1.2', 'T1.3', 'T2.1', 'T2.2', 'T2.3', 'T3.1', 'T3.2', 'T3.3'])
-  assert.equal(progress.next_task, 'T3.4')
+  assert.equal(progress.current_module, 'M6')
+  assert.equal(progress.current_task, 'T6.2')
+  assert.deepEqual(progress.done_tasks, ['T0.1', 'T0.2', 'T1.1', 'T1.2', 'T1.3', 'T2.1', 'T2.2', 'T2.3', 'T3.1', 'T3.2', 'T3.3', 'T3.4', 'T4.1', 'T4.2', 'T4.3', 'T4.4', 'T5.1', 'T5.2', 'T5.3', 'T6.1', 'T6.2'])
+  assert.equal(progress.next_task, 'T6.3')
   assert.deepEqual(progress.blocked_tasks, [])
   assert.ok(Array.isArray(progress.changed_files))
   assert.ok(Array.isArray(progress.test_results))
@@ -39,8 +39,8 @@ test('AutoBench progress markdown records the current round summary and next tas
   const source = fs.readFileSync(progressMdPath, 'utf8')
 
   assert.match(source, /^# AutoBench Progress/m)
-  assert.match(source, /当前模块:\s*M3/)
-  assert.match(source, /当前任务:\s*T3\.3/)
-  assert.match(source, /下一任务:\s*T3\.4/)
-  assert.match(source, /已完成任务:\s*T0\.1,\s*T0\.2,\s*T1\.1,\s*T1\.2,\s*T1\.3,\s*T2\.1,\s*T2\.2,\s*T2\.3,\s*T3\.1,\s*T3\.2,\s*T3\.3/)
+  assert.match(source, /当前模块:\s*M6/)
+  assert.match(source, /当前任务:\s*T6\.2/)
+  assert.match(source, /下一任务:\s*T6\.3/)
+  assert.match(source, /已完成任务:\s*T0\.1,\s*T0\.2,\s*T1\.1,\s*T1\.2,\s*T1\.3,\s*T2\.1,\s*T2\.2,\s*T2\.3,\s*T3\.1,\s*T3\.2,\s*T3\.3,\s*T3\.4,\s*T4\.1,\s*T4\.2,\s*T4\.3,\s*T4\.4,\s*T5\.1,\s*T5\.2,\s*T5\.3,\s*T6\.1,\s*T6\.2/)
 })

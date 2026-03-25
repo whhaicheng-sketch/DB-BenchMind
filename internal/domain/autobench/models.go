@@ -1,6 +1,9 @@
 package autobench
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type ProfileType string
 
@@ -96,12 +99,50 @@ type SuiteResult struct {
 }
 
 type SuiteReport struct {
-	SuiteID         string                   `json:"suite_id"`
-	Summary         map[string]interface{}   `json:"summary,omitempty"`
-	ConnectionRows  []map[string]interface{} `json:"connection_rows,omitempty"`
-	Failures        []string                 `json:"failures,omitempty"`
-	Recommendations []string                 `json:"recommendations,omitempty"`
-	GeneratedFiles  []string                 `json:"generated_files,omitempty"`
+	SuiteID         string                     `json:"suite_id"`
+	GeneratedAt     time.Time                  `json:"generated_at"`
+	Summary         SuiteReportSummary         `json:"summary"`
+	ConnectionRows  []SuiteReportConnectionRow `json:"connection_rows,omitempty"`
+	Failures        []SuiteReportFailure       `json:"failures,omitempty"`
+	Recommendations []string                   `json:"recommendations,omitempty"`
+	ArtifactPaths   SuiteReportArtifactPaths   `json:"artifact_paths,omitempty"`
+}
+
+type SuiteReportSummary struct {
+	Status             SuiteStatus `json:"status"`
+	TotalItems         int         `json:"total_items"`
+	CompletedItemCount int         `json:"completed_item_count"`
+	SuccessItemCount   int         `json:"success_item_count"`
+	FailedItemCount    int         `json:"failed_item_count"`
+	SkippedItemCount   int         `json:"skipped_item_count"`
+}
+
+type SuiteReportConnectionRow struct {
+	ConnectionID       string        `json:"connection_id"`
+	DatabaseType       string        `json:"database_type,omitempty"`
+	Status             SuiteStatus   `json:"status"`
+	ProfileTypes       []ProfileType `json:"profile_types,omitempty"`
+	CompletedItemCount int           `json:"completed_item_count"`
+	SuccessItemCount   int           `json:"success_item_count"`
+	FailedItemCount    int           `json:"failed_item_count"`
+	SkippedItemCount   int           `json:"skipped_item_count"`
+}
+
+type SuiteReportFailure struct {
+	SuiteItemID  string      `json:"suite_item_id"`
+	ConnectionID string      `json:"connection_id"`
+	ProfileType  ProfileType `json:"profile_type"`
+	LinkedTaskID string      `json:"linked_task_id,omitempty"`
+	ErrorSummary string      `json:"error_summary"`
+}
+
+type SuiteReportArtifactPaths struct {
+	JSON string `json:"json,omitempty"`
+	HTML string `json:"html,omitempty"`
+}
+
+func (r SuiteReport) ToJSON() ([]byte, error) {
+	return json.MarshalIndent(r, "", "  ")
 }
 
 func NewSuite(name string, connectionIDs []string, profiles []ProfileType) Suite {

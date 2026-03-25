@@ -437,10 +437,10 @@ func (c *ToolConfig) normalize(tool, dbFamily, workload string, concurrency int)
 	if c.HammerDB.VirtualUsers == 0 && concurrency > 0 {
 		c.HammerDB.VirtualUsers = concurrency
 	}
-	if c.HammerDB.Warehouses == 0 {
+	if workload == "tproc-c" && c.HammerDB.Warehouses == 0 {
 		c.HammerDB.Warehouses = 10
 	}
-	if c.HammerDB.ScaleFactor == 0 {
+	if workload == "tproc-h" && c.HammerDB.ScaleFactor == 0 {
 		c.HammerDB.ScaleFactor = 10
 	}
 }

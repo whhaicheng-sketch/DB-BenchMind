@@ -254,6 +254,56 @@ test('default template creation tolerates undefined run phase input and restores
   assert.deepEqual(template.phases.warmup, { enabled: true, required: false, params: {} })
 })
 
+test('hammerdb tproc-c normalization keeps warehouses without backfilling scale factor', () => {
+  const { normalizeTemplateRecord } = loadTemplateModelModule()
+  const normalized = normalizeTemplateRecord({
+    id: 'tpl_sqlserver_tprocc',
+    name: 'SQL Server TPROC-C',
+    tool: 'hammerdb',
+    dbFamily: 'sqlserver',
+    workloadFamily: 'tproc-c',
+    runtime: {
+      concurrency: { mode: 'virtualUsers', value: 10 },
+      durationSeconds: 60
+    },
+    toolConfig: {
+      hammerdb: {
+        benchmark: 'tproc-c',
+        virtualUsers: 10,
+        warehouses: 1
+      }
+    }
+  })
+
+  assert.equal(normalized.toolConfig.hammerdb.warehouses, 1)
+  assert.equal(normalized.toolConfig.hammerdb.virtualUsers, 10)
+  assert.equal(normalized.toolConfig.hammerdb.scaleFactor, undefined)
+})
+
+test('hammerdb tproc-h normalization keeps scale factor semantics', () => {
+  const { normalizeTemplateRecord } = loadTemplateModelModule()
+  const normalized = normalizeTemplateRecord({
+    id: 'tpl_oracle_tproch',
+    name: 'Oracle TPROC-H',
+    tool: 'hammerdb',
+    dbFamily: 'oracle',
+    workloadFamily: 'tproc-h',
+    runtime: {
+      concurrency: { mode: 'virtualUsers', value: 4 },
+      durationSeconds: 60
+    },
+    toolConfig: {
+      hammerdb: {
+        benchmark: 'tproc-h',
+        virtualUsers: 4,
+        scaleFactor: 3
+      }
+    }
+  })
+
+  assert.equal(normalized.toolConfig.hammerdb.scaleFactor, 3)
+})
+
 test('wails template models drop removed metadata fields from the frontend binding surface', () => {
   const templateDtoBlock = bindingModelsSource.match(/export class TemplateDTO \{[\s\S]*?export class TemplateListResult/)
   const phaseSetBlock = bindingModelsSource.match(/export class PhaseSet \{[\s\S]*?export class Runtime/)

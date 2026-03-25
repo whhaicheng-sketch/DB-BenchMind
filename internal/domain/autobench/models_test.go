@@ -1,6 +1,10 @@
 package autobench
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+	"time"
+)
 
 func TestNewSuiteUsesStageOneDefaults(t *testing.T) {
 	suite := NewSuite("nightly-suite", []string{"conn-a", "conn-b"}, []ProfileType{ProfileTest, ProfileCPU, ProfileIO})
@@ -47,16 +51,77 @@ func TestSuiteItemLinkingAndReportArtifacts(t *testing.T) {
 	if item.LinkedTaskID != "task-1" {
 		t.Fatalf("LinkedTaskID = %q, want task-1", item.LinkedTaskID)
 	}
+}
 
+func TestSuiteReportToJSONUsesTypedReportShape(t *testing.T) {
+	generatedAt := time.Date(2026, time.March, 25, 12, 0, 0, 0, time.UTC)
 	report := SuiteReport{
-		SuiteID:        "suite-1",
-		GeneratedFiles: []string{"reports/suite-1.html", "reports/suite-1.json"},
+		SuiteID:     "suite-1",
+		GeneratedAt: generatedAt,
+		Summary: SuiteReportSummary{
+			Status:           SuiteStatusPartialSuccess,
+			TotalItems:       3,
+			SuccessItemCount: 1,
+			FailedItemCount:  1,
+			SkippedItemCount: 1,
+		},
+		ConnectionRows: []SuiteReportConnectionRow{
+			{
+				ConnectionID:       "conn-1",
+				DatabaseType:       "mysql",
+				Status:             SuiteStatusPartialSuccess,
+				ProfileTypes:       []ProfileType{ProfileTest, ProfileCPU},
+				SuccessItemCount:   1,
+				FailedItemCount:    1,
+				SkippedItemCount:   0,
+				CompletedItemCount: 2,
+			},
+		},
+		Failures: []SuiteReportFailure{
+			{
+				SuiteItemID:  "item-2",
+				ConnectionID: "conn-1",
+				ProfileType:  ProfileCPU,
+				ErrorSummary: "benchmark run ended with state failed",
+				LinkedTaskID: "task-2",
+			},
+		},
+		Recommendations: []string{"Review failed profiles before enabling HTML export."},
+		ArtifactPaths: SuiteReportArtifactPaths{
+			JSON: "reports/suite-1.json",
+			HTML: "reports/suite-1.html",
+		},
 	}
 
-	if len(report.GeneratedFiles) != 2 {
-		t.Fatalf("GeneratedFiles len = %d, want 2", len(report.GeneratedFiles))
+	data, err := report.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() error = %v", err)
 	}
-	if report.GeneratedFiles[0] != "reports/suite-1.html" {
-		t.Fatalf("GeneratedFiles[0] = %q, want reports/suite-1.html", report.GeneratedFiles[0])
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded["suite_id"] != "suite-1" {
+		t.Fatalf("suite_id = %#v, want suite-1", decoded["suite_id"])
+	}
+	if _, ok := decoded["generated_at"].(string); !ok {
+		t.Fatalf("generated_at = %#v, want string timestamp", decoded["generated_at"])
+	}
+	artifactPaths, ok := decoded["artifact_paths"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("artifact_paths = %#v, want object", decoded["artifact_paths"])
+	}
+	if artifactPaths["json"] != "reports/suite-1.json" {
+		t.Fatalf("artifact_paths.json = %#v, want reports/suite-1.json", artifactPaths["json"])
+	}
+	connectionRows, ok := decoded["connection_rows"].([]interface{})
+	if !ok || len(connectionRows) != 1 {
+		t.Fatalf("connection_rows = %#v, want len 1", decoded["connection_rows"])
+	}
+	failures, ok := decoded["failures"].([]interface{})
+	if !ok || len(failures) != 1 {
+		t.Fatalf("failures = %#v, want len 1", decoded["failures"])
 	}
 }

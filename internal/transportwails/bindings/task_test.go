@@ -328,6 +328,50 @@ func TestResolveParams_MapsToolSpecificDefaultsForExecution(t *testing.T) {
 		if got := params["iterations"]; got != 1 {
 			t.Fatalf("iterations = %v, want 1", got)
 		}
+		if _, ok := params["scale"]; ok {
+			t.Fatalf("tproc-c should not expose scale, got %v", params["scale"])
+		}
+	})
+
+	t.Run("hammerdb tproc-h keeps scale and omits warehouses", func(t *testing.T) {
+		tmpl := &domaintemplate.Template{
+			ID:             "tpl-test-hammerdb-tproch",
+			Name:           "Oracle - HammerDB TPROC-H",
+			Tool:           domaintemplate.ToolHammerDB,
+			DBFamily:       "oracle",
+			WorkloadFamily: "tproc-h",
+			Phases: domaintemplate.PhaseSet{
+				Prepare: domaintemplate.PhaseConfig{Enabled: true},
+				Warmup:  domaintemplate.PhaseConfig{Enabled: true},
+				Run:     domaintemplate.PhaseConfig{Enabled: true, Required: true},
+				Cleanup: domaintemplate.PhaseConfig{Enabled: true},
+			},
+			Runtime: domaintemplate.Runtime{
+				Concurrency:     domaintemplate.Concurrency{Mode: "virtualUsers", Value: 4},
+				DurationSeconds: 60,
+				RampUpSeconds:   0,
+				Iterations:      1,
+			},
+			ToolConfig: domaintemplate.ToolConfig{
+				HammerDB: domaintemplate.HammerDBConfig{
+					Benchmark:    "tproc-h",
+					VirtualUsers: 4,
+					ScaleFactor:  3,
+				},
+			},
+		}
+		tmpl.Normalize()
+
+		params, err := resolveParams(tmpl, nil)
+		if err != nil {
+			t.Fatalf("resolveParams() failed: %v", err)
+		}
+		if got := params["scale"]; got != 3 {
+			t.Fatalf("scale = %v, want 3", got)
+		}
+		if _, ok := params["warehouses"]; ok {
+			t.Fatalf("tproc-h should not expose warehouses, got %v", params["warehouses"])
+		}
 	})
 }
 

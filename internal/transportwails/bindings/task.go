@@ -856,10 +856,10 @@ func resolveParams(tmpl *domaintemplate.Template, overrides map[string]interface
 		if tmpl.ToolConfig.HammerDB.VirtualUsers > 0 {
 			params["virtual_users"] = tmpl.ToolConfig.HammerDB.VirtualUsers
 		}
-		if tmpl.ToolConfig.HammerDB.Warehouses > 0 {
+		if tmpl.WorkloadFamily == "tproc-c" && tmpl.ToolConfig.HammerDB.Warehouses > 0 {
 			params["warehouses"] = tmpl.ToolConfig.HammerDB.Warehouses
 		}
-		if tmpl.ToolConfig.HammerDB.ScaleFactor > 0 {
+		if tmpl.WorkloadFamily == "tproc-h" && tmpl.ToolConfig.HammerDB.ScaleFactor > 0 {
 			params["scale"] = tmpl.ToolConfig.HammerDB.ScaleFactor
 		}
 		if tmpl.Runtime.DurationSeconds > 0 {

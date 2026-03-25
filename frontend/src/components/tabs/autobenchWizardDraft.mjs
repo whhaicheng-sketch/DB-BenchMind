@@ -62,6 +62,8 @@ export const policySummaryItems = [
 ]
 
 const profileOrder = profileOptions.map((item) => item.id)
+const localSuiteId = 'autobench-local-suite'
+const localSuiteName = 'AutoBench Local Plan'
 
 function toggleValue(list, value, order = []) {
   const hasValue = list.includes(value)
@@ -125,11 +127,64 @@ export function describeSelectedProfiles(selectedProfiles) {
   return profileOrder.filter((profileId) => selectedProfiles.includes(profileId)).join(' -> ')
 }
 
-export function buildLocalPlanPreview(draft, connections) {
+function selectConnectionsAndProfiles(draft, connections) {
   const selectedProfiles = profileOrder.filter((profileId) => draft.selectedProfiles.includes(profileId))
   const selectedConnections = connections.filter((connection) => draft.selectedConnectionIds.includes(connection.id))
 
+  return {
+    selectedProfiles,
+    selectedConnections
+  }
+}
+
+export function buildLocalSuiteItems(draft, connections) {
+  const { selectedProfiles, selectedConnections } = selectConnectionsAndProfiles(draft, connections)
+
   if (selectedProfiles.length === 0 || selectedConnections.length === 0) {
+    return []
+  }
+
+  return selectedConnections.flatMap((connection) =>
+    selectedProfiles.map((profileId) => ({
+      id: `${localSuiteId}:${connection.id}:${profileId}`,
+      suiteId: localSuiteId,
+      connectionId: connection.id,
+      connectionLabel: connection.label,
+      databaseType: connection.databaseType,
+      profileId,
+      status: 'pending',
+      phase: 'pending',
+      linkedTaskId: '',
+      resultSummary: ''
+    }))
+  ).map((item, index) => ({
+    ...item,
+    order: index + 1
+  }))
+}
+
+export function buildLocalSuitePlan(draft, connections) {
+  const { selectedProfiles, selectedConnections } = selectConnectionsAndProfiles(draft, connections)
+  const items = buildLocalSuiteItems(draft, connections)
+
+  return {
+    suiteId: localSuiteId,
+    suiteName: localSuiteName,
+    status: items.length > 0 ? 'ready' : 'draft',
+    executionMode: draft.executionMode,
+    failurePolicy: draft.failurePolicy,
+    cleanupEnabled: draft.cleanupEnabled,
+    selectedConnectionIds: selectedConnections.map((connection) => connection.id),
+    selectedProfiles,
+    totalItems: items.length,
+    items
+  }
+}
+
+export function buildLocalPlanPreview(draft, connections) {
+  const suitePlan = buildLocalSuitePlan(draft, connections)
+
+  if (suitePlan.totalItems === 0) {
     return {
       totalItems: 0,
       items: [],
@@ -141,20 +196,16 @@ export function buildLocalPlanPreview(draft, connections) {
     }
   }
 
-  const items = selectedConnections.flatMap((connection) =>
-    selectedProfiles.map((profileId, index) => ({
-      id: `${connection.id}:${profileId}`,
-      order: index + 1,
-      connectionId: connection.id,
-      connectionLabel: connection.label,
-      databaseType: connection.databaseType,
-      profileId
-    }))
-  )
-
   return {
-    totalItems: items.length,
-    items,
+    totalItems: suitePlan.totalItems,
+    items: suitePlan.items.map((item) => ({
+      id: `${item.connectionId}:${item.profileId}`,
+      order: item.order,
+      connectionId: item.connectionId,
+      connectionLabel: item.connectionLabel,
+      databaseType: item.databaseType,
+      profileId: item.profileId
+    })),
     summary: {
       executionMode: draft.executionMode,
       failurePolicy: draft.failurePolicy,

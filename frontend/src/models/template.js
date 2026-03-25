@@ -159,17 +159,20 @@ export function createDefaultTemplate(partial = {}) {
         xmlOverrides: partial.toolConfig?.swingbench?.xmlOverrides ?? '',
         ...partial.toolConfig?.swingbench
       },
-      hammerdb: {
-        benchmark: partial.toolConfig?.hammerdb?.benchmark ?? 'tproc-c',
-        virtualUsers: partial.toolConfig?.hammerdb?.virtualUsers ?? 64,
-        warehouses: partial.toolConfig?.hammerdb?.warehouses ?? 100,
-        scaleFactor: partial.toolConfig?.hammerdb?.scaleFactor ?? 10,
-        timeProfile: partial.toolConfig?.hammerdb?.timeProfile ?? true,
-        stepTesting: partial.toolConfig?.hammerdb?.stepTesting ?? false,
-        xmlConnectPool: partial.toolConfig?.hammerdb?.xmlConnectPool ?? false,
-        advancedNotes: partial.toolConfig?.hammerdb?.advancedNotes ?? '',
-        ...partial.toolConfig?.hammerdb
-      }
+      hammerdb: (() => {
+        const benchmark = partial.toolConfig?.hammerdb?.benchmark ?? partial.workloadFamily ?? 'tproc-c'
+        return {
+          benchmark,
+          virtualUsers: partial.toolConfig?.hammerdb?.virtualUsers ?? 64,
+          warehouses: partial.toolConfig?.hammerdb?.warehouses ?? (benchmark === 'tproc-c' ? 100 : undefined),
+          scaleFactor: partial.toolConfig?.hammerdb?.scaleFactor ?? (benchmark === 'tproc-h' ? 10 : undefined),
+          timeProfile: partial.toolConfig?.hammerdb?.timeProfile ?? true,
+          stepTesting: partial.toolConfig?.hammerdb?.stepTesting ?? false,
+          xmlConnectPool: partial.toolConfig?.hammerdb?.xmlConnectPool ?? false,
+          advancedNotes: partial.toolConfig?.hammerdb?.advancedNotes ?? '',
+          ...partial.toolConfig?.hammerdb
+        }
+      })()
     },
     createdAt: partial.createdAt ?? now,
     database_types: partial.database_types ?? [partial.dbFamily ?? 'mysql']

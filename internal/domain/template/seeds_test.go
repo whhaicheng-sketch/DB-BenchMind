@@ -206,6 +206,36 @@ func TestDefaultSeedTemplates_MinimalOracleAndSQLServerTestsUseSmallestDatasetDe
 	if got := sqlServerTest.ToolConfig.HammerDB.Warehouses; got != 1 {
 		t.Fatalf("sqlserver_test hammerdb warehouses = %d, want 1", got)
 	}
+	if _, ok := sqlServerTest.Parameters["scale"]; ok {
+		t.Fatal("sqlserver_test should not expose scale parameter for tproc-c")
+	}
+}
+
+func TestDefaultSeedTemplates_SQLServerHammerDBProfilesOnlyExposeWarehousesForTPROCC(t *testing.T) {
+	templates := DefaultSeedTemplates()
+	index := map[string]*Template{}
+	for _, tmpl := range templates {
+		index[tmpl.ID] = tmpl
+	}
+
+	for _, id := range []string{"sqlserver_cpu_bound", "sqlserver_io_bound", "sqlserver_test"} {
+		tmpl := index[id]
+		if tmpl == nil {
+			t.Fatalf("missing template %s", id)
+		}
+		if tmpl.WorkloadFamily != "tproc-c" {
+			t.Fatalf("%s workloadFamily = %s, want tproc-c", id, tmpl.WorkloadFamily)
+		}
+		if _, ok := tmpl.Parameters["scale"]; ok {
+			t.Fatalf("%s should not expose scale parameter", id)
+		}
+		if _, ok := tmpl.Parameters["warehouses"]; !ok {
+			t.Fatalf("%s should expose warehouses parameter", id)
+		}
+		if tmpl.ToolConfig.HammerDB.ScaleFactor != 0 {
+			t.Fatalf("%s scaleFactor = %d, want 0", id, tmpl.ToolConfig.HammerDB.ScaleFactor)
+		}
+	}
 }
 
 func containsTextFold(text, target string) bool {

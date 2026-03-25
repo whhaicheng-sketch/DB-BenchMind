@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { buildAutoBenchMonitorState } from './autobenchMonitorState.mjs'
 import {
   buildLocalPlanPreview,
   connectionFilterOptions,
@@ -39,10 +40,13 @@ const reportPlaceholder = {
   ]
 }
 
+const monitorSnapshot = ref(null)
+
 const wizardValidation = computed(() => validateAutoBenchWizardDraft(draft.value))
 const filteredConnections = computed(() => filterPlaceholderConnections(placeholderConnections, activeConnectionFilter.value))
 const selectedProfileSummary = computed(() => describeSelectedProfiles(draft.value.selectedProfiles))
 const planPreview = computed(() => buildLocalPlanPreview(draft.value, placeholderConnections))
+const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.value))
 
 function toggleConnectionSelection(connectionId) {
   draft.value = toggleDraftConnectionSelection(draft.value, connectionId)
@@ -183,9 +187,49 @@ function toggleProfileSelection(profileId) {
           <h2 id="autobench-monitor-title">Monitor</h2>
           <p>{{ monitorPlaceholder.description }}</p>
         </div>
-        <ul class="placeholder-list">
-          <li v-for="item in monitorPlaceholder.items" :key="item">{{ item }}</li>
-        </ul>
+        <div class="monitor-groups">
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Suite Progress</h3>
+              <span class="wizard-chip">{{ monitorState.progressPercent }}%</span>
+            </div>
+            <p class="wizard-group-copy">Overall status: {{ monitorState.statusLabel }}</p>
+            <p class="wizard-order">{{ monitorState.completedLabel }}</p>
+          </section>
+
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Current Item</h3>
+              <span class="wizard-chip">{{ monitorState.currentItem ? monitorState.currentItem.status : 'idle' }}</span>
+            </div>
+            <div v-if="monitorState.currentItem" class="monitor-current-item">
+              <strong>{{ monitorState.currentItem.connectionId }}</strong>
+              <small>{{ monitorState.currentItem.profileType }}</small>
+              <small>{{ monitorState.currentItem.status }}</small>
+            </div>
+            <p v-else class="preview-empty">{{ monitorState.emptyMessage }}</p>
+          </section>
+
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Item Status</h3>
+              <span class="wizard-chip">{{ monitorState.itemRows.length }} tracked</span>
+            </div>
+            <div v-if="monitorState.itemRows.length === 0" class="preview-empty">
+              Item-level monitor rows will appear after a suite snapshot is available.
+            </div>
+            <ul v-else class="preview-list">
+              <li v-for="item in monitorState.itemRows" :key="item.id" class="preview-row monitor-row">
+                <strong>{{ item.connectionId }}</strong>
+                <small>{{ item.profileType }}</small>
+                <small>{{ item.status }}</small>
+                <small>{{ item.phaseLabel }}</small>
+                <small>{{ item.logLabel }}</small>
+                <small>{{ item.resultSummary || 'No summary yet' }}</small>
+              </li>
+            </ul>
+          </section>
+        </div>
       </section>
 
       <section class="autobench-section autobench-report" aria-labelledby="autobench-report-title">
@@ -454,6 +498,30 @@ function toggleProfileSelection(profileId) {
   color: var(--text-secondary);
   display: grid;
   gap: 10px;
+}
+
+.monitor-groups {
+  margin-top: 16px;
+  display: grid;
+  gap: 16px;
+}
+
+.monitor-current-item {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.monitor-current-item strong {
+  color: var(--text-primary);
+}
+
+.monitor-current-item small {
+  color: var(--text-secondary);
+}
+
+.monitor-row {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 @media (max-width: 1080px) {
