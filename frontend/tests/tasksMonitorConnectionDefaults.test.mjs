@@ -6,7 +6,7 @@ import path from 'node:path'
 import { getPreferredConnectionId } from '../src/components/tabs/tasksMonitorConnectionDefaults.mjs'
 
 const tasksMonitorTabSource = fs.readFileSync(
-  path.resolve('src/components/tabs/TasksMonitorTab.vue'),
+  path.resolve('frontend/src/components/tabs/TasksMonitorTab.vue'),
   'utf8'
 )
 

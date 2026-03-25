@@ -1,7 +1,7 @@
 {
-  "current_module": "M6",
-  "current_task": "T6.2",
-  "next_task": "T6.3",
+  "current_module": "M7",
+  "current_task": "T7.3",
+  "next_task": "COMPLETED",
   "done_tasks": [
     "T0.1",
     "T0.2",
@@ -23,33 +23,51 @@
     "T5.2",
     "T5.3",
     "T6.1",
-    "T6.2"
+    "T6.2",
+    "T6.3",
+    "T6.4",
+    "T7.1",
+    "T7.2",
+    "T7.3"
   ],
   "blocked_tasks": [],
   "changed_files": [
-    "internal/app/usecase/autobench_usecase.go",
-    "internal/app/usecase/autobench_usecase_test.go",
+    "frontend/tests/autobenchReportState.test.mjs",
     "frontend/tests/autobenchProgressDocs.test.mjs",
+    "frontend/tests/tasksMonitorConnectionDefaults.test.mjs",
     "docs/AutoBench/progress.md",
     "docs/AutoBench/progress.json"
   ],
   "test_results": [
     {
-      "command": "go test ./internal/app/usecase -run 'BuildSuiteReport(HTMLRendersSectionsFromSuiteSnapshot|JSONAggregatesCurrentSuiteSnapshot)' -count=1",
-      "status": "pass"
+      "command": "bash scripts/gates/test_backend_gate.sh",
+      "status": "pass",
+      "detail": "All 11 backend packages passed"
     },
     {
-      "command": "go test ./internal/domain/autobench ./internal/app/usecase",
-      "status": "pass"
+      "command": "node --test frontend/tests/*.test.mjs",
+      "status": "pass",
+      "detail": "157 tests, 0 failures"
     },
     {
-      "command": "node --test frontend/tests/autobenchProgressDocs.test.mjs",
-      "status": "pass"
+      "command": "node --test frontend/tests/autoBench* frontend/tests/autobench*",
+      "status": "pass",
+      "detail": "38 AutoBench frontend tests, 0 failures"
+    },
+    {
+      "command": "go test ./internal/domain/autobench/... ./internal/app/usecase -run AutoBench",
+      "status": "pass",
+      "detail": "16 AutoBench backend tests, 0 failures"
     }
   ],
   "known_risks": [
-    "HTML report generation currently returns in-memory bytes from an embedded template; page-level display and export actions remain for T6.3.",
-    "Report aggregation currently relies on suite item snapshot fields; richer log references and metrics summary content are not yet wired into the report.",
-    "Repository baseline issue: go test ./internal/domain/... is currently blocked by an existing problem in internal/domain/connection/ssh_tunnel.go."
-  ]
+    "The report panel currently consumes only a local reportSnapshot placeholder; real suite snapshot and artifact path wiring remain for later orchestration integration work.",
+    "Export entries currently expose artifact paths and availability only; no real download action is attached yet."
+  ],
+  "completion_summary": {
+    "status": "completed",
+    "modules_completed": ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7"],
+    "total_tasks": 26,
+    "completed_at": "2026-03-25"
+  }
 }

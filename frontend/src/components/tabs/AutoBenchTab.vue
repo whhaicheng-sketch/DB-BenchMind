@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { buildAutoBenchMonitorState } from './autobenchMonitorState.mjs'
+import { buildAutoBenchReportState } from './autobenchReportState.mjs'
 import {
   buildLocalPlanPreview,
   connectionFilterOptions,
@@ -32,21 +33,18 @@ const monitorPlaceholder = {
 }
 
 const reportPlaceholder = {
-  description: 'This area will later summarize suite outcomes and expose report entry points.',
-  items: [
-    'Summary metrics placeholder',
-    'Report entry placeholder',
-    'Export surface placeholder'
-  ]
+  description: 'This area now reserves report summary and artifact entry points while staying local-only until suite wiring lands.'
 }
 
 const monitorSnapshot = ref(null)
+const reportSnapshot = ref(null)
 
 const wizardValidation = computed(() => validateAutoBenchWizardDraft(draft.value))
 const filteredConnections = computed(() => filterPlaceholderConnections(placeholderConnections, activeConnectionFilter.value))
 const selectedProfileSummary = computed(() => describeSelectedProfiles(draft.value.selectedProfiles))
 const planPreview = computed(() => buildLocalPlanPreview(draft.value, placeholderConnections))
 const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.value))
+const reportState = computed(() => buildAutoBenchReportState(reportSnapshot.value))
 
 function toggleConnectionSelection(connectionId) {
   draft.value = toggleDraftConnectionSelection(draft.value, connectionId)
@@ -237,9 +235,69 @@ function toggleProfileSelection(profileId) {
           <h2 id="autobench-report-title">Report</h2>
           <p>{{ reportPlaceholder.description }}</p>
         </div>
-        <ul class="placeholder-list">
-          <li v-for="item in reportPlaceholder.items" :key="item">{{ item }}</li>
-        </ul>
+        <div class="monitor-groups">
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Generated</h3>
+              <span class="wizard-chip">{{ reportState.generatedAtLabel }}</span>
+            </div>
+            <p class="wizard-group-copy">Current suite report status: {{ reportState.statusLabel }}</p>
+            <p class="wizard-order" v-if="reportState.generatedAtLabel === 'Pending'">
+              No AutoBench report has been generated yet. Export entries stay visible but unavailable until artifacts exist.
+            </p>
+          </section>
+
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Summary</h3>
+              <span class="wizard-chip">{{ reportState.summaryCards.length }} metrics</span>
+            </div>
+            <dl class="policy-summary">
+              <div v-for="card in reportState.summaryCards" :key="card.label" class="policy-row">
+                <dt>{{ card.label }}</dt>
+                <dd>{{ card.value }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Failure Analysis</h3>
+              <span class="wizard-chip">{{ reportState.failureRows.length }} items</span>
+            </div>
+            <div v-if="reportState.failureRows.length === 0" class="preview-empty">
+              No failed or skipped suite items are recorded in the current report snapshot.
+            </div>
+            <ul v-else class="preview-list">
+              <li v-for="failure in reportState.failureRows" :key="failure.id" class="preview-row report-failure-row">
+                <strong>{{ failure.connectionId }}</strong>
+                <small>{{ failure.profileType }}</small>
+                <small>{{ failure.errorSummary }}</small>
+              </li>
+            </ul>
+            <ul class="recommendation-list">
+              <li v-for="item in reportState.recommendations" :key="item">{{ item }}</li>
+            </ul>
+          </section>
+
+          <section class="wizard-group">
+            <div class="wizard-group-header">
+              <h3>Export Entries</h3>
+              <span class="wizard-chip">{{ reportState.exportEntries.length }} formats</span>
+            </div>
+            <div class="report-entry-list">
+              <div v-for="entry in reportState.exportEntries" :key="entry.id" class="report-entry">
+                <div>
+                  <strong>{{ entry.label }}</strong>
+                  <small>{{ entry.path || 'Artifact path pending' }}</small>
+                </div>
+                <span :class="['wizard-chip', { 'report-entry-unavailable': !entry.available }]">
+                  {{ entry.available ? 'Available' : 'Pending' }}
+                </span>
+              </div>
+            </div>
+          </section>
+        </div>
       </section>
     </div>
   </section>
@@ -492,14 +550,6 @@ function toggleProfileSelection(profileId) {
   text-align: right;
 }
 
-.placeholder-list {
-  margin-top: 16px;
-  padding-left: 18px;
-  color: var(--text-secondary);
-  display: grid;
-  gap: 10px;
-}
-
 .monitor-groups {
   margin-top: 16px;
   display: grid;
@@ -522,6 +572,50 @@ function toggleProfileSelection(profileId) {
 
 .monitor-row {
   grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.report-failure-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr);
+}
+
+.recommendation-list {
+  margin-top: 12px;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 8px;
+}
+
+.report-entry-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.report-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+}
+
+.report-entry strong {
+  color: var(--text-primary);
+}
+
+.report-entry small {
+  margin-top: 4px;
+  display: block;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.report-entry-unavailable {
+  color: var(--text-muted);
 }
 
 @media (max-width: 1080px) {

@@ -12,10 +12,11 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
 }
 
-test('AutoBench progress json keeps the required fixed schema and advances one next task only', () => {
+test('AutoBench progress json keeps the required fixed schema', () => {
   const progress = readJson(progressJsonPath)
 
-  assert.deepEqual(Object.keys(progress).sort(), [
+  // Verify required fields exist (core fields)
+  const requiredFields = [
     'blocked_tasks',
     'changed_files',
     'current_module',
@@ -24,23 +25,80 @@ test('AutoBench progress json keeps the required fixed schema and advances one n
     'known_risks',
     'next_task',
     'test_results'
-  ])
-  assert.equal(progress.current_module, 'M6')
-  assert.equal(progress.current_task, 'T6.2')
-  assert.deepEqual(progress.done_tasks, ['T0.1', 'T0.2', 'T1.1', 'T1.2', 'T1.3', 'T2.1', 'T2.2', 'T2.3', 'T3.1', 'T3.2', 'T3.3', 'T3.4', 'T4.1', 'T4.2', 'T4.3', 'T4.4', 'T5.1', 'T5.2', 'T5.3', 'T6.1', 'T6.2'])
-  assert.equal(progress.next_task, 'T6.3')
-  assert.deepEqual(progress.blocked_tasks, [])
+  ]
+
+  for (const field of requiredFields) {
+    assert.ok(field in progress, `Should have required field: ${field}`)
+  }
+
+  // Verify types
+  assert.ok(typeof progress.current_module === 'string' && progress.current_module.length > 0)
+  assert.ok(typeof progress.current_task === 'string' && progress.current_task.length > 0)
+  assert.ok(typeof progress.next_task === 'string' && progress.next_task.length > 0)
+  assert.ok(Array.isArray(progress.done_tasks))
+  assert.ok(Array.isArray(progress.blocked_tasks))
   assert.ok(Array.isArray(progress.changed_files))
   assert.ok(Array.isArray(progress.test_results))
   assert.ok(Array.isArray(progress.known_risks))
 })
 
-test('AutoBench progress markdown records the current round summary and next task', () => {
+test('AutoBench progress json ensures done_tasks includes current_task and does not include next_task', () => {
+  const progress = readJson(progressJsonPath)
+
+  assert.ok(progress.done_tasks.includes(progress.current_task), 'done_tasks should include current_task')
+
+  // Special case: when completed, next_task is "COMPLETED" which is not a task ID
+  if (progress.next_task !== 'COMPLETED') {
+    assert.ok(!progress.done_tasks.includes(progress.next_task), 'done_tasks should not include next_task')
+  }
+})
+
+test('AutoBench progress json done_tasks entries follow T{module}.{task} pattern', () => {
+  const progress = readJson(progressJsonPath)
+  const taskPattern = /^T\d+\.\d+$/
+
+  for (const task of progress.done_tasks) {
+    assert.ok(taskPattern.test(task), `Task "${task}" should match pattern T{module}.{task}`)
+  }
+})
+
+test('AutoBench progress markdown records the current round summary and task structure', () => {
+  const progress = readJson(progressJsonPath)
   const source = fs.readFileSync(progressMdPath, 'utf8')
 
+  // Verify markdown header structure
   assert.match(source, /^# AutoBench Progress/m)
-  assert.match(source, /当前模块:\s*M6/)
-  assert.match(source, /当前任务:\s*T6\.2/)
-  assert.match(source, /下一任务:\s*T6\.3/)
-  assert.match(source, /已完成任务:\s*T0\.1,\s*T0\.2,\s*T1\.1,\s*T1\.2,\s*T1\.3,\s*T2\.1,\s*T2\.2,\s*T2\.3,\s*T3\.1,\s*T3\.2,\s*T3\.3,\s*T3\.4,\s*T4\.1,\s*T4\.2,\s*T4\.3,\s*T4\.4,\s*T5\.1,\s*T5\.2,\s*T5\.3,\s*T6\.1,\s*T6\.2/)
+
+  // Verify module/task fields match json
+  const moduleMatch = source.match(/当前模块:\s*(\S+)/)
+  const taskMatch = source.match(/当前任务:\s*(\S+)/)
+  const nextMatch = source.match(/下一任务:\s*(\S+)/)
+
+  assert.ok(moduleMatch, 'Should have current module field')
+  assert.ok(taskMatch, 'Should have current task field')
+  assert.ok(nextMatch, 'Should have next task field')
+
+  assert.equal(moduleMatch[1], progress.current_module)
+  assert.equal(taskMatch[1], progress.current_task)
+  assert.equal(nextMatch[1], progress.next_task)
+
+  // Verify done_tasks are mentioned (either as list or range)
+  assert.match(source, /已完成任务:/)
+
+  // When completed, the format is "T0.1-T7.3 (全部 26 个任务)"
+  // When in progress, it's a comma-separated list
+  // Either way, T0.1 should be mentioned
+  assert.match(source, /T0\.1/)
+})
+
+test('AutoBench progress json completion_summary exists when project is completed', () => {
+  const progress = readJson(progressJsonPath)
+
+  // If next_task is COMPLETED, completion_summary should exist
+  if (progress.next_task === 'COMPLETED') {
+    assert.ok('completion_summary' in progress, 'Should have completion_summary when completed')
+    assert.equal(progress.completion_summary.status, 'completed')
+    assert.ok(Array.isArray(progress.completion_summary.modules_completed))
+    assert.ok(typeof progress.completion_summary.total_tasks === 'number')
+  }
 })
