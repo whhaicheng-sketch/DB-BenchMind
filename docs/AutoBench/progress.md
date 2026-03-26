@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M5 (已完成)
-当前任务: T5.5 (已完成)
-下一任务: T6.2
+当前模块: M6
+当前任务: T6.2 (已完成)
+下一任务: T6.3
 
 ---
 
@@ -19,7 +19,7 @@
 | M3 | ReportCollector 包装器实现 | ✅ 完成 |
 | M4 | Reports Usecase 与 API 绑定 | ✅ 完成 |
 | M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
-| M6 | AutoBench 集成 report_id | ✅ 完成 |
+| M6 | AutoBench 集成 report_id | 🔄 进行中 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ⏳ 待开始 |
 
@@ -87,10 +87,17 @@
   - 延迟百分位计算测试：calculatePercentile
   - 共 56 个测试用例全部通过
 
-### M6 - AutoBench 集成 report_id ✅
+### M6 - AutoBench 集成 report_id 🔄
 
 - [x] T6.1 SuiteItem 关联 report_id
-- [ ] T6.2 suite_manifest.json 生成与更新
+- [x] T6.2 suite_manifest.json 生成与更新
+  - 添加 SuiteManifest 模型 (schema_version, suite_id, generated_at, suite_info, items, statistics)
+  - 添加 SuiteManifestWriter 用于持久化 suite_manifest.json
+  - 在 AutoBenchSuiteRunner 中集成 manifest 写入：
+    - Suite 开始时写入初始 manifest
+    - 每个 Item 完成时更新 manifest
+    - Suite 结束时写入最终 manifest
+  - 添加 StartedAt/EndedAt 时间字段到 SuiteItem
 - [ ] T6.3 后端单元测试
 
 ### M7 - 单次 Benchmark 集成 report ✅

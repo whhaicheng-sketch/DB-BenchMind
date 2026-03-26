@@ -38,8 +38,19 @@ type AutoBenchSuiteRunner struct {
 	benchmark       autoBenchBenchmarkRunner
 	connections     autoBenchConnectionProvider
 	templates       autoBenchTemplateProvider
+	manifestWriter  *SuiteManifestWriter
 	waitInterval    time.Duration
 	waitForNextPoll func(ctx context.Context, interval time.Duration) error
+}
+
+// AutoBenchSuiteRunnerOption configures the runner.
+type AutoBenchSuiteRunnerOption func(*AutoBenchSuiteRunner)
+
+// WithManifestWriter sets the manifest writer for persisting suite manifests.
+func WithManifestWriter(w *SuiteManifestWriter) AutoBenchSuiteRunnerOption {
+	return func(r *AutoBenchSuiteRunner) {
+		r.manifestWriter = w
+	}
 }
 
 func NewAutoBenchSuiteRunner(
@@ -47,8 +58,9 @@ func NewAutoBenchSuiteRunner(
 	benchmark autoBenchBenchmarkRunner,
 	connections autoBenchConnectionProvider,
 	templates autoBenchTemplateProvider,
+	opts ...AutoBenchSuiteRunnerOption,
 ) *AutoBenchSuiteRunner {
-	return &AutoBenchSuiteRunner{
+	r := &AutoBenchSuiteRunner{
 		suites:          suites,
 		benchmark:       benchmark,
 		connections:     connections,
@@ -56,6 +68,10 @@ func NewAutoBenchSuiteRunner(
 		waitInterval:    100 * time.Millisecond,
 		waitForNextPoll: waitForNextAutoBenchPoll,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) error {
@@ -77,10 +93,15 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 
 	if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
 		suite.Status = domainautobench.SuiteStatusRunning
+		now := time.Now()
+		suite.StartedAt = &now
 		return nil
 	}); err != nil {
 		return err
 	}
+
+	// Write initial manifest
+	r.writeManifestAsync(ctx, suiteID)
 
 	for _, item := range suite.Items {
 		if err := ctx.Err(); err != nil {
@@ -218,10 +239,14 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 				}
 				target.Status = domainautobench.SuiteItemStatusSuccess
 				target.PhaseStatus = finalRun.State.String()
+				now := time.Now()
+				target.EndedAt = &now
 				return nil
 			}); err != nil {
 				return err
 			}
+			// Write manifest after item completes
+			r.writeManifestAsync(ctx, suiteID)
 			continue
 		}
 
@@ -235,10 +260,18 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 		}
 	}
 
-	return r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+	// Final suite status update
+	if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
 		suite.Status = summarizeSuiteStatus(suite.Items)
+		now := time.Now()
+		suite.EndedAt = &now
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// Final manifest write
+	r.writeManifestAsync(ctx, suiteID)
+	return nil
 }
 
 func (r *AutoBenchSuiteRunner) waitForRunCompletion(ctx context.Context, runID string) (*execution.Run, error) {
@@ -305,16 +338,24 @@ func (r *AutoBenchSuiteRunner) selectTemplateIDForItem(ctx context.Context, dbTy
 }
 
 func (r *AutoBenchSuiteRunner) markSuiteItemFailed(suiteID, itemID, summary string) error {
-	return r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+	err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
 		suite.Status = domainautobench.SuiteStatusFailed
-		target, err := findSuiteItemByID(suite.Items, itemID)
-		if err != nil {
-			return err
+		target, findErr := findSuiteItemByID(suite.Items, itemID)
+		if findErr != nil {
+			return findErr
 		}
 		target.Status = domainautobench.SuiteItemStatusFailed
 		target.ErrorSummary = summary
+		now := time.Now()
+		target.EndedAt = &now
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Write manifest after item failure
+	r.writeManifestAsync(context.Background(), suiteID)
+	return nil
 }
 
 func (uc *AutoBenchSuiteUseCase) mutateSuite(suiteID string, mutator func(*domainautobench.Suite) error) error {
@@ -364,4 +405,28 @@ func summarizeSuiteStatus(items []domainautobench.SuiteItem) domainautobench.Sui
 		return domainautobench.SuiteStatusFailed
 	}
 	return domainautobench.SuiteStatusSuccess
+}
+
+// writeManifestAsync writes the suite manifest in a goroutine.
+// Errors are logged but do not block execution.
+func (r *AutoBenchSuiteRunner) writeManifestAsync(ctx context.Context, suiteID string) {
+	if r.manifestWriter == nil {
+		return
+	}
+	go func() {
+		suite, err := r.suites.getSuite(suiteID)
+		if err != nil {
+			return
+		}
+		manifestPath, err := r.manifestWriter.WriteManifest(ctx, &suite)
+		if err != nil {
+			// Log error but don't fail the execution (per D006/D014)
+			return
+		}
+		// Update the suite with the manifest path
+		_ = r.suites.mutateSuite(suiteID, func(s *domainautobench.Suite) error {
+			s.SuiteManifestJSONPath = manifestPath
+			return nil
+		})
+	}()
 }
