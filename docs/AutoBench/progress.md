@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M5
-当前任务: T5.4 (已完成)
-下一任务: T5.5
+当前模块: M5 (已完成)
+当前任务: T5.5 (已完成)
+下一任务: T6.2
 
 ---
 
@@ -18,7 +18,7 @@
 | M2 | Reports 数据模型与 SQLite 表 | ✅ 完成 |
 | M3 | ReportCollector 包装器实现 | ✅ 完成 |
 | M4 | Reports Usecase 与 API 绑定 | ✅ 完成 |
-| M5 | Reports 前端页面（列表/详情/导出） | 🔄 进行中 |
+| M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ⏳ 待开始 |
@@ -73,13 +73,19 @@
   - GetSuite: 返回单个套件
 - [x] T4.3 后端单元测试
 
-### M5 - Reports 前端页面 🔄
+### M5 - Reports 前端页面 ✅
 
 - [x] T5.1 Reports 列表页（HistoryTab 改造为 ReportsTab）
 - [x] T5.2 Reports 详情页
 - [x] T5.3 图表组件集成
 - [x] T5.4 JSON/HTML 导出功能
-- [ ] T5.5 前端单元测试
+- [x] T5.5 前端单元测试
+  - 格式化函数测试：formatSourceType, formatStatus, getStatusClass, formatDateTime, formatDuration, formatNumber
+  - 过滤器逻辑测试：filterReports
+  - 分页逻辑测试：calculatePagination
+  - 导出数据生成测试：generateMockHTML, buildExportData
+  - 延迟百分位计算测试：calculatePercentile
+  - 共 56 个测试用例全部通过
 
 ### M6 - AutoBench 集成 report_id ✅
 
