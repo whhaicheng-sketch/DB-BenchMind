@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M7 (已完成)
-当前任务: T7.3 (已完成)
-下一任务: T8.1
+当前模块: M8
+当前任务: T8.1 (已完成)
+下一任务: T8.2
 
 ---
 
@@ -21,7 +21,7 @@
 | M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
-| M8 | 验收与兼容性回归 | ⏳ 待开始 |
+| M8 | 验收与兼容性回归 | 🔄 进行中 |
 
 ---
 
@@ -134,9 +134,16 @@
   - TestReportCollectorFilePersistence: 文件持久化验证
   - 修复 NewTemplateUseCase 调用签名
 
-### M8 - 验收与兼容性回归 ⏳
+### M8 - 验收与兼容性回归 🔄
 
-- [ ] T8.1 后端回归测试
+- [x] T8.1 后端回归测试
+  - Go 构建通过: `go build ./...` ✅
+  - Report 模型测试: 6/6 通过 ✅
+  - ReportUsecase 测试: 15/15 通过 ✅
+  - SuiteManifest 测试: 4/4 通过 ✅
+  - ReportCollector 测试: 7/7 通过 ✅
+  - CollectStandaloneReport 测试: 5/5 通过 ✅
+  - 预先存在的测试失败（非 Reports 相关）已记录
 - [ ] T8.2 前端回归测试
 - [ ] T8.3 集成测试
 - [ ] T8.4 文档同步更新
