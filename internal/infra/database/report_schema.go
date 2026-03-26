@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 // EnsureReportSchema creates reports and suites tables if not exist.
@@ -42,7 +43,7 @@ func EnsureReportSchema(ctx context.Context, db *sql.DB) error {
 		tags            TEXT
 	);`
 	if _, err := db.ExecContext(ctx, reportsDDL); err != nil {
-		return err
+		return fmt.Errorf("create reports table: %w", err)
 	}
 
 	// Create reports indexes
@@ -56,7 +57,7 @@ func EnsureReportSchema(ctx context.Context, db *sql.DB) error {
 	}
 	for _, idx := range reportIndexes {
 		if _, err := db.ExecContext(ctx, idx); err != nil {
-			return err
+			return fmt.Errorf("create reports indexes: %w", err)
 		}
 	}
 
@@ -83,7 +84,7 @@ func EnsureReportSchema(ctx context.Context, db *sql.DB) error {
 		updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);`
 	if _, err := db.ExecContext(ctx, suitesDDL); err != nil {
-		return err
+		return fmt.Errorf("create suites table: %w", err)
 	}
 
 	// Create suites indexes
@@ -93,7 +94,7 @@ func EnsureReportSchema(ctx context.Context, db *sql.DB) error {
 	}
 	for _, idx := range suiteIndexes {
 		if _, err := db.ExecContext(ctx, idx); err != nil {
-			return err
+			return fmt.Errorf("create suites indexes: %w", err)
 		}
 	}
 
