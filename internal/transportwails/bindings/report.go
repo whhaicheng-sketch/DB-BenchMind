@@ -1,0 +1,264 @@
+// Package bindings provides Wails bindings for the frontend.
+package bindings
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
+)
+
+// ReportBinding exposes report-related operations to the frontend.
+type ReportBinding struct {
+	uc *usecase.ReportUsecase
+}
+
+// NewReportBinding creates a new ReportBinding.
+func NewReportBinding(uc *usecase.ReportUsecase) *ReportBinding {
+	return &ReportBinding{uc: uc}
+}
+
+// ReportDTO is the data transfer object for reports.
+type ReportDTO struct {
+	ID             string  `json:"id"`
+	SuiteID        string  `json:"suite_id"`
+	SuiteItemID    string  `json:"suite_item_id,omitempty"`
+	SourceType     string  `json:"source_type"`
+	ConnectionID   string  `json:"connection_id"`
+	ConnectionName string  `json:"connection_name,omitempty"`
+	DatabaseType   string  `json:"database_type"`
+	TemplateID     string  `json:"template_id,omitempty"`
+	TemplateName   string  `json:"template_name,omitempty"`
+	StartedAt      string  `json:"started_at"`
+	EndedAt        string  `json:"ended_at,omitempty"`
+	DurationMs     int64   `json:"duration_ms,omitempty"`
+	Status         string  `json:"status"`
+	ErrorMessage   string  `json:"error_message,omitempty"`
+	TPM            float64 `json:"tpm,omitempty"`
+	TPS            float64 `json:"tps,omitempty"`
+	QPS            float64 `json:"qps,omitempty"`
+	Throughput     float64 `json:"throughput,omitempty"`
+	LatencyAvgMs   float64 `json:"latency_avg_ms,omitempty"`
+	LatencyP95Ms   float64 `json:"latency_p95_ms,omitempty"`
+	LatencyP99Ms   float64 `json:"latency_p99_ms,omitempty"`
+	ErrorCount     int64   `json:"error_count,omitempty"`
+	Tags           string  `json:"tags,omitempty"`
+}
+
+// SuiteDTO is the data transfer object for suites.
+type SuiteDTO struct {
+	ID                    string `json:"id"`
+	Name                  string `json:"name,omitempty"`
+	ExecutionMode         string `json:"execution_mode,omitempty"`
+	FailurePolicy         string `json:"failure_policy,omitempty"`
+	CleanupEnabled        bool   `json:"cleanup_enabled"`
+	SuiteManifestJSONPath string `json:"suite_manifest_json_path,omitempty"`
+	Status                string `json:"status"`
+	StartedAt             string `json:"started_at,omitempty"`
+	EndedAt               string `json:"ended_at,omitempty"`
+	TotalItems            int    `json:"total_items"`
+	CompletedItems        int    `json:"completed_items"`
+	SuccessItems          int    `json:"success_items"`
+	FailedItems           int    `json:"failed_items"`
+	SkippedItems          int    `json:"skipped_items"`
+	SuiteReportJSONPath   string `json:"suite_report_json_path,omitempty"`
+	SuiteReportHTMLPath   string `json:"suite_report_html_path,omitempty"`
+	CreatedAt             string `json:"created_at"`
+	UpdatedAt             string `json:"updated_at"`
+}
+
+// ReportListResult is the result of ListReports.
+type ReportListResult struct {
+	Reports []ReportDTO `json:"reports"`
+	Total   int         `json:"total"`
+	Error   string      `json:"error,omitempty"`
+}
+
+// ReportResult is the result of GetReport.
+type ReportResult struct {
+	Report *ReportDTO `json:"report,omitempty"`
+	Error  string     `json:"error,omitempty"`
+}
+
+// ReportMetricsResult is the result of GetReportMetrics.
+type ReportMetricsResult struct {
+	Metrics *report.MetricsData `json:"metrics,omitempty"`
+	Error   string              `json:"error,omitempty"`
+}
+
+// SuiteListResult is the result of ListSuites.
+type SuiteListResult struct {
+	Suites []SuiteDTO `json:"suites"`
+	Total  int        `json:"total"`
+	Error  string     `json:"error,omitempty"`
+}
+
+// SuiteResult is the result of GetSuite.
+type SuiteResult struct {
+	Suite *SuiteDTO `json:"suite,omitempty"`
+	Error string    `json:"error,omitempty"`
+}
+
+// ListReportsOptionsDTO contains options for listing reports.
+type ListReportsOptionsDTO struct {
+	Page         int    `json:"page"`
+	PageSize     int    `json:"page_size"`
+	SuiteID      string `json:"suite_id,omitempty"`
+	Status       string `json:"status,omitempty"`
+	ConnectionID string `json:"connection_id,omitempty"`
+}
+
+// ListSuitesOptionsDTO contains options for listing suites.
+type ListSuitesOptionsDTO struct {
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+	Status   string `json:"status,omitempty"`
+}
+
+// ListReports retrieves reports with pagination and filtering.
+func (b *ReportBinding) ListReports(opts ListReportsOptionsDTO) ReportListResult {
+	ctx := context.Background()
+	reports, total, err := b.uc.ListReports(ctx, usecase.ListReportsOptions{
+		Page:         opts.Page,
+		PageSize:     opts.PageSize,
+		SuiteID:      opts.SuiteID,
+		Status:       opts.Status,
+		ConnectionID: opts.ConnectionID,
+	})
+	if err != nil {
+		slog.Error("ListReports failed", "error", err)
+		return ReportListResult{Error: err.Error()}
+	}
+
+	dtos := make([]ReportDTO, 0, len(reports))
+	for _, r := range reports {
+		dtos = append(dtos, reportToDTO(r))
+	}
+
+	return ReportListResult{Reports: dtos, Total: total}
+}
+
+// GetReport retrieves a single report by ID.
+func (b *ReportBinding) GetReport(id string) ReportResult {
+	ctx := context.Background()
+	r, err := b.uc.GetReport(ctx, id)
+	if err != nil {
+		slog.Error("GetReport failed", "id", id, "error", err)
+		return ReportResult{Error: err.Error()}
+	}
+	dto := reportToDTO(r)
+	return ReportResult{Report: &dto}
+}
+
+// GetReportMetrics retrieves the full metrics data for a report.
+func (b *ReportBinding) GetReportMetrics(id string) ReportMetricsResult {
+	ctx := context.Background()
+	metrics, err := b.uc.GetReportMetrics(ctx, id)
+	if err != nil {
+		slog.Error("GetReportMetrics failed", "id", id, "error", err)
+		return ReportMetricsResult{Error: err.Error()}
+	}
+	return ReportMetricsResult{Metrics: metrics}
+}
+
+// ListSuites retrieves suites with pagination and filtering.
+func (b *ReportBinding) ListSuites(opts ListSuitesOptionsDTO) SuiteListResult {
+	ctx := context.Background()
+	suites, total, err := b.uc.ListSuites(ctx, usecase.ListSuitesOptions{
+		Page:     opts.Page,
+		PageSize: opts.PageSize,
+		Status:   opts.Status,
+	})
+	if err != nil {
+		slog.Error("ListSuites failed", "error", err)
+		return SuiteListResult{Error: err.Error()}
+	}
+
+	dtos := make([]SuiteDTO, 0, len(suites))
+	for _, s := range suites {
+		dtos = append(dtos, suiteToDTO(s))
+	}
+
+	return SuiteListResult{Suites: dtos, Total: total}
+}
+
+// GetSuite retrieves a single suite by ID.
+func (b *ReportBinding) GetSuite(id string) SuiteResult {
+	ctx := context.Background()
+	s, err := b.uc.GetSuite(ctx, id)
+	if err != nil {
+		slog.Error("GetSuite failed", "id", id, "error", err)
+		return SuiteResult{Error: err.Error()}
+	}
+	dto := suiteToDTO(s)
+	return SuiteResult{Suite: &dto}
+}
+
+func reportToDTO(r *report.Report) ReportDTO {
+	dto := ReportDTO{
+		ID:           r.ID,
+		SuiteID:      r.SuiteID,
+		SuiteItemID:  r.SuiteItemID,
+		SourceType:   string(r.SourceType),
+		ConnectionID: r.ConnectionID,
+		DatabaseType: r.DatabaseType,
+		TemplateID:   r.TemplateID,
+		TemplateName: r.TemplateName,
+		Status:       string(r.Status),
+		ErrorMessage: r.ErrorMessage,
+		TPM:          r.TPM,
+		TPS:          r.TPS,
+		QPS:          r.QPS,
+		Throughput:   r.Throughput,
+		LatencyAvgMs: r.LatencyAvgMs,
+		LatencyP95Ms: r.LatencyP95Ms,
+		LatencyP99Ms: r.LatencyP99Ms,
+		ErrorCount:   r.ErrorCount,
+		Tags:         r.Tags,
+	}
+
+	if !r.StartedAt.IsZero() {
+		dto.StartedAt = r.StartedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if r.EndedAt != nil {
+		dto.EndedAt = r.EndedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	dto.DurationMs = r.DurationMs
+
+	return dto
+}
+
+func suiteToDTO(s *report.Suite) SuiteDTO {
+	dto := SuiteDTO{
+		ID:                    s.ID,
+		Name:                  s.Name,
+		ExecutionMode:         s.ExecutionMode,
+		FailurePolicy:         s.FailurePolicy,
+		CleanupEnabled:        s.CleanupEnabled,
+		SuiteManifestJSONPath: s.SuiteManifestJSONPath,
+		Status:                string(s.Status),
+		TotalItems:            s.TotalItems,
+		CompletedItems:        s.CompletedItems,
+		SuccessItems:          s.SuccessItems,
+		FailedItems:           s.FailedItems,
+		SkippedItems:          s.SkippedItems,
+		SuiteReportJSONPath:   s.SuiteReportJSONPath,
+		SuiteReportHTMLPath:   s.SuiteReportHTMLPath,
+	}
+
+	if s.StartedAt != nil {
+		dto.StartedAt = s.StartedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if s.EndedAt != nil {
+		dto.EndedAt = s.EndedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if !s.CreatedAt.IsZero() {
+		dto.CreatedAt = s.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if !s.UpdatedAt.IsZero() {
+		dto.UpdatedAt = s.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+
+	return dto
+}
