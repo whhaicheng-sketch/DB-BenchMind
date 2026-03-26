@@ -100,3 +100,62 @@ func TestSuiteIsCompleted(t *testing.T) {
 		})
 	}
 }
+
+func TestIsStandalone(t *testing.T) {
+	tests := []struct {
+		name     string
+		suiteID  string
+		expected bool
+	}{
+		{"standalone constant", StandaloneSuiteID, true},
+		{"standalone string", "standalone", true},
+		{"empty string", "", false},
+		{"uuid", "550e8400-e29b-41d4-a716-446655440000", false},
+		{"auto-bench suite", "suite-abc123", false},
+		{"standalone with different case", "Standalone", false},
+		{"standalone with spaces", " standalone ", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsStandalone(tt.suiteID); got != tt.expected {
+				t.Errorf("IsStandalone(%q) = %v, want %v", tt.suiteID, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsAutoBench(t *testing.T) {
+	tests := []struct {
+		name     string
+		suiteID  string
+		expected bool
+	}{
+		{"standalone constant", StandaloneSuiteID, false},
+		{"standalone string", "standalone", false},
+		{"empty string", "", false},
+		{"uuid", "550e8400-e29b-41d4-a716-446655440000", true},
+		{"auto-bench suite", "suite-abc123", true},
+		{"suite with prefix", "autobench-2026-03-26", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsAutoBench(tt.suiteID); got != tt.expected {
+				t.Errorf("IsAutoBench(%q) = %v, want %v", tt.suiteID, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStandaloneSuiteIDConstant(t *testing.T) {
+	// Verify the constant has the expected value
+	if StandaloneSuiteID != "standalone" {
+		t.Errorf("StandaloneSuiteID = %q, want standalone", StandaloneSuiteID)
+	}
+
+	// Verify it's not empty
+	if StandaloneSuiteID == "" {
+		t.Error("StandaloneSuiteID should not be empty")
+	}
+}

@@ -34,6 +34,16 @@ const (
 	StandaloneSuiteID = "standalone"
 )
 
+// IsStandalone returns true if the suite_id represents a standalone benchmark.
+func IsStandalone(suiteID string) bool {
+	return suiteID == StandaloneSuiteID
+}
+
+// IsAutoBench returns true if the suite_id represents an AutoBench suite.
+func IsAutoBench(suiteID string) bool {
+	return suiteID != "" && suiteID != StandaloneSuiteID
+}
+
 // Report represents a benchmark report.
 type Report struct {
 	ID             string       `json:"id"`

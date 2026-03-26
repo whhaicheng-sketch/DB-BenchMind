@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M6 (已完成)
-当前任务: T6.3 (已完成)
-下一任务: T7.2
+当前模块: M7
+当前任务: T7.2 (已完成)
+下一任务: T7.3
 
 ---
 
@@ -20,7 +20,7 @@
 | M4 | Reports Usecase 与 API 绑定 | ✅ 完成 |
 | M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
-| M7 | 单次 Benchmark 集成 report | ✅ 完成 |
+| M7 | 单次 Benchmark 集成 report | 🔄 进行中 |
 | M8 | 验收与兼容性回归 | ⏳ 待开始 |
 
 ---
@@ -106,7 +106,7 @@
   - TestSuite_ToManifest: 模型转换验证
   - TestSuiteManifest_ToJSON: JSON 序列化验证
 
-### M7 - 单次 Benchmark 集成 report ✅
+### M7 - 单次 Benchmark 集成 report 🔄
 
 - [x] T7.1 单次执行生成 standalone report
   - 添加 reportCollector 字段到 BenchmarkUseCase
@@ -114,7 +114,13 @@
   - 实现 collectStandaloneReport 方法
   - 使用 suite_id='standalone' 标识独立报告
   - 在 goroutine 中执行，不阻塞响应
-- [ ] T7.2 suite_id = "standalone" 策略实现
+- [x] T7.2 suite_id = "standalone" 策略实现
+  - 添加 `StandaloneSuiteID` 常量 (= "standalone")
+  - 添加 `IsStandalone(suiteID string) bool` 辅助函数
+  - 添加 `IsAutoBench(suiteID string) bool` 辅助函数
+  - 确保 ReportCollector 使用 StandaloneSuiteID 常量
+  - 确保 suites 表不包含 standalone 条目
+  - 单元测试覆盖所有边界情况
 - [ ] T7.3 后端单元测试
 
 ### M8 - 验收与兼容性回归 ⏳
