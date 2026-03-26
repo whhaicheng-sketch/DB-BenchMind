@@ -1,10 +1,10 @@
 <template>
-  <div class="history-tab">
+  <div class="reports-tab">
     <!-- Page Header -->
     <div class="page-header">
       <div class="header-left">
-        <h1 class="page-title">History</h1>
-        <p class="page-subtitle">View benchmark run history and results</p>
+        <h1 class="page-title">Reports</h1>
+        <p class="page-subtitle">View benchmark reports and results</p>
       </div>
       <div class="header-right">
         <button class="btn" @click="refreshHistory">
@@ -96,7 +96,7 @@ const getStatusText = (status) => {
 </script>
 
 <style scoped>
-.history-tab {
+.reports-tab {
   height: 100%;
   display: flex;
   flex-direction: column;
