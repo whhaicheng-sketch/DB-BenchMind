@@ -3,12 +3,12 @@
     <!-- Header -->
     <div class="detail-header">
       <div class="header-left">
-        <h2 class="detail-title">Report Details</h2>
+        <h2 class="detail-title">报告详情</h2>
         <span class="report-id">{{ report.id }}</span>
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" @click="$emit('close')">
-          Close
+          关闭
         </button>
       </div>
     </div>
@@ -16,7 +16,7 @@
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <span>Loading report details...</span>
+      <span>加载报告详情...</span>
     </div>
 
     <!-- Error State -->
@@ -29,26 +29,26 @@
     <div v-else class="detail-content">
       <!-- Basic Info Section -->
       <section class="detail-section">
-        <h3 class="section-title">Basic Information</h3>
+        <h3 class="section-title">基本信息</h3>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">Source</span>
+            <span class="info-label">来源</span>
             <span class="info-value">{{ formatSourceType(report.source_type) }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label">Database</span>
+            <span class="info-label">数据库</span>
             <span class="info-value">{{ report.database_type }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label">Connection</span>
+            <span class="info-label">连接</span>
             <span class="info-value">{{ report.connection_name || report.connection_id }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label">Template</span>
+            <span class="info-label">模板</span>
             <span class="info-value">{{ report.template_name || report.template_id || 'N/A' }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label">Status</span>
+            <span class="info-label">状态</span>
             <span class="info-value">
               <span class="status-badge" :class="getStatusClass(report.status)">
                 {{ formatStatus(report.status) }}
@@ -56,7 +56,7 @@
             </span>
           </div>
           <div class="info-item" v-if="report.error_message">
-            <span class="info-label">Error</span>
+            <span class="info-label">错误</span>
             <span class="info-value error-text">{{ report.error_message }}</span>
           </div>
         </div>
@@ -64,45 +64,103 @@
 
       <!-- Timing Section -->
       <section class="detail-section">
-        <h3 class="section-title">Timing</h3>
+        <h3 class="section-title">执行时间</h3>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">Started</span>
+            <span class="info-label">开始时间</span>
             <span class="info-value">{{ formatDateTime(report.started_at) }}</span>
           </div>
           <div class="info-item" v-if="report.ended_at">
-            <span class="info-label">Ended</span>
+            <span class="info-label">结束时间</span>
             <span class="info-value">{{ formatDateTime(report.ended_at) }}</span>
           </div>
           <div class="info-item" v-if="report.duration_ms">
-            <span class="info-label">Duration</span>
+            <span class="info-label">持续时间</span>
             <span class="info-value">{{ formatDuration(report.duration_ms) }}</span>
           </div>
         </div>
       </section>
 
-      <!-- Performance Metrics Section -->
+      <!-- Performance Charts Section -->
+      <section class="detail-section" v-if="hasPerformanceData">
+        <h3 class="section-title">性能指标图表</h3>
+        <div class="charts-grid">
+          <!-- TPM Chart -->
+          <div class="chart-card" v-if="metrics?.summary?.tpm || report.tpm">
+            <ReportMetricChart
+              metric-key="tpm"
+              label="TPM"
+              :current-value="metrics?.summary?.tpm || report.tpm"
+              :data-points="tpsTimeSeriesData"
+              color="#DC5050"
+              unit="/min"
+              :show-sparkline="hasTimeSeriesData"
+            />
+          </div>
+
+          <!-- TPS Chart -->
+          <div class="chart-card" v-if="metrics?.summary?.tps || report.tps">
+            <ReportMetricChart
+              metric-key="tps"
+              label="TPS"
+              :current-value="metrics?.summary?.tps || report.tps"
+              :data-points="tpsTimeSeriesData"
+              color="#FFA500"
+              unit="/sec"
+              :show-sparkline="hasTimeSeriesData"
+            />
+          </div>
+
+          <!-- QPS Chart -->
+          <div class="chart-card" v-if="metrics?.summary?.qps || report.qps">
+            <ReportMetricChart
+              metric-key="qps"
+              label="QPS"
+              :current-value="metrics?.summary?.qps || report.qps"
+              :data-points="[]"
+              color="#4CAF50"
+              unit="/sec"
+              :show-sparkline="false"
+            />
+          </div>
+
+          <!-- Latency Chart -->
+          <div class="chart-card" v-if="hasLatencyData">
+            <ReportMetricChart
+              metric-key="latency"
+              label="延迟"
+              :current-value="metrics?.summary?.latency_avg_ms || report.latency_avg_ms"
+              :data-points="latencyTimeSeriesData"
+              color="#9C27B0"
+              unit="ms"
+              :show-sparkline="hasTimeSeriesData"
+            />
+          </div>
+        </div>
+      </section>
+
+      <!-- Performance Metrics Summary Section -->
       <section class="detail-section">
-        <h3 class="section-title">Performance Metrics</h3>
+        <h3 class="section-title">性能指标汇总</h3>
         <div class="metrics-grid">
           <div class="metric-card">
             <span class="metric-label">TPM</span>
-            <span class="metric-value">{{ formatNumber(report.tpm) }}</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.tpm || report.tpm) }}</span>
             <span class="metric-unit">trans/min</span>
           </div>
           <div class="metric-card">
             <span class="metric-label">TPS</span>
-            <span class="metric-value">{{ formatNumber(report.tps) }}</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.tps || report.tps) }}</span>
             <span class="metric-unit">trans/sec</span>
           </div>
-          <div class="metric-card" v-if="report.qps">
+          <div class="metric-card" v-if="metrics?.summary?.qps || report.qps">
             <span class="metric-label">QPS</span>
-            <span class="metric-value">{{ formatNumber(report.qps) }}</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.qps || report.qps) }}</span>
             <span class="metric-unit">queries/sec</span>
           </div>
-          <div class="metric-card" v-if="report.throughput">
-            <span class="metric-label">Throughput</span>
-            <span class="metric-value">{{ formatNumber(report.throughput) }}</span>
+          <div class="metric-card" v-if="metrics?.summary?.throughput || report.throughput">
+            <span class="metric-label">吞吐量</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.throughput || report.throughput) }}</span>
             <span class="metric-unit">ops/sec</span>
           </div>
         </div>
@@ -110,57 +168,75 @@
 
       <!-- Latency Section -->
       <section class="detail-section" v-if="hasLatencyData">
-        <h3 class="section-title">Latency</h3>
+        <h3 class="section-title">延迟分布</h3>
         <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Average</span>
-            <span class="metric-value">{{ formatNumber(report.latency_avg_ms) }}</span>
+          <div class="metric-card latency-avg">
+            <span class="metric-label">平均值</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.latency_avg_ms || report.latency_avg_ms) }}</span>
             <span class="metric-unit">ms</span>
           </div>
-          <div class="metric-card" v-if="report.latency_p95_ms">
+          <div class="metric-card latency-p95" v-if="metrics?.summary?.latency_p95_ms || report.latency_p95_ms">
             <span class="metric-label">P95</span>
-            <span class="metric-value">{{ formatNumber(report.latency_p95_ms) }}</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.latency_p95_ms || report.latency_p95_ms) }}</span>
             <span class="metric-unit">ms</span>
           </div>
-          <div class="metric-card" v-if="report.latency_p99_ms">
+          <div class="metric-card latency-p99" v-if="metrics?.summary?.latency_p99_ms || report.latency_p99_ms">
             <span class="metric-label">P99</span>
-            <span class="metric-value">{{ formatNumber(report.latency_p99_ms) }}</span>
+            <span class="metric-value">{{ formatNumber(metrics?.summary?.latency_p99_ms || report.latency_p99_ms) }}</span>
             <span class="metric-unit">ms</span>
+          </div>
+        </div>
+
+        <!-- Percentiles Detail -->
+        <div class="percentiles-section" v-if="hasPercentilesData">
+          <h4 class="subsection-title">百分位详情</h4>
+          <div class="percentiles-grid">
+            <div
+              v-for="(value, percentile) in metrics.percentiles"
+              :key="percentile"
+              class="percentile-item"
+            >
+              <span class="percentile-label">{{ percentile }}</span>
+              <span class="percentile-value">{{ formatNumber(value) }} ms</span>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- Error Count Section -->
-      <section class="detail-section" v-if="report.error_count">
-        <h3 class="section-title">Errors</h3>
+      <section class="detail-section" v-if="metrics?.summary?.error_count || report.error_count">
+        <h3 class="section-title">错误信息</h3>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">Error Count</span>
-            <span class="info-value error-count">{{ report.error_count }}</span>
+            <span class="info-label">错误数量</span>
+            <span class="info-value error-count">{{ metrics?.summary?.error_count || report.error_count }}</span>
           </div>
-        </div>
-      </section>
-
-      <!-- Metrics Detail Section -->
-      <section class="detail-section" v-if="metrics">
-        <h3 class="section-title">Detailed Metrics</h3>
-        <div class="metrics-detail">
-          <pre class="metrics-json">{{ JSON.stringify(metrics, null, 2) }}</pre>
         </div>
       </section>
 
       <!-- Suite Info -->
       <section class="detail-section" v-if="report.suite_id && report.suite_id !== 'standalone'">
-        <h3 class="section-title">Suite Information</h3>
+        <h3 class="section-title">套件信息</h3>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">Suite ID</span>
+            <span class="info-label">套件 ID</span>
             <span class="info-value">{{ report.suite_id }}</span>
           </div>
           <div class="info-item" v-if="report.suite_item_id">
-            <span class="info-label">Suite Item ID</span>
+            <span class="info-label">套件项 ID</span>
             <span class="info-value">{{ report.suite_item_id }}</span>
           </div>
+        </div>
+      </section>
+
+      <!-- Raw Metrics JSON (Collapsible) -->
+      <section class="detail-section" v-if="metrics">
+        <div class="collapsible-header" @click="toggleRawMetrics">
+          <h3 class="section-title">原始指标数据</h3>
+          <span class="collapse-icon">{{ showRawMetrics ? '▼' : '▶' }}</span>
+        </div>
+        <div class="metrics-detail" v-if="showRawMetrics">
+          <pre class="metrics-json">{{ JSON.stringify(metrics, null, 2) }}</pre>
         </div>
       </section>
     </div>
@@ -170,6 +246,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useReportStore } from '../../stores/report'
+import ReportMetricChart from './ReportMetricChart.vue'
 
 const props = defineProps({
   reportId: {
@@ -185,9 +262,42 @@ const report = ref(null)
 const metrics = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const showRawMetrics = ref(false)
+
+// Computed properties for chart data
+const hasPerformanceData = computed(() => {
+  return report.value?.tpm || report.value?.tps || report.value?.qps ||
+         metrics.value?.summary?.tpm || metrics.value?.summary?.tps || metrics.value?.summary?.qps
+})
 
 const hasLatencyData = computed(() => {
-  return props.report && (report.value?.latency_avg_ms || report.value?.latency_p95_ms || report.value?.latency_p99_ms)
+  return report.value?.latency_avg_ms || report.value?.latency_p95_ms || report.value?.latency_p99_ms ||
+         metrics.value?.summary?.latency_avg_ms || metrics.value?.summary?.latency_p95_ms || metrics.value?.summary?.latency_p99_ms
+})
+
+const hasTimeSeriesData = computed(() => {
+  return metrics.value?.time_series && metrics.value.time_series.length > 0
+})
+
+const hasPercentilesData = computed(() => {
+  return metrics.value?.percentiles && Object.keys(metrics.value.percentiles).length > 0
+})
+
+// Convert time series data to chart format
+const tpsTimeSeriesData = computed(() => {
+  if (!metrics.value?.time_series) return []
+  return metrics.value.time_series.map(item => ({
+    value: item.tps,
+    timestamp: item.timestamp
+  }))
+})
+
+const latencyTimeSeriesData = computed(() => {
+  if (!metrics.value?.time_series) return []
+  return metrics.value.time_series.map(item => ({
+    value: item.latency_avg,
+    timestamp: item.timestamp
+  }))
 })
 
 const fetchReportDetail = async () => {
@@ -200,10 +310,10 @@ const fetchReportDetail = async () => {
     report.value = reportStore.selectedReport
 
     // Fetch metrics
-    const metricsData = await reportStore.fetchReportMetrics(props.reportId)
-    metrics.value = metricsData
+    await reportStore.fetchReportMetrics(props.reportId)
+    metrics.value = reportStore.selectedReportMetrics
   } catch (err) {
-    error.value = err.message || 'Failed to load report details'
+    error.value = err.message || '加载报告详情失败'
   } finally {
     loading.value = false
   }
@@ -221,16 +331,27 @@ onMounted(() => {
   }
 })
 
+const toggleRawMetrics = () => {
+  showRawMetrics.value = !showRawMetrics.value
+}
+
 const formatSourceType = (source) => {
   const labels = {
-    benchmark: 'Single Benchmark',
-    autobench: 'AutoBench Suite'
+    benchmark: '单次压测',
+    autobench: 'AutoBench 套件'
   }
   return labels[source] || source
 }
 
 const formatStatus = (status) => {
-  return status?.charAt(0).toUpperCase() + status?.slice(1) || 'Unknown'
+  const labels = {
+    completed: '已完成',
+    failed: '失败',
+    cancelled: '已取消',
+    running: '运行中',
+    pending: '等待中'
+  }
+  return labels[status] || status
 }
 
 const getStatusClass = (status) => {
@@ -247,7 +368,7 @@ const getStatusClass = (status) => {
 const formatDateTime = (dateStr) => {
   if (!dateStr) return 'N/A'
   try {
-    return new Date(dateStr).toLocaleString()
+    return new Date(dateStr).toLocaleString('zh-CN')
   } catch {
     return dateStr
   }
@@ -260,12 +381,12 @@ const formatDuration = (ms) => {
   const hours = Math.floor(minutes / 60)
 
   if (hours > 0) {
-    return `${hours}h ${minutes % 60}m ${seconds % 60}s`
+    return `${hours}小时 ${minutes % 60}分 ${seconds % 60}秒`
   }
   if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`
+    return `${minutes}分 ${seconds % 60}秒`
   }
-  return `${seconds}s`
+  return `${seconds}秒`
 }
 
 const formatNumber = (num) => {
@@ -395,6 +516,32 @@ const formatNumber = (num) => {
   border-bottom: 1px solid var(--border-light);
 }
 
+.subsection-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Collapsible Header */
+.collapsible-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.collapsible-header:hover .section-title {
+  color: var(--primary);
+}
+
+.collapse-icon {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
 /* Info Grid */
 .info-grid {
   display: grid;
@@ -466,6 +613,20 @@ const formatNumber = (num) => {
   color: var(--text-muted);
 }
 
+/* Charts Grid */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.chart-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  padding: var(--spacing-sm);
+}
+
 /* Metrics Grid */
 .metrics-grid {
   display: grid;
@@ -504,12 +665,56 @@ const formatNumber = (num) => {
   margin-top: 2px;
 }
 
+/* Latency color coding */
+.latency-avg .metric-value {
+  color: var(--primary);
+}
+
+.latency-p95 .metric-value {
+  color: var(--warning);
+}
+
+.latency-p99 .metric-value {
+  color: var(--danger);
+}
+
+/* Percentiles Grid */
+.percentiles-section {
+  margin-top: var(--spacing-md);
+}
+
+.percentiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.percentile-item {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.percentile-label {
+  color: var(--text-muted);
+}
+
+.percentile-value {
+  font-family: var(--font-family-mono);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 /* Metrics Detail */
 .metrics-detail {
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
   overflow-x: auto;
+  margin-top: var(--spacing-sm);
 }
 
 .metrics-json {
