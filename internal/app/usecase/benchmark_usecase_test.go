@@ -21,6 +21,7 @@ import (
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 )
@@ -1787,3 +1788,286 @@ func (m *mockTemplateRepositoryForBenchmark) LoadBuiltinTemplates(ctx context.Co
 	}
 	return nil
 }
+
+
+// =============================================================================
+// Report Collector Integration Tests
+// =============================================================================
+
+// mockReportCollector is a mock implementation of ReportCollector for testing.
+type mockReportCollector struct {
+	collectCalled bool
+	capturedCtx   report.ReportContext
+	capturedRun   *execution.Run
+	collectError  error
+	result        *report.ReportResult
+}
+
+func (m *mockReportCollector) CollectAndPersist(
+	ctx context.Context,
+	runFn func() (*execution.Run, error),
+	rptCtx report.ReportContext,
+) (*report.ReportResult, error) {
+	m.collectCalled = true
+	m.capturedCtx = rptCtx
+	run, err := runFn()
+	if err != nil {
+		return nil, err
+	}
+	m.capturedRun = run
+	if m.collectError != nil {
+		return nil, m.collectError
+	}
+	if m.result != nil {
+		return m.result, nil
+	}
+	return &report.ReportResult{ReportID: "test-report-id"}, nil
+}
+
+func TestCollectStandaloneReport_SkipsWhenNoCollector(t *testing.T) {
+	// Setup: Create usecase without report collector
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	// Create test data
+	run := &execution.Run{
+		ID:        "test-run-id",
+		State:     execution.StateCompleted,
+		Result:    &execution.BenchmarkResult{TPSCalculated: 100.0},
+		CreatedAt: time.Now(),
+	}
+	runRepo.Save(context.Background(), run)
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-1", Name: "Test MySQL"},
+	}
+	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
+
+	// Execute - should not panic or call collector
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl)
+}
+
+func TestCollectStandaloneReport_SkipsWhenNoResult(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	mockCollector := &mockReportCollector{}
+	uc.SetReportCollector(mockCollector)
+
+	// Create run without Result (prepare-only or cleanup-only)
+	run := &execution.Run{
+		ID:        "test-run-id",
+		State:     execution.StateCompleted,
+		Result:    nil, // No result
+		CreatedAt: time.Now(),
+	}
+	runRepo.Save(context.Background(), run)
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-1", Name: "Test MySQL"},
+	}
+	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
+
+	// Execute
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl)
+
+	// Wait for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify: collector should NOT have been called
+	if mockCollector.collectCalled {
+		t.Error("CollectAndPersist should not be called when run has no Result")
+	}
+}
+
+func TestCollectStandaloneReport_SkipsWhenNotTerminal(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	mockCollector := &mockReportCollector{}
+	uc.SetReportCollector(mockCollector)
+
+	// Create run in non-terminal state
+	run := &execution.Run{
+		ID:        "test-run-id",
+		State:     execution.StateRunning, // Not terminal
+		Result:    &execution.BenchmarkResult{TPSCalculated: 100.0},
+		CreatedAt: time.Now(),
+	}
+	runRepo.Save(context.Background(), run)
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-1", Name: "Test MySQL"},
+	}
+	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
+
+	// Execute
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl)
+
+	// Wait for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify: collector should NOT have been called
+	if mockCollector.collectCalled {
+		t.Error("CollectAndPersist should not be called when run is not in terminal state")
+	}
+}
+
+func TestCollectStandaloneReport_CollectsForCompletedRunWithResult(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	mockCollector := &mockReportCollector{}
+	uc.SetReportCollector(mockCollector)
+
+	// Create completed run with result
+	run := &execution.Run{
+		ID:        "test-run-id",
+		State:     execution.StateCompleted,
+		Result:    &execution.BenchmarkResult{TPSCalculated: 100.0, TPMCalculated: 6000.0},
+		CreatedAt: time.Now(),
+	}
+	runRepo.Save(context.Background(), run)
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-1", Name: "Test MySQL"},
+	}
+	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
+
+	// Execute
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl)
+
+	// Wait for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify: collector SHOULD have been called
+	if !mockCollector.collectCalled {
+		t.Fatal("CollectAndPersist should be called for completed run with result")
+	}
+
+	// Verify context values
+	if mockCollector.capturedCtx.SuiteID != report.StandaloneSuiteID {
+		t.Errorf("SuiteID = %q, want %q", mockCollector.capturedCtx.SuiteID, report.StandaloneSuiteID)
+	}
+	if mockCollector.capturedCtx.SourceType != report.SourceTypeBenchmark {
+		t.Errorf("SourceType = %q, want %q", mockCollector.capturedCtx.SourceType, report.SourceTypeBenchmark)
+	}
+	if mockCollector.capturedCtx.ConnectionID != "conn-1" {
+		t.Errorf("ConnectionID = %q, want %q", mockCollector.capturedCtx.ConnectionID, "conn-1")
+	}
+	if mockCollector.capturedCtx.ConnectionName != "Test MySQL" {
+		t.Errorf("ConnectionName = %q, want %q", mockCollector.capturedCtx.ConnectionName, "Test MySQL")
+	}
+	if mockCollector.capturedCtx.TemplateID != "tmpl-1" {
+		t.Errorf("TemplateID = %q, want %q", mockCollector.capturedCtx.TemplateID, "tmpl-1")
+	}
+	if mockCollector.capturedCtx.TemplateName != "Test Template" {
+		t.Errorf("TemplateName = %q, want %q", mockCollector.capturedCtx.TemplateName, "Test Template")
+	}
+
+	// Verify run was passed correctly
+	if mockCollector.capturedRun == nil {
+		t.Fatal("capturedRun should not be nil")
+	}
+	if mockCollector.capturedRun.ID != "test-run-id" {
+		t.Errorf("capturedRun.ID = %q, want %q", mockCollector.capturedRun.ID, "test-run-id")
+	}
+}
+
+func TestCollectStandaloneReport_CollectsForFailedRunWithResult(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	mockCollector := &mockReportCollector{}
+	uc.SetReportCollector(mockCollector)
+
+	// Create failed run with partial result
+	run := &execution.Run{
+		ID:           "test-run-id",
+		State:        execution.StateFailed,
+		ErrorMessage: "benchmark failed due to connection error",
+		Result:       &execution.BenchmarkResult{TPSCalculated: 50.0, ErrorCount: 10},
+		CreatedAt:    time.Now(),
+	}
+	runRepo.Save(context.Background(), run)
+
+	conn := &connection.MySQLConnection{
+		BaseConnection: connection.BaseConnection{ID: "conn-1", Name: "Test MySQL"},
+	}
+	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
+
+	// Execute
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl)
+
+	// Wait for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify: collector SHOULD have been called even for failed runs
+	if !mockCollector.collectCalled {
+		t.Fatal("CollectAndPersist should be called for failed run with result")
+	}
+
+	// Verify context
+	if mockCollector.capturedCtx.SuiteID != report.StandaloneSuiteID {
+		t.Errorf("SuiteID = %q, want %q", mockCollector.capturedCtx.SuiteID, report.StandaloneSuiteID)
+	}
+}
+
+func TestWithReportCollector(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+
+	mockCollector := &mockReportCollector{}
+
+	// Create usecase with option
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+	opt := WithReportCollector(mockCollector)
+	opt(uc)
+
+	// Verify
+	if uc.reportCollector == nil {
+		t.Error("reportCollector should be set by WithReportCollector")
+	}
+}
+
+func TestSetReportCollector(t *testing.T) {
+	// Setup
+	runRepo := newMockRunRepository()
+	adapterReg := adapter.NewAdapterRegistry()
+	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
+
+	mockCollector := &mockReportCollector{}
+
+	// Set collector
+	uc.SetReportCollector(mockCollector)
+
+	// Verify
+	if uc.reportCollector == nil {
+		t.Error("reportCollector should be set by SetReportCollector")
+	}
+}
+

@@ -25,6 +25,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/infra/adapter"
 	"golang.org/x/crypto/ssh"
@@ -386,6 +387,7 @@ type BenchmarkUseCase struct {
 	realtimeCallbackMu sync.RWMutex           // Protects realtimeCallback
 	runningProcesses   map[string]*exec.Cmd   // Track running processes by run ID
 	runningProcessesMu sync.RWMutex           // Protects runningProcesses
+	reportCollector    ReportCollector        // Optional report collector for standalone reports
 }
 
 // NewBenchmarkUseCase creates a new benchmark use case.
@@ -410,6 +412,18 @@ func (uc *BenchmarkUseCase) SetRealtimeCallback(callback RealtimeSampleCallback)
 	uc.realtimeCallbackMu.Lock()
 	defer uc.realtimeCallbackMu.Unlock()
 	uc.realtimeCallback = callback
+}
+
+// WithReportCollector sets the report collector for standalone benchmark reports.
+func WithReportCollector(collector ReportCollector) func(*BenchmarkUseCase) {
+	return func(uc *BenchmarkUseCase) {
+		uc.reportCollector = collector
+	}
+}
+
+// SetReportCollector sets the report collector for standalone benchmark reports.
+func (uc *BenchmarkUseCase) SetReportCollector(collector ReportCollector) {
+	uc.reportCollector = collector
 }
 
 // =============================================================================
@@ -677,6 +691,9 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 
 	// Mark as completed
 	uc.markAsCompleted(ctx, run.ID, duration)
+
+	// Collect and persist report (non-blocking)
+	uc.collectStandaloneReport(ctx, run, conn, tmpl)
 }
 
 func resolvePrepareThreads(ctx context.Context, conn connection.Connection) (int, error) {
@@ -2596,6 +2613,75 @@ func (uc *BenchmarkUseCase) markRunCompletedNow(ctx context.Context, runID strin
 	run.CompletedAt = &now
 	run.CalculateDuration()
 	return uc.runRepo.Save(ctx, run)
+}
+
+// collectStandaloneReport collects and persists a report for standalone benchmark runs.
+// This is called after benchmark execution completes (success or failure).
+// The report collection runs in a goroutine to not block the response.
+// Reports are only collected for actual benchmark runs (with results), not for
+// prepare-only or cleanup-only operations.
+func (uc *BenchmarkUseCase) collectStandaloneReport(
+	ctx context.Context,
+	run *execution.Run,
+	conn connection.Connection,
+	tmpl *domaintemplate.Template,
+) {
+	if uc.reportCollector == nil {
+		return
+	}
+
+	// Reload run to get final state
+	finalRun, err := uc.runRepo.FindByID(ctx, run.ID)
+	if err != nil {
+		slog.Warn("Benchmark: failed to reload run for report collection",
+			"run_id", run.ID,
+			"error", err)
+		return
+	}
+
+	// Only collect report if run is in terminal state
+	if !finalRun.State.IsTerminal() {
+		slog.Debug("Benchmark: skipping report collection, run not in terminal state",
+			"run_id", run.ID,
+			"state", finalRun.State)
+		return
+	}
+
+	// Skip report collection if there's no benchmark result
+	// (e.g., prepare-only or cleanup-only operations)
+	if finalRun.Result == nil {
+		slog.Debug("Benchmark: skipping report collection, no benchmark result",
+			"run_id", run.ID,
+			"state", finalRun.State)
+		return
+	}
+
+	rptCtx := report.ReportContext{
+		SuiteID:        report.StandaloneSuiteID,
+		SourceType:     report.SourceTypeBenchmark,
+		ConnectionID:   conn.GetID(),
+		ConnectionName: conn.GetName(),
+		DatabaseType:   string(conn.GetType()),
+		TemplateID:     tmpl.ID,
+		TemplateName:   tmpl.Name,
+	}
+
+	// Use goroutine to not block response
+	go func() {
+		// Use background context to avoid cancellation when original context is done
+		_, collectErr := uc.reportCollector.CollectAndPersist(context.Background(), func() (*execution.Run, error) {
+			return finalRun, nil
+		}, rptCtx)
+		if collectErr != nil {
+			slog.Warn("Benchmark: failed to collect standalone report",
+				"run_id", run.ID,
+				"error", collectErr)
+		} else {
+			slog.Info("Benchmark: collected standalone report",
+				"run_id", run.ID,
+				"suite_id", report.StandaloneSuiteID)
+		}
+	}()
 }
 
 // markAsFailed marks a run as failed with an error message.
