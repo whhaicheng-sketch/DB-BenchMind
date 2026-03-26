@@ -163,3 +163,52 @@ type ReportSummary struct {
 	LatencyP95Ms float64
 	ErrorCount   int64
 }
+
+// MetricsData represents the full metrics data loaded from metrics.json.
+type MetricsData struct {
+	SchemaVersion string                  `json:"schema_version"`
+	ReportID      string                  `json:"report_id"`
+	SuiteID       string                  `json:"suite_id,omitempty"`
+	SuiteItemID   string                  `json:"suite_item_id,omitempty"`
+	GeneratedAt   string                  `json:"generated_at,omitempty"`
+	Benchmark     *MetricsBenchmark        `json:"benchmark,omitempty"`
+	Execution     *MetricsExecution        `json:"execution,omitempty"`
+	Summary       *MetricsSummaryData      `json:"summary,omitempty"`
+	Percentiles   map[string]float64    `json:"percentiles,omitempty"`
+	TimeSeries    []MetricsTimeSeriesItem `json:"time_series,omitempty"`
+}
+
+// MetricsBenchmark contains benchmark metadata.
+type MetricsBenchmark struct {
+	ConnectionID   string `json:"connection_id,omitempty"`
+	ConnectionName string `json:"connection_name,omitempty"`
+	DatabaseType   string `json:"database_type,omitempty"`
+	TemplateID     string `json:"template_id,omitempty"`
+	TemplateName   string `json:"template_name,omitempty"`
+}
+
+// MetricsExecution contains execution metadata.
+type MetricsExecution struct {
+	Status     string `json:"status,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+}
+
+// MetricsSummaryData contains summary metrics.
+type MetricsSummaryData struct {
+	TPM           float64 `json:"tpm,omitempty"`
+	TPS           float64 `json:"tps,omitempty"`
+	QPS           float64 `json:"qps,omitempty"`
+	Throughput    float64 `json:"throughput,omitempty"`
+	LatencyAvgMs  float64 `json:"latency_avg_ms,omitempty"`
+	LatencyP95Ms  float64 `json:"latency_p95_ms,omitempty"`
+	LatencyP99Ms  float64 `json:"latency_p99_ms,omitempty"`
+	ErrorCount    int64   `json:"error_count,omitempty"`
+}
+
+// MetricsTimeSeriesItem represents a single time series data point.
+type MetricsTimeSeriesItem struct {
+	Timestamp  time.Time `json:"timestamp"`
+	TPS        float64   `json:"tps,omitempty"`
+	LatencyAvg float64   `json:"latency_avg,omitempty"`
+}

@@ -4,8 +4,8 @@
 
 当前阶段: Phase 1 - 核心功能实现
 当前模块: M5
-当前任务: T5.1 (已完成)
-下一任务: T5.2
+当前任务: T5.2 (已完成)
+下一任务: T5.3
 
 ---
 
@@ -76,7 +76,7 @@
 ### M5 - Reports 前端页面 🔄
 
 - [x] T5.1 Reports 列表页（HistoryTab 改造为 ReportsTab）
-- [ ] T5.2 Reports 详情页
+- [x] T5.2 Reports 详情页
 - [ ] T5.3 图表组件集成
 - [ ] T5.4 JSON/HTML 导出功能
 - [ ] T5.5 前端单元测试

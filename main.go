@@ -46,6 +46,7 @@ func main() {
 
 	// Initialize repositories
 	connRepo := repository.NewSQLiteConnectionRepository(db)
+	templateRepo := repository.NewTemplateRepository(db)
 
 	// Initialize keyring - use file fallback for GUI
 	dataDir := "./data"
@@ -58,9 +59,6 @@ func main() {
 
 	// Initialize use cases
 	connUC := usecase.NewConnectionUseCase(connRepo, keyringProvider)
-
-	// Initialize template repository and use case
-	templateRepo := repository.NewTemplateRepository(db)
 	templateUC := usecase.NewTemplateUseCase(templateRepo, "")
 
 	// Load built-in templates
@@ -84,6 +82,9 @@ func main() {
 	// Initialize benchmark use case
 	benchmarkUC := usecase.NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
+	// Initialize report use case
+	reportUC := usecase.NewReportUsecase(db)
+
 	// Create application with basic options
 	app := transportwails.NewApp()
 
@@ -93,6 +94,7 @@ func main() {
 	benchmarkBinding := bindings.NewBenchmarkBinding(benchmarkUC, connUC, templateUC)
 	monitorBinding := bindings.NewMonitorBinding()
 	taskBinding := bindings.NewTaskBinding(benchmarkUC, connUC, templateUC, runRepo)
+	reportBinding := bindings.NewReportBinding(reportUC)
 
 	// Store benchmark binding for context injection
 	app.SetBenchmarkBinding(benchmarkBinding)
@@ -117,6 +119,7 @@ func main() {
 			benchmarkBinding,
 			monitorBinding,
 			taskBinding,
+			reportBinding,
 		},
 	})
 

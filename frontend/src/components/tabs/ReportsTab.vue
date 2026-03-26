@@ -7,71 +7,160 @@
         <p class="page-subtitle">View benchmark reports and results</p>
       </div>
       <div class="header-right">
-        <button class="btn" @click="refreshHistory">
+        <button class="btn" @click="refreshReports">
           Refresh
         </button>
       </div>
     </div>
 
-    <!-- History List -->
-    <div class="history-list">
-      <div v-if="histories.length === 0" class="empty-state">
-        <div class="empty-state-icon">📋</div>
-        <p class="empty-state-title">No benchmark history</p>
-        <p class="empty-state-description">Run a benchmark task to see results appear here.</p>
-      </div>
+    <!-- Main Content -->
+    <div class="reports-content">
+      <!-- Reports List -->
+      <div class="reports-list-section">
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <select v-model="statusFilter" class="filter-select" @change="onFilterChange">
+            <option value="">All Status</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="running">Running</option>
+          </select>
+        </div>
 
-      <div v-else class="history-items">
-        <div v-for="item in histories" :key="item.id" class="history-item">
-          <div class="history-info">
-            <div class="history-name">{{ item.name || 'Unnamed Task' }}</div>
-            <div class="history-date">{{ formatDate(item.start_time) }}</div>
-          </div>
-          <div class="history-metrics">
-            <div class="metric">
-              <span class="metric-label">TPM</span>
-              <span class="metric-value">{{ item.tpm?.toFixed(2) || 'N/A' }}</span>
+        <!-- Loading State -->
+        <div v-if="reportStore.loading" class="loading-state">
+          <div class="spinner"></div>
+          <span>Loading reports...</span>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else-if="reportStore.reports.length === 0" class="empty-state">
+          <div class="empty-state-icon">📋</div>
+          <p class="empty-state-title">No benchmark reports</p>
+          <p class="empty-state-description">Run a benchmark task to see results appear here.</p>
+        </div>
+
+        <!-- Reports List -->
+        <div v-else class="reports-list">
+          <div
+            v-for="report in reportStore.reports"
+            :key="report.id"
+            class="report-item"
+            :class="{ selected: selectedReportId === report.id }"
+            @click="selectReport(report.id)"
+          >
+            <div class="report-info">
+              <div class="report-name">
+                {{ report.template_name || report.database_type || 'Unnamed Report' }}
+              </div>
+              <div class="report-meta">
+                <span class="report-date">{{ formatDate(report.started_at) }}</span>
+                <span class="report-source">{{ formatSourceType(report.source_type) }}</span>
+              </div>
             </div>
-            <div class="metric">
-              <span class="metric-label">TPS</span>
-              <span class="metric-value">{{ item.tps?.toFixed(2) || 'N/A' }}</span>
+            <div class="report-metrics">
+              <div class="metric">
+                <span class="metric-label">TPM</span>
+                <span class="metric-value">{{ formatNumber(report.tpm) }}</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">TPS</span>
+                <span class="metric-value">{{ formatNumber(report.tps) }}</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Latency</span>
+                <span class="metric-value">{{ formatLatency(report.latency_avg_ms) }}</span>
+              </div>
             </div>
-            <div class="metric">
-              <span class="metric-label">Latency</span>
-              <span class="metric-value">{{ item.latency_avg_ms?.toFixed(2) || 'N/A' }}ms</span>
+            <div class="report-status">
+              <span class="status-badge" :class="getStatusClass(report.status)">
+                {{ getStatusText(report.status) }}
+              </span>
             </div>
-          </div>
-          <div class="history-status">
-            <span class="status-badge" :class="getStatusClass(item.status)">
-              {{ getStatusText(item.status) }}
-            </span>
           </div>
         </div>
+
+        <!-- Pagination -->
+        <div v-if="reportStore.reports.length > 0" class="pagination">
+          <span class="pagination-info">
+            {{ reportStore.pagination.total }} reports
+          </span>
+        </div>
       </div>
+
+      <!-- Detail Panel -->
+      <div class="detail-section" v-if="selectedReportId">
+        <ReportDetailPanel
+          :report-id="selectedReportId"
+          @close="closeDetail"
+        />
+      </div>
+    </div>
+
+    <!-- Notice Toast -->
+    <div v-if="reportStore.notice" class="notice-toast" :class="`notice-${reportStore.notice.tone}`">
+      {{ reportStore.notice.message }}
+      <button class="notice-close" @click="reportStore.clearNotice()">×</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useBenchmarkStore } from '../../stores/benchmark'
+import { ref, onMounted, computed } from 'vue'
+import { useReportStore } from '../../stores/report'
+import ReportDetailPanel from '../report/ReportDetailPanel.vue'
 
-const benchmarkStore = useBenchmarkStore()
-const histories = ref([])
+const reportStore = useReportStore()
+const selectedReportId = ref(null)
+const statusFilter = ref('')
 
 onMounted(() => {
-  refreshHistory()
+  refreshReports()
 })
 
-const refreshHistory = async () => {
-  // TODO: Implement history fetch from store/API
-  // For now, just use empty array
-  histories.value = []
+const refreshReports = async () => {
+  await reportStore.fetchReports()
+}
+
+const selectReport = (id) => {
+  selectedReportId.value = id
+}
+
+const closeDetail = () => {
+  selectedReportId.value = null
+}
+
+const onFilterChange = async () => {
+  reportStore.setFilter('status', statusFilter.value)
+  await reportStore.fetchReports()
 }
 
 const formatDate = (date) => {
   if (!date) return ''
-  return new Date(date).toLocaleString()
+  try {
+    return new Date(date).toLocaleString()
+  } catch {
+    return date
+  }
+}
+
+const formatSourceType = (source) => {
+  const labels = {
+    benchmark: 'Single',
+    autobench: 'Suite'
+  }
+  return labels[source] || source
+}
+
+const formatNumber = (num) => {
+  if (num === null || num === undefined) return 'N/A'
+  return typeof num === 'number' ? num.toFixed(2) : num
+}
+
+const formatLatency = (ms) => {
+  if (ms === null || ms === undefined) return 'N/A'
+  return `${ms.toFixed(2)}ms`
 }
 
 const getStatusClass = (status) => {
@@ -79,7 +168,8 @@ const getStatusClass = (status) => {
     completed: 'status-success',
     failed: 'status-error',
     cancelled: 'status-warning',
-    running: 'status-info'
+    running: 'status-info',
+    pending: 'status-default'
   }
   return classMap[status] || 'status-default'
 }
@@ -89,7 +179,8 @@ const getStatusText = (status) => {
     completed: 'Completed',
     failed: 'Failed',
     cancelled: 'Cancelled',
-    running: 'Running'
+    running: 'Running',
+    pending: 'Pending'
   }
   return textMap[status] || status
 }
@@ -156,8 +247,65 @@ const getStatusText = (status) => {
   border-color: var(--border-dark);
 }
 
-/* History List */
-.history-list {
+/* Main Content */
+.reports-content {
+  flex: 1;
+  display: flex;
+  gap: var(--spacing-lg);
+  overflow: hidden;
+}
+
+.reports-list-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+  overflow: hidden;
+}
+
+/* Filter Bar */
+.filter-bar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.filter-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  gap: var(--spacing-md);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Reports List */
+.reports-list {
   flex: 1;
   overflow-y: auto;
   display: flex;
@@ -165,13 +313,7 @@ const getStatusText = (status) => {
   gap: var(--spacing-sm);
 }
 
-.history-items {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.history-item {
+.report-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -180,19 +322,26 @@ const getStatusText = (status) => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   gap: var(--spacing-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-.history-item:hover {
+.report-item:hover {
   border-color: var(--border-dark);
   background-color: var(--bg-hover);
 }
 
-.history-info {
+.report-item.selected {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.report-info {
   flex: 1;
   min-width: 0;
 }
 
-.history-name {
+.report-name {
   font-weight: 500;
   color: var(--text-primary);
   font-size: var(--font-size-base);
@@ -201,13 +350,26 @@ const getStatusText = (status) => {
   text-overflow: ellipsis;
 }
 
-.history-date {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-  margin-top: 2px;
+.report-meta {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: 4px;
 }
 
-.history-metrics {
+.report-date {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.report-source {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.report-metrics {
   display: flex;
   gap: var(--spacing-lg);
 }
@@ -233,7 +395,7 @@ const getStatusText = (status) => {
   font-family: var(--font-family-mono);
 }
 
-.history-status {
+.report-status {
   display: flex;
   align-items: center;
 }
@@ -272,6 +434,26 @@ const getStatusText = (status) => {
   color: var(--text-muted);
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-md) 0;
+}
+
+.pagination-info {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Detail Section */
+.detail-section {
+  width: 400px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-light);
+  overflow: hidden;
+}
+
 /* Empty State */
 .empty-state {
   display: flex;
@@ -299,5 +481,55 @@ const getStatusText = (status) => {
   font-size: var(--font-size-md);
   color: var(--text-muted);
   max-width: 400px;
+}
+
+/* Notice Toast */
+.notice-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+}
+
+.notice-info {
+  background-color: var(--primary);
+  color: white;
+}
+
+.notice-success {
+  background-color: var(--success);
+  color: white;
+}
+
+.notice-warning {
+  background-color: var(--warning);
+  color: white;
+}
+
+.notice-error {
+  background-color: var(--danger);
+  color: white;
+}
+
+.notice-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.notice-close:hover {
+  opacity: 1;
 }
 </style>
