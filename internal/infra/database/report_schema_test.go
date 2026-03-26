@@ -107,6 +107,54 @@ func TestSuitesTableIndexes(t *testing.T) {
 	}
 }
 
+func TestReportsTableColumns(t *testing.T) {
+	ctx := context.Background()
+	db := setupTestDB(t)
+	defer db.Close()
+
+	if err := EnsureReportSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureReportSchema failed: %v", err)
+	}
+
+	expectedColumns := []string{
+		"id", "suite_id", "suite_item_id", "source_type",
+		"connection_id", "connection_name", "database_type",
+		"template_id", "template_name",
+		"started_at", "ended_at", "duration_ms",
+		"status", "error_message",
+		"tpm", "tps", "qps", "throughput",
+		"latency_avg_ms", "latency_p95_ms", "latency_p99_ms", "error_count",
+		"metrics_json_path", "monitoring_json_path", "raw_json_path",
+		"report_html_path", "summary_json_path",
+		"created_at", "updated_at", "tags",
+	}
+
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(reports)")
+	if err != nil {
+		t.Fatalf("query table info: %v", err)
+	}
+	defer rows.Close()
+
+	existingColumns := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan row: %v", err)
+		}
+		existingColumns[name] = true
+	}
+
+	for _, col := range expectedColumns {
+		if !existingColumns[col] {
+			t.Errorf("missing column: %s", col)
+		}
+	}
+}
+
 // setupTestDB creates an in-memory SQLite database for testing
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
