@@ -1,73 +1,132 @@
 {
-  "current_module": "M7",
-  "current_task": "T7.3",
-  "next_task": "COMPLETED",
+  "project": "autobench-architecture-refactor",
+  "phase": 1,
+  "status": "in_progress",
+  "current_module": "M5",
+  "current_task": "T5.1",
+  "next_task": "T5.2",
   "done_tasks": [
-    "T0.1",
-    "T0.2",
-    "T1.1",
-    "T1.2",
-    "T1.3",
-    "T2.1",
-    "T2.2",
-    "T2.3",
-    "T3.1",
-    "T3.2",
-    "T3.3",
-    "T3.4",
-    "T4.1",
-    "T4.2",
-    "T4.3",
-    "T4.4",
+    "T0.1", "T0.2", "T0.3", "T0.4", "T0.5", "T0.6", "T0.7",
+    "T1.1", "T1.2",
+    "T2.1", "T2.2", "T2.3", "T2.4",
+    "T3.1", "T3.2", "T3.3",
+    "T4.1", "T4.2", "T4.3",
     "T5.1",
-    "T5.2",
-    "T5.3",
     "T6.1",
-    "T6.2",
-    "T6.3",
-    "T6.4",
-    "T7.1",
-    "T7.2",
-    "T7.3"
+    "T7.1"
+  ],
+  "pending_tasks": [
+    "T5.2", "T5.3", "T5.4", "T5.5",
+    "T6.2", "T6.3",
+    "T7.2", "T7.3",
+    "T8.1", "T8.2", "T8.3", "T8.4"
   ],
   "blocked_tasks": [],
-  "changed_files": [
-    "frontend/tests/autobenchReportState.test.mjs",
-    "frontend/tests/autobenchProgressDocs.test.mjs",
-    "frontend/tests/tasksMonitorConnectionDefaults.test.mjs",
-    "docs/AutoBench/progress.md",
-    "docs/AutoBench/progress.json"
-  ],
-  "test_results": [
+  "decisions": [
     {
-      "command": "bash scripts/gates/test_backend_gate.sh",
-      "status": "pass",
-      "detail": "All 11 backend packages passed"
+      "id": "D001",
+      "topic": "Navigation Rename Strategy",
+      "decision": "UI-label only, internal IDs unchanged",
+      "date": "2026-03-25"
     },
     {
-      "command": "node --test frontend/tests/*.test.mjs",
-      "status": "pass",
-      "detail": "157 tests, 0 failures"
+      "id": "D002",
+      "topic": "Storage Mode",
+      "decision": "Hybrid: SQLite metadata + Filesystem full data",
+      "date": "2026-03-25"
     },
     {
-      "command": "node --test frontend/tests/autoBench* frontend/tests/autobench*",
-      "status": "pass",
-      "detail": "38 AutoBench frontend tests, 0 failures"
+      "id": "D003",
+      "topic": "Monitoring Collection",
+      "decision": "Phased: Phase 1 reuse existing + persistence, Phase 2 extend metrics",
+      "date": "2026-03-25"
     },
     {
-      "command": "go test ./internal/domain/autobench/... ./internal/app/usecase -run AutoBench",
-      "status": "pass",
-      "detail": "16 AutoBench backend tests, 0 failures"
+      "id": "D004",
+      "topic": "Architecture Pattern",
+      "decision": "Minimal-intrusion wrapper (ReportCollector)",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D005",
+      "topic": "suite_id Strategy",
+      "decision": "standalone = 'standalone', never null",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D006",
+      "topic": "Persistence Failure Policy",
+      "decision": "Not break main result, log + PersistError field",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D007",
+      "topic": "Suites Table Field",
+      "decision": "Use suite_manifest_json_path",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D008",
+      "topic": "SuiteItem Persistence",
+      "decision": "Use suite_manifest.json, no suite_items table",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D009",
+      "topic": "JSON Export Strategy",
+      "decision": "Phase 1 runtime dynamic packaging",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D010",
+      "topic": "Raw Output Storage",
+      "decision": "stdout/stderr inline in raw.json, no separate files",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D011",
+      "topic": "JSON Schema Versioning",
+      "decision": "All JSON must include schema_version",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D012",
+      "topic": "Report Source Type",
+      "decision": "Add source_type field: 'benchmark' or 'autobench'",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D013",
+      "topic": "Monitoring Data Path",
+      "decision": "Access SystemCollector directly, not via frontend events",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D014",
+      "topic": "Persistence Failure Handling",
+      "decision": "Log error + PersistError field, continue execution",
+      "date": "2026-03-25"
+    },
+    {
+      "id": "D015",
+      "topic": "Write Order",
+      "decision": "Files first, SQLite second; orphan files if SQLite fails",
+      "date": "2026-03-25"
     }
   ],
-  "known_risks": [
-    "The report panel currently consumes only a local reportSnapshot placeholder; real suite snapshot and artifact path wiring remain for later orchestration integration work.",
-    "Export entries currently expose artifact paths and availability only; no real download action is attached yet."
+  "changed_files": [
+    "docs/superpowers/specs/2026-03-25-autobench-reports-design.md",
+    "docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md",
+    "docs/AutoBench/progress.md",
+    "docs/AutoBench/progress.json",
+    "internal/app/usecase/report_usecase.go",
+    "internal/app/usecase/report_usecase_test.go",
+    "internal/transportwails/bindings/report.go",
+    "internal/transportwails/bindings/report_test.go",
+    "internal/app/usecase/benchmark_usecase.go",
+    "internal/app/usecase/benchmark_usecase_test.go",
+    "frontend/src/components/tabs/ReportsTab.vue"
   ],
-  "completion_summary": {
-    "status": "completed",
-    "modules_completed": ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7"],
-    "total_tasks": 26,
-    "completed_at": "2026-03-25"
-  }
+  "created_at": "2026-03-25",
+  "updated_at": "2026-03-26"
 }
