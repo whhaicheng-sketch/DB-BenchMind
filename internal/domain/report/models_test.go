@@ -8,24 +8,49 @@ import (
 
 func TestNewReport(t *testing.T) {
 	now := time.Now()
-	rpt := Report{
-		ID:           "test-id",
-		SuiteID:      "standalone",
-		SourceType:   SourceTypeBenchmark,
-		ConnectionID: "conn-1",
-		DatabaseType: "mysql",
-		Status:       StatusCompleted,
-		StartedAt:    now,
+	tests := []struct {
+		name    string
+		report  Report
+		checkFn func(t *testing.T, r Report)
+	}{
+		{
+			name: "basic report fields",
+			report: Report{
+				ID:           "test-id",
+				SuiteID:      "standalone",
+				SourceType:   SourceTypeBenchmark,
+				ConnectionID: "conn-1",
+				DatabaseType: "mysql",
+				Status:       StatusCompleted,
+				StartedAt:    now,
+			},
+			checkFn: func(t *testing.T, r Report) {
+				if r.ID != "test-id" {
+					t.Errorf("expected ID test-id, got %s", r.ID)
+				}
+				if r.SuiteID != "standalone" {
+					t.Errorf("expected SuiteID standalone, got %s", r.SuiteID)
+				}
+				if r.SourceType != SourceTypeBenchmark {
+					t.Errorf("expected SourceTypeBenchmark, got %s", r.SourceType)
+				}
+				if r.ConnectionID != "conn-1" {
+					t.Errorf("expected ConnectionID conn-1, got %s", r.ConnectionID)
+				}
+				if r.DatabaseType != "mysql" {
+					t.Errorf("expected DatabaseType mysql, got %s", r.DatabaseType)
+				}
+				if r.Status != StatusCompleted {
+					t.Errorf("expected StatusCompleted, got %s", r.Status)
+				}
+			},
+		},
 	}
 
-	if rpt.ID != "test-id" {
-		t.Errorf("expected ID test-id, got %s", rpt.ID)
-	}
-	if rpt.SuiteID != "standalone" {
-		t.Errorf("expected SuiteID standalone, got %s", rpt.SuiteID)
-	}
-	if rpt.SourceType != SourceTypeBenchmark {
-		t.Errorf("expected SourceTypeBenchmark, got %s", rpt.SourceType)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.checkFn(t, tt.report)
+		})
 	}
 }
 
