@@ -583,3 +583,91 @@ func (uc *ReportUsecase) GetSuite(ctx context.Context, id string) (*report.Suite
 
 	return s, nil
 }
+
+// ExportData contains all data for JSON export.
+type ExportData struct {
+	SchemaVersion string                  `json:"schema_version"`
+	ReportID      string                  `json:"report_id"`
+	Report        *report.Report          `json:"report"`
+	Metrics       *report.MetricsData     `json:"metrics,omitempty"`
+	Monitoring    *report.MonitoringData  `json:"monitoring,omitempty"`
+	Raw           *report.RawData         `json:"raw,omitempty"`
+	ExportedAt    string                  `json:"exported_at"`
+}
+
+// ExportReportJSON exports all report data as a single JSON structure.
+func (uc *ReportUsecase) ExportReportJSON(ctx context.Context, id string) (*ExportData, error) {
+	// Get report metadata
+	rpt, err := uc.GetReport(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get report: %w", err)
+	}
+
+	export := &ExportData{
+		SchemaVersion: "v1",
+		ReportID:      id,
+		Report:        rpt,
+		ExportedAt:    time.Now().Format(time.RFC3339),
+	}
+
+	// Load metrics data
+	if rpt.MetricsJSONPath != "" {
+		if data, err := os.ReadFile(rpt.MetricsJSONPath); err == nil {
+			var metrics report.MetricsData
+			if err := json.Unmarshal(data, &metrics); err == nil {
+				export.Metrics = &metrics
+			}
+		}
+	}
+
+	// Load monitoring data
+	if rpt.MonitoringJSONPath != "" {
+		if data, err := os.ReadFile(rpt.MonitoringJSONPath); err == nil {
+			var monitoring report.MonitoringData
+			if err := json.Unmarshal(data, &monitoring); err == nil {
+				export.Monitoring = &monitoring
+			}
+		}
+	}
+
+	// Load raw data
+	if rpt.RawJSONPath != "" {
+		if data, err := os.ReadFile(rpt.RawJSONPath); err == nil {
+			var raw report.RawData
+			if err := json.Unmarshal(data, &raw); err == nil {
+				export.Raw = &raw
+			}
+		}
+	}
+
+	return export, nil
+}
+
+// ExportReportHTML returns the HTML content for a report.
+func (uc *ReportUsecase) ExportReportHTML(ctx context.Context, id string) (string, error) {
+	rpt, err := uc.GetReport(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("get report: %w", err)
+	}
+
+	if rpt.ReportHTMLPath == "" {
+		return "", fmt.Errorf("report has no HTML path: %s", id)
+	}
+
+	data, err := os.ReadFile(rpt.ReportHTMLPath)
+	if err != nil {
+		return "", fmt.Errorf("read HTML file: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// GetExportFilePaths returns the file paths for all export files.
+func (uc *ReportUsecase) GetExportFilePaths(ctx context.Context, id string) (metrics, monitoring, raw, html string, err error) {
+	rpt, err := uc.GetReport(ctx, id)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("get report: %w", err)
+	}
+
+	return rpt.MetricsJSONPath, rpt.MonitoringJSONPath, rpt.RawJSONPath, rpt.ReportHTMLPath, nil
+}

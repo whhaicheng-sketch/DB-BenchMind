@@ -4,8 +4,8 @@
 
 当前阶段: Phase 1 - 核心功能实现
 当前模块: M5
-当前任务: T5.3 (已完成)
-下一任务: T5.4
+当前任务: T5.4 (已完成)
+下一任务: T5.5
 
 ---
 
@@ -78,7 +78,7 @@
 - [x] T5.1 Reports 列表页（HistoryTab 改造为 ReportsTab）
 - [x] T5.2 Reports 详情页
 - [x] T5.3 图表组件集成
-- [ ] T5.4 JSON/HTML 导出功能
+- [x] T5.4 JSON/HTML 导出功能
 - [ ] T5.5 前端单元测试
 
 ### M6 - AutoBench 集成 report_id ✅

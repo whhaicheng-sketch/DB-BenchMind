@@ -21,3 +21,15 @@ export function GetSuite(arg1) {
 export function ListSuites(arg1) {
   return window['go']['bindings']['ReportBinding']['ListSuites'](arg1);
 }
+
+export function ExportReportJSON(arg1) {
+  return window['go']['bindings']['ReportBinding']['ExportReportJSON'](arg1);
+}
+
+export function ExportReportHTML(arg1) {
+  return window['go']['bindings']['ReportBinding']['ExportReportHTML'](arg1);
+}
+
+export function GetExportFilePaths(arg1) {
+  return window['go']['bindings']['ReportBinding']['GetExportFilePaths'](arg1);
+}

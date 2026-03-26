@@ -212,3 +212,60 @@ type MetricsTimeSeriesItem struct {
 	TPS        float64   `json:"tps,omitempty"`
 	LatencyAvg float64   `json:"latency_avg,omitempty"`
 }
+
+// MonitoringData represents the monitoring metrics data.
+type MonitoringData struct {
+	SchemaVersion string                 `json:"schema_version"`
+	ReportID      string                 `json:"report_id"`
+	GeneratedAt   string                 `json:"generated_at,omitempty"`
+	CPU           *MonitoringCPUData     `json:"cpu,omitempty"`
+	Memory        *MonitoringMemoryData  `json:"memory,omitempty"`
+	Disk          *MonitoringDiskData    `json:"disk,omitempty"`
+	Network       *MonitoringNetworkData `json:"network,omitempty"`
+	TimeSeries    []MonitoringTimeSeries `json:"time_series,omitempty"`
+}
+
+// MonitoringCPUData contains CPU monitoring data.
+type MonitoringCPUData struct {
+	UsageAvg float64 `json:"usage_avg,omitempty"`
+	UsageMax float64 `json:"usage_max,omitempty"`
+}
+
+// MonitoringMemoryData contains memory monitoring data.
+type MonitoringMemoryData struct {
+	UsedAvgMB   float64 `json:"used_avg_mb,omitempty"`
+	UsedMaxMB   float64 `json:"used_max_mb,omitempty"`
+	UsedPercent float64 `json:"used_percent,omitempty"`
+}
+
+// MonitoringDiskData contains disk monitoring data.
+type MonitoringDiskData struct {
+	ReadBytesPerSec  float64 `json:"read_bytes_per_sec,omitempty"`
+	WriteBytesPerSec float64 `json:"write_bytes_per_sec,omitempty"`
+}
+
+// MonitoringNetworkData contains network monitoring data.
+type MonitoringNetworkData struct {
+	RxBytesPerSec float64 `json:"rx_bytes_per_sec,omitempty"`
+	TxBytesPerSec float64 `json:"tx_bytes_per_sec,omitempty"`
+}
+
+// MonitoringTimeSeries represents a single monitoring time series data point.
+type MonitoringTimeSeries struct {
+	Timestamp    time.Time `json:"timestamp"`
+	CPUUsage     float64   `json:"cpu_usage,omitempty"`
+	MemoryUsedMB float64   `json:"memory_used_mb,omitempty"`
+}
+
+// RawData represents the raw benchmark output data.
+type RawData struct {
+	SchemaVersion string          `json:"schema_version"`
+	ReportID      string          `json:"report_id"`
+	GeneratedAt   string          `json:"generated_at,omitempty"`
+	BenchmarkTool string          `json:"benchmark_tool,omitempty"`
+	Command       string          `json:"command,omitempty"`
+	Stdout        string          `json:"stdout,omitempty"`
+	Stderr        string          `json:"stderr,omitempty"`
+	ExitCode      int             `json:"exit_code,omitempty"`
+	Environment   map[string]string `json:"environment,omitempty"`
+}

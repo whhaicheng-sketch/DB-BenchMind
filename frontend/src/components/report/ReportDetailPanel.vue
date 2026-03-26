@@ -7,6 +7,37 @@
         <span class="report-id">{{ report.id }}</span>
       </div>
       <div class="header-actions">
+        <!-- Export Buttons -->
+        <div class="export-buttons">
+          <button
+            class="btn btn-export"
+            :disabled="reportStore.exporting"
+            @click="handleExportJSON"
+            title="导出 JSON"
+          >
+            <span v-if="reportStore.exporting" class="btn-spinner"></span>
+            <span v-else>📄</span>
+            JSON
+          </button>
+          <button
+            class="btn btn-export"
+            :disabled="reportStore.exporting"
+            @click="handleExportHTML"
+            title="导出 HTML"
+          >
+            <span v-if="reportStore.exporting" class="btn-spinner"></span>
+            <span v-else>🌐</span>
+            HTML
+          </button>
+          <button
+            class="btn btn-export"
+            :disabled="reportStore.exporting"
+            @click="handleCopyJSON"
+            title="复制 JSON 到剪贴板"
+          >
+            📋 复制
+          </button>
+        </div>
         <button class="btn btn-secondary" @click="$emit('close')">
           关闭
         </button>
@@ -393,6 +424,24 @@ const formatNumber = (num) => {
   if (num === null || num === undefined) return 'N/A'
   return typeof num === 'number' ? num.toFixed(2) : num
 }
+
+// 导出处理函数
+const handleExportJSON = async () => {
+  if (!report.value) return
+  const filename = `report-${report.value.id}-${new Date().toISOString().slice(0, 10)}.json`
+  await reportStore.downloadJSON(report.value.id, filename)
+}
+
+const handleExportHTML = async () => {
+  if (!report.value) return
+  const filename = `report-${report.value.id}-${new Date().toISOString().slice(0, 10)}.html`
+  await reportStore.downloadHTML(report.value.id, filename)
+}
+
+const handleCopyJSON = async () => {
+  if (!report.value) return
+  await reportStore.copyJSONToClipboard(report.value.id)
+}
 </script>
 
 <style scoped>
@@ -451,6 +500,39 @@ const formatNumber = (num) => {
 .btn-secondary:hover {
   background-color: var(--bg-hover);
   border-color: var(--border-dark);
+}
+
+.btn-export {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-export:hover:not(:disabled) {
+  background-color: var(--primary);
+  color: white;
+}
+
+.btn-export:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.export-buttons {
+  display: flex;
+  gap: var(--spacing-xs);
 }
 
 /* Loading & Error States */

@@ -3,6 +3,7 @@ package bindings
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -261,4 +262,70 @@ func suiteToDTO(s *report.Suite) SuiteDTO {
 	}
 
 	return dto
+}
+
+// ExportJSONResult is the result of ExportReportJSON.
+type ExportJSONResult struct {
+	Data  string `json:"data,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// ExportHTMLResult is the result of ExportReportHTML.
+type ExportHTMLResult struct {
+	HTML  string `json:"html,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// ExportFilePathsResult is the result of GetExportFilePaths.
+type ExportFilePathsResult struct {
+	Metrics    string `json:"metrics,omitempty"`
+	Monitoring string `json:"monitoring,omitempty"`
+	Raw        string `json:"raw,omitempty"`
+	HTML       string `json:"html,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// ExportReportJSON exports all report data as a JSON string.
+func (b *ReportBinding) ExportReportJSON(id string) ExportJSONResult {
+	ctx := context.Background()
+	export, err := b.uc.ExportReportJSON(ctx, id)
+	if err != nil {
+		slog.Error("ExportReportJSON failed", "id", id, "error", err)
+		return ExportJSONResult{Error: err.Error()}
+	}
+
+	data, err := json.Marshal(export)
+	if err != nil {
+		slog.Error("Marshal export data failed", "id", id, "error", err)
+		return ExportJSONResult{Error: err.Error()}
+	}
+
+	return ExportJSONResult{Data: string(data)}
+}
+
+// ExportReportHTML returns the HTML content for a report.
+func (b *ReportBinding) ExportReportHTML(id string) ExportHTMLResult {
+	ctx := context.Background()
+	html, err := b.uc.ExportReportHTML(ctx, id)
+	if err != nil {
+		slog.Error("ExportReportHTML failed", "id", id, "error", err)
+		return ExportHTMLResult{Error: err.Error()}
+	}
+	return ExportHTMLResult{HTML: html}
+}
+
+// GetExportFilePaths returns the file paths for all export files.
+func (b *ReportBinding) GetExportFilePaths(id string) ExportFilePathsResult {
+	ctx := context.Background()
+	metrics, monitoring, raw, html, err := b.uc.GetExportFilePaths(ctx, id)
+	if err != nil {
+		slog.Error("GetExportFilePaths failed", "id", id, "error", err)
+		return ExportFilePathsResult{Error: err.Error()}
+	}
+	return ExportFilePathsResult{
+		Metrics:    metrics,
+		Monitoring: monitoring,
+		Raw:        raw,
+		HTML:       html,
+	}
 }
