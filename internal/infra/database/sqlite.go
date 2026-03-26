@@ -54,6 +54,11 @@ func InitializeSQLite(ctx context.Context, dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("migrate template schema: %w", err)
 	}
 
+	if err := EnsureReportSchema(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ensure report schema: %w", err)
+	}
+
 	// 5. 验证连接
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()

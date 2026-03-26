@@ -152,3 +152,31 @@ func TestInitializeSQLite_ReopenExisting(t *testing.T) {
 		t.Errorf("Expected 0 templates after reopen, got %d", count)
 	}
 }
+
+// Test 7: 测试报告表模式初始化
+func TestInitializeSQLiteWithReportSchema(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := InitializeSQLite(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("InitializeSQLite failed: %v", err)
+	}
+	defer db.Close()
+
+	// Verify reports table exists
+	var tableName string
+	err = db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='reports'").Scan(&tableName)
+	if err != nil {
+		t.Fatalf("reports table not found: %v", err)
+	}
+
+	// Verify suites table exists
+	err = db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='suites'").Scan(&tableName)
+	if err != nil {
+		t.Fatalf("suites table not found: %v", err)
+	}
+}
