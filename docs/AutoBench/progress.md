@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M6
-当前任务: T6.2 (已完成)
-下一任务: T6.3
+当前模块: M6 (已完成)
+当前任务: T6.3 (已完成)
+下一任务: T7.2
 
 ---
 
@@ -19,7 +19,7 @@
 | M3 | ReportCollector 包装器实现 | ✅ 完成 |
 | M4 | Reports Usecase 与 API 绑定 | ✅ 完成 |
 | M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
-| M6 | AutoBench 集成 report_id | 🔄 进行中 |
+| M6 | AutoBench 集成 report_id | ✅ 完成 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ⏳ 待开始 |
 
@@ -87,7 +87,7 @@
   - 延迟百分位计算测试：calculatePercentile
   - 共 56 个测试用例全部通过
 
-### M6 - AutoBench 集成 report_id 🔄
+### M6 - AutoBench 集成 report_id ✅
 
 - [x] T6.1 SuiteItem 关联 report_id
 - [x] T6.2 suite_manifest.json 生成与更新
@@ -98,7 +98,13 @@
     - 每个 Item 完成时更新 manifest
     - Suite 结束时写入最终 manifest
   - 添加 StartedAt/EndedAt 时间字段到 SuiteItem
-- [ ] T6.3 后端单元测试
+- [x] T6.3 后端单元测试
+  - TestSuiteManifestWriter_WriteManifest: nil suite、有效 suite、已完成 items
+  - TestSuiteManifestWriter_ReadManifest: 不存在、有效、无效 JSON
+  - TestSuiteManifestWriter_UpdateManifestItem: 不存在 manifest、不存在 item、更新成功、更新失败
+  - TestSuiteManifestWriter_CalculateStatistics: 空、全部 pending、混合状态、全部成功
+  - TestSuite_ToManifest: 模型转换验证
+  - TestSuiteManifest_ToJSON: JSON 序列化验证
 
 ### M7 - 单次 Benchmark 集成 report ✅
 
