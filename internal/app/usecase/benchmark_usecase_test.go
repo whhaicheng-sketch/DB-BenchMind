@@ -1829,7 +1829,7 @@ func TestCollectStandaloneReport_SkipsWhenNoCollector(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	// Create test data
@@ -1855,7 +1855,7 @@ func TestCollectStandaloneReport_SkipsWhenNoResult(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	mockCollector := &mockReportCollector{}
@@ -1892,7 +1892,7 @@ func TestCollectStandaloneReport_SkipsWhenNotTerminal(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	mockCollector := &mockReportCollector{}
@@ -1929,7 +1929,7 @@ func TestCollectStandaloneReport_CollectsForCompletedRunWithResult(t *testing.T)
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	mockCollector := &mockReportCollector{}
@@ -1994,7 +1994,7 @@ func TestCollectStandaloneReport_CollectsForFailedRunWithResult(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	mockCollector := &mockReportCollector{}
@@ -2037,7 +2037,7 @@ func TestWithReportCollector(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 
 	mockCollector := &mockReportCollector{}
 
@@ -2057,7 +2057,7 @@ func TestSetReportCollector(t *testing.T) {
 	runRepo := newMockRunRepository()
 	adapterReg := adapter.NewAdapterRegistry()
 	connUC := NewConnectionUseCase(newMockConnectionRepository(), nil)
-	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), nil, nil)
+	templateUC := NewTemplateUseCase(newMockTemplateRepositoryForBenchmark(), "")
 	uc := NewBenchmarkUseCase(runRepo, adapterReg, connUC, templateUC)
 
 	mockCollector := &mockReportCollector{}

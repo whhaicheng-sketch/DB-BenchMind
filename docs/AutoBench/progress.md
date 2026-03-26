@@ -3,9 +3,9 @@
 **状态: Phase 1 - 实现中**
 
 当前阶段: Phase 1 - 核心功能实现
-当前模块: M7
-当前任务: T7.2 (已完成)
-下一任务: T7.3
+当前模块: M7 (已完成)
+当前任务: T7.3 (已完成)
+下一任务: T8.1
 
 ---
 
@@ -20,7 +20,7 @@
 | M4 | Reports Usecase 与 API 绑定 | ✅ 完成 |
 | M5 | Reports 前端页面（列表/详情/导出） | ✅ 完成 |
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
-| M7 | 单次 Benchmark 集成 report | 🔄 进行中 |
+| M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ⏳ 待开始 |
 
 ---
@@ -106,7 +106,7 @@
   - TestSuite_ToManifest: 模型转换验证
   - TestSuiteManifest_ToJSON: JSON 序列化验证
 
-### M7 - 单次 Benchmark 集成 report 🔄
+### M7 - 单次 Benchmark 集成 report ✅
 
 - [x] T7.1 单次执行生成 standalone report
   - 添加 reportCollector 字段到 BenchmarkUseCase
@@ -121,7 +121,18 @@
   - 确保 ReportCollector 使用 StandaloneSuiteID 常量
   - 确保 suites 表不包含 standalone 条目
   - 单元测试覆盖所有边界情况
-- [ ] T7.3 后端单元测试
+- [x] T7.3 后端单元测试
+  - TestCollectStandaloneReport_SkipsWhenNoCollector: nil collector 不 panic
+  - TestCollectStandaloneReport_SkipsWhenNoResult: 无 Result 时跳过
+  - TestCollectStandaloneReport_SkipsWhenNotTerminal: 非终态时跳过
+  - TestCollectStandaloneReport_CollectsForCompletedRunWithResult: 成功完成时收集
+  - TestCollectStandaloneReport_CollectsForFailedRunWithResult: 失败但有 Result 时也收集
+  - TestWithReportCollector: 选项模式验证
+  - TestSetReportCollector: setter 方法验证
+  - TestReportCollectorInterface: 接口验证
+  - TestReportCollectorCollectAndPersist: CollectAndPersist 核心逻辑（5 子测试）
+  - TestReportCollectorFilePersistence: 文件持久化验证
+  - 修复 NewTemplateUseCase 调用签名
 
 ### M8 - 验收与兼容性回归 ⏳
 
