@@ -86,6 +86,7 @@ type SuiteItem struct {
 	MetricsSummary map[string]interface{} `json:"metrics_summary,omitempty"`
 	LogRefs        []string               `json:"log_refs,omitempty"`
 	ErrorSummary   string                 `json:"error_summary,omitempty"`
+	ReportID       string                 `json:"report_id,omitempty"`
 }
 
 type SuiteResult struct {

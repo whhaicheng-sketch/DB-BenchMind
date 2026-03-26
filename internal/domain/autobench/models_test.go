@@ -53,6 +53,52 @@ func TestSuiteItemLinkingAndReportArtifacts(t *testing.T) {
 	}
 }
 
+func TestSuiteItemReportIDField(t *testing.T) {
+	item := SuiteItem{
+		ID:           "item-1",
+		SuiteID:      "suite-1",
+		ConnectionID: "conn-1",
+		ProfileType:  ProfileCPU,
+		Status:       SuiteItemStatusSuccess,
+		ReportID:     "report-abc123",
+	}
+
+	if item.ReportID != "report-abc123" {
+		t.Fatalf("ReportID = %q, want report-abc123", item.ReportID)
+	}
+
+	// Verify JSON serialization includes report_id
+	data, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if decoded["report_id"] != "report-abc123" {
+		t.Fatalf("report_id = %#v, want report-abc123", decoded["report_id"])
+	}
+
+	// Verify empty ReportID omits field (omitempty)
+	emptyItem := SuiteItem{ID: "item-2"}
+	emptyData, err := json.Marshal(emptyItem)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var emptyDecoded map[string]interface{}
+	if err := json.Unmarshal(emptyData, &emptyDecoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if _, exists := emptyDecoded["report_id"]; exists {
+		t.Fatal("report_id should be omitted when empty")
+	}
+}
+
 func TestSuiteReportToJSONUsesTypedReportShape(t *testing.T) {
 	generatedAt := time.Date(2026, time.March, 25, 12, 0, 0, 0, time.UTC)
 	report := SuiteReport{
