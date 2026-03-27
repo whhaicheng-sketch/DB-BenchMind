@@ -15,9 +15,13 @@ import {
   toggleDraftProfileSelection,
   validateAutoBenchWizardDraft
 } from './autobenchWizardDraft.mjs'
+import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding'
 
 const draft = ref(createAutoBenchWizardDraft())
 const activeConnectionFilter = ref('all')
+const isCreating = ref(false)
+const createError = ref('')
+const createdSuiteId = ref('')
 
 const wizardPlaceholder = {
   description: 'This Wizard stays local-only in T2.3 and prepares a static draft shape for later orchestration tasks.'
@@ -46,12 +50,41 @@ const planPreview = computed(() => buildLocalPlanPreview(draft.value, placeholde
 const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.value))
 const reportState = computed(() => buildAutoBenchReportState(reportSnapshot.value))
 
+const canCreateSuite = computed(() => {
+  return !isCreating.value && wizardValidation.value.valid
+})
+
 function toggleConnectionSelection(connectionId) {
   draft.value = toggleDraftConnectionSelection(draft.value, connectionId)
 }
 
 function toggleProfileSelection(profileId) {
   draft.value = toggleDraftProfileSelection(draft.value, profileId)
+}
+
+async function handleCreateSuite() {
+  if (!canCreateSuite.value) return
+
+  isCreating.value = true
+  createError.value = ''
+
+  try {
+    const result = await AutoBenchBinding.CreateSuite({
+      name: 'AutoBench Suite',
+      connection_ids: draft.value.selectedConnectionIds,
+      profile_types: draft.value.selectedProfiles,
+    })
+
+    if (result.error) {
+      createError.value = result.error
+    } else {
+      createdSuiteId.value = result.suite_id
+    }
+  } catch (err) {
+    createError.value = String(err)
+  } finally {
+    isCreating.value = false
+  }
 }
 </script>
 
@@ -65,7 +98,11 @@ function toggleProfileSelection(profileId) {
           Wizard draft only.
         </p>
       </div>
-      <button class="placeholder-action" type="button" disabled>Create Suite (later task)</button>
+      <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
+        {{ isCreating ? 'Creating...' : 'Create Suite' }}
+      </button>
+      <p v-if="createError" class="create-error">{{ createError }}</p>
+      <p v-if="createdSuiteId" class="create-success">Suite created: {{ createdSuiteId }}</p>
     </header>
 
     <div class="autobench-grid">
@@ -339,6 +376,34 @@ function toggleProfileSelection(profileId) {
   color: var(--text-muted);
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.primary-action {
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.primary-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.create-error {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.create-success {
+  margin-top: 8px;
+  color: var(--success);
+  font-size: 13px;
 }
 
 .autobench-grid {

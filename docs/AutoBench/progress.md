@@ -3,9 +3,9 @@
 **状态: AutoBench Usable Implementation - 进行中**
 
 当前阶段: AutoBench 可用化实现（非 Phase 2 监控扩展）
-当前模块: M9
-当前任务: T9.1
-下一任务: T9.2
+当前模块: M10
+当前任务: T10.2
+下一任务: T10.3
 
 ---
 
@@ -45,8 +45,8 @@
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ✅ 完成 |
-| M9 | AutoBench 后端 API | 🔄 进行中 |
-| M10 | Suite 创建功能 | ⏳ 待开始 |
+| M9 | AutoBench 后端 API | ✅ 完成 |
+| M10 | Suite 创建功能 | 🔄 进行中 |
 | M11 | Suite 执行功能 | ⏳ 待开始 |
 | M12 | AutoBench UI 激活 | ⏳ 待开始 |
 | M13 | 文档修正与最终验收 | ⏳ 待开始 |
@@ -55,28 +55,28 @@
 
 ## 任务日志
 
-### M9 - AutoBench 后端 API 🔄
+### M9 - AutoBench 后端 API ✅
 
-- [ ] T9.1 定义 AutoBenchBinding API
+- [x] T9.1 定义 AutoBenchBinding API
   - CreateSuite: 创建 Suite（基于 connection_ids + template_ids）
   - StartSuite: 启动 Suite 执行
   - GetSuiteStatus: 获取 Suite 状态
   - GetSuiteItems: 获取 SuiteItem 列表
   - CancelSuite: 取消 Suite 执行
-- [ ] T9.2 实现 SuiteRepository
+- [x] T9.2 实现 SuiteRepository
   - CreateSuite: 插入 suites 表
   - GetSuite: 查询单条
   - ListSuites: 分页查询
   - UpdateSuiteStatus: 更新状态
-- [ ] T9.3 后端单元测试
+- [x] T9.3 后端单元测试
 
-### M10 - Suite 创建功能 ⏳
+### M10 - Suite 创建功能 🔄
 
-- [ ] T10.1 Suite 创建逻辑
+- [x] T10.1 Suite 创建逻辑
   - 基于 selected_connection_ids + selected_template_ids
   - 生成 SuiteItem 列表
   - 写入 suites 表
-  - 生成初始 suite_manifest.json
+  - 生成初始 suite_manifest.json (on start)
 - [ ] T10.2 前端 Create Suite 按钮
   - 移除 disabled 属性
   - 调用 CreateSuite API
@@ -85,13 +85,13 @@
 
 ### M11 - Suite 执行功能 ⏳
 
-- [ ] T11.1 Suite 执行编排
-  - 实现 AutoBenchSuiteRunner
+- [x] T11.1 Suite 执行编排
+  - 实现 AutoBenchSuiteRunner (已存在)
   - 逐个执行 SuiteItem
   - 调用现有 BenchmarkUseCase
   - 通过 ReportCollector 生成 report
   - 更新 item 状态
-- [ ] T11.2 状态回写
+- [x] T11.2 状态回写
   - 更新 suite_manifest.json
   - 更新 suites 表状态
   - 实时进度更新
