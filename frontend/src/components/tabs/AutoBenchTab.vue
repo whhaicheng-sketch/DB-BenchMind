@@ -20,8 +20,11 @@ import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding
 const draft = ref(createAutoBenchWizardDraft())
 const activeConnectionFilter = ref('all')
 const isCreating = ref(false)
+const isStarting = ref(false)
 const createError = ref('')
+const startError = ref('')
 const createdSuiteId = ref('')
+const suiteStatus = ref(null)
 
 const wizardPlaceholder = {
   description: 'This Wizard stays local-only in T2.3 and prepares a static draft shape for later orchestration tasks.'
@@ -51,7 +54,11 @@ const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.v
 const reportState = computed(() => buildAutoBenchReportState(reportSnapshot.value))
 
 const canCreateSuite = computed(() => {
-  return !isCreating.value && wizardValidation.value.valid
+  return !isCreating.value && wizardValidation.value.valid && !createdSuiteId.value
+})
+
+const canStartSuite = computed(() => {
+  return createdSuiteId.value && !isStarting.value
 })
 
 function toggleConnectionSelection(connectionId) {
@@ -86,6 +93,46 @@ async function handleCreateSuite() {
     isCreating.value = false
   }
 }
+
+async function handleStartSuite() {
+  if (!canStartSuite.value) return
+
+  isStarting.value = true
+  startError.value = ''
+
+  try {
+    const result = await AutoBenchBinding.StartSuite(createdSuiteId.value)
+
+    if (result.error) {
+      startError.value = result.error
+    } else {
+      // Start polling for status
+      pollSuiteStatus()
+    }
+  } catch (err) {
+    startError.value = String(err)
+  } finally {
+    isStarting.value = false
+  }
+}
+
+async function pollSuiteStatus() {
+  if (!createdSuiteId.value) return
+
+  try {
+    const result = await AutoBenchBinding.GetSuiteStatus(createdSuiteId.value)
+    if (!result.error) {
+      suiteStatus.value = result
+
+      // Continue polling if running
+      if (result.status === 'running') {
+        setTimeout(pollSuiteStatus, 1000)
+      }
+    }
+  } catch {
+    // Ignore polling errors
+  }
+}
 </script>
 
 <template>
@@ -101,8 +148,13 @@ async function handleCreateSuite() {
       <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
         {{ isCreating ? 'Creating...' : 'Create Suite' }}
       </button>
+      <button v-if="createdSuiteId" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
+        {{ isStarting ? 'Starting...' : 'Start Suite' }}
+      </button>
       <p v-if="createError" class="create-error">{{ createError }}</p>
-      <p v-if="createdSuiteId" class="create-success">Suite created: {{ createdSuiteId }}</p>
+      <p v-if="startError" class="create-error">{{ startError }}</p>
+      <p v-if="createdSuiteId && !startError" class="create-success">Suite created: {{ createdSuiteId }}</p>
+      <p v-if="suiteStatus" class="status-info">Status: {{ suiteStatus.status }} ({{ suiteStatus.completed_items }}/{{ suiteStatus.total_items }})</p>
     </header>
 
     <div class="autobench-grid">
@@ -403,6 +455,18 @@ async function handleCreateSuite() {
 .create-success {
   margin-top: 8px;
   color: var(--success);
+  font-size: 13px;
+}
+
+.start-action {
+  margin-left: 8px;
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.status-info {
+  margin-top: 8px;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
