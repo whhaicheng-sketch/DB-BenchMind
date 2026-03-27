@@ -4,8 +4,8 @@
 
 当前阶段: Phase 1 - 核心功能实现
 当前模块: M8
-当前任务: T8.1 (已完成)
-下一任务: T8.2
+当前任务: T8.2 (已完成)
+下一任务: T8.3
 
 ---
 
@@ -144,7 +144,11 @@
   - ReportCollector 测试: 7/7 通过 ✅
   - CollectStandaloneReport 测试: 5/5 通过 ✅
   - 预先存在的测试失败（非 Reports 相关）已记录
-- [ ] T8.2 前端回归测试
+- [x] T8.2 前端回归测试
+  - 前端构建通过: `npm run build` ✅
+  - reportStore 测试: 56/56 通过 ✅
+  - autobenchReportState 测试: 10/10 通过 ✅
+  - 预先存在的测试失败（3 个，非 Reports 相关）已记录
 - [ ] T8.3 集成测试
 - [ ] T8.4 文档同步更新
 

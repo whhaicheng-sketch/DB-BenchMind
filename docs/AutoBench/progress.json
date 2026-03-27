@@ -2,9 +2,9 @@
   "project": "autobench-architecture-refactor",
   "phase": 1,
   "status": "in_progress",
-  "current_module": "M6",
-  "current_task": "T8.1",
-  "next_task": "T8.2",
+  "current_module": "M8",
+  "current_task": "T8.2",
+  "next_task": "T8.3",
   "done_tasks": [
     "T0.1", "T0.2", "T0.3", "T0.4", "T0.5", "T0.6", "T0.7",
     "T1.1", "T1.2",
@@ -14,10 +14,10 @@
     "T5.1", "T5.2", "T5.3", "T5.4", "T5.5",
     "T6.1", "T6.2", "T6.3",
     "T7.1", "T7.2", "T7.3",
-    "T8.1"
+    "T8.1", "T8.2"
   ],
   "pending_tasks": [
-    "T8.2", "T8.3", "T8.4"
+    "T8.3", "T8.4"
   ],
   "blocked_tasks": [],
   "decisions": [
