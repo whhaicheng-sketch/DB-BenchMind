@@ -55,10 +55,12 @@ DB-BenchMind 采用 **DDD + Clean Architecture + Hexagonal Architecture** 混合
 ### 1. Domain Layer (`internal/domain/`)
 **职责**：核心业务逻辑，无外部依赖
 
+- `autobench/`：AutoBench 套件编排领域模型
 - `connection/`：数据库连接模型和验证
-- `template/`：压测模板定义和验证
 - `execution/`：任务执行、状态机、结果
 - `metric/`：指标计算（p95/p99）
+- `report/`：报告持久化领域模型
+- `template/`：压测模板定义和验证
 
 **约束**：
 - ❌ 禁止依赖 `internal/infra/`
@@ -67,11 +69,13 @@ DB-BenchMind 采用 **DDD + Clean Architecture + Hexagonal Architecture** 混合
 ### 2. Application Layer (`internal/app/usecase/`)
 **职责**：用例编排，定义接口
 
-- `connection_usecase.go`：连接管理业务逻辑
-- `template_usecase.go`：模板管理
+- `autobench_usecase.go`：AutoBench 套件编排
 - `benchmark_usecase.go`：压测执行编排
-- `report_usecase.go`：报告生成
 - `comparison_usecase.go`：结果对比
+- `connection_usecase.go`：连接管理业务逻辑
+- `report_usecase.go`：报告查询与生成
+- `suite_manifest.go`：套件清单持久化
+- `template_usecase.go`：模板管理
 
 **约束**：
 - ✅ 可以依赖 `domain/`、`pkg/`
@@ -81,17 +85,22 @@ DB-BenchMind 采用 **DDD + Clean Architecture + Hexagonal Architecture** 混合
 ### 3. Infrastructure Layer (`internal/infra/`)
 **职责**：外部依赖实现
 
-- `database/`：SQLite 仓储实现
 - `adapter/`：工具适配器（Sysbench/Swingbench/HammerDB）
+- `chart/`：图表生成器
+- `database/`：SQLite 仓储实现（含 schema 迁移）
 - `keyring/`：密钥管理
 - `report/`：报告生成器
-- `chart/`：图表生成器
 
 **约束**：
 - ✅ 可以依赖 `domain/`、`pkg/`
 - ✅ 可以使用外部依赖
 - ✅ 实现 `app/` 定义的接口
 - ❌ 禁止依赖 `app/`、`transport/`
+
+**数据库迁移**：
+- `ensureReportColumns`：reports 表字段迁移（suite_id, source_type 等）
+- `ensureSuitesColumns`：suites 表字段迁移（suite_manifest_json_path 等）
+- `ensureTemplateColumns`：templates 表字段迁移（config_json, is_builtin）
 
 ### 4. Transport Layer (`internal/transport/ui/`)
 **职责**：GUI 界面，仅 I/O

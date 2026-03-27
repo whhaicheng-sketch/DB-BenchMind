@@ -229,10 +229,12 @@ DB-BenchMind/
 ├── internal/
 │   ├── app/usecase/           # 应用层（用例编排）
 │   ├── domain/                # 领域层（核心业务逻辑）
+│   │   ├── autobench/         # AutoBench 套件编排领域
 │   │   ├── connection/        # 连接管理领域
-│   │   ├── template/          # 模板管理领域
 │   │   ├── execution/         # 执行编排领域
-│   │   └── metric/            # 指标采集领域
+│   │   ├── metric/            # 指标采集领域
+│   │   ├── report/            # 报告持久化领域
+│   │   └── template/          # 模板管理领域
 │   ├── infra/                 # 基础设施层
 │   │   ├── adapter/           # 工具适配器
 │   │   ├── database/          # 数据库访问
