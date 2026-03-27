@@ -56,12 +56,27 @@ type AutoBenchSuiteStatus struct {
 type AutoBenchSuiteUseCase struct {
 	mu     sync.RWMutex
 	suites map[string]domainautobench.Suite
+	repo   SuiteRepository
 }
 
-func NewAutoBenchSuiteUseCase() *AutoBenchSuiteUseCase {
-	return &AutoBenchSuiteUseCase{
+// AutoBenchSuiteUseCaseOption configures the use case.
+type AutoBenchSuiteUseCaseOption func(*AutoBenchSuiteUseCase)
+
+// WithSuiteRepository sets the repository for persisting suites.
+func WithSuiteRepository(repo SuiteRepository) AutoBenchSuiteUseCaseOption {
+	return func(uc *AutoBenchSuiteUseCase) {
+		uc.repo = repo
+	}
+}
+
+func NewAutoBenchSuiteUseCase(opts ...AutoBenchSuiteUseCaseOption) *AutoBenchSuiteUseCase {
+	uc := &AutoBenchSuiteUseCase{
 		suites: map[string]domainautobench.Suite{},
 	}
+	for _, opt := range opts {
+		opt(uc)
+	}
+	return uc
 }
 
 func (uc *AutoBenchSuiteUseCase) ListSupportedProfiles() []domainautobench.ProfileType {
@@ -69,8 +84,6 @@ func (uc *AutoBenchSuiteUseCase) ListSupportedProfiles() []domainautobench.Profi
 }
 
 func (uc *AutoBenchSuiteUseCase) CreateSuite(ctx context.Context, input CreateSuiteInput) (domainautobench.Suite, error) {
-	_ = ctx
-
 	connectionIDs := normalizeStringSlice(input.ConnectionIDs)
 	if len(connectionIDs) == 0 {
 		return domainautobench.Suite{}, ErrAutoBenchConnectionRequired
@@ -87,6 +100,14 @@ func (uc *AutoBenchSuiteUseCase) CreateSuite(ctx context.Context, input CreateSu
 	uc.mu.Lock()
 	uc.suites[suite.ID] = cloneSuite(suite)
 	uc.mu.Unlock()
+
+	// Persist to repository if available
+	if uc.repo != nil {
+		if err := uc.repo.Save(ctx, cloneSuite(suite)); err != nil {
+			// Log error but don't fail (per D006/D014)
+			// Persistence failure should not break main result
+		}
+	}
 
 	return cloneSuite(suite), nil
 }

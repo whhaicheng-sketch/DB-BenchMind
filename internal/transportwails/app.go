@@ -25,9 +25,10 @@ type App struct {
 
 // bindingsHolder holds bindings that need context injection
 type bindingsHolder struct {
-	benchmarkBinding *bindings.BenchmarkBinding
-	monitorBinding   *bindings.MonitorBinding
-	taskBinding      *bindings.TaskBinding
+	benchmarkBinding  *bindings.BenchmarkBinding
+	monitorBinding    *bindings.MonitorBinding
+	taskBinding       *bindings.TaskBinding
+	autobenchBinding  *bindings.AutoBenchBinding
 }
 
 // NewApp creates a new App instance.
@@ -50,6 +51,11 @@ func (a *App) SetTaskBinding(t *bindings.TaskBinding) {
 	a.holder.taskBinding = t
 }
 
+// SetAutoBenchBinding stores the autobench binding for context injection.
+func (a *App) SetAutoBenchBinding(ab *bindings.AutoBenchBinding) {
+	a.holder.autobenchBinding = ab
+}
+
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
@@ -70,6 +76,11 @@ func (a *App) Startup(ctx context.Context) {
 	if a.holder.taskBinding != nil {
 		a.holder.taskBinding.SetContext(ctx)
 		slog.Info("TaskBinding context injected")
+	}
+
+	if a.holder.autobenchBinding != nil {
+		a.holder.autobenchBinding.SetContext(ctx)
+		slog.Info("AutoBenchBinding context injected")
 	}
 }
 

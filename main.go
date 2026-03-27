@@ -85,6 +85,16 @@ func main() {
 	// Initialize report use case
 	reportUC := usecase.NewReportUsecase(db)
 
+	// Initialize AutoBench suite use case and runner
+	autobenchUC := usecase.NewAutoBenchSuiteUseCase()
+	autobenchRunner := usecase.NewAutoBenchSuiteRunner(
+		autobenchUC,
+		benchmarkUC,
+		connUC,
+		templateUC,
+		usecase.WithManifestWriter(usecase.NewSuiteManifestWriter(dataDir)),
+	)
+
 	// Create application with basic options
 	app := transportwails.NewApp()
 
@@ -95,11 +105,13 @@ func main() {
 	monitorBinding := bindings.NewMonitorBinding()
 	taskBinding := bindings.NewTaskBinding(benchmarkUC, connUC, templateUC, runRepo)
 	reportBinding := bindings.NewReportBinding(reportUC)
+	autobenchBinding := bindings.NewAutoBenchBinding(autobenchUC, autobenchRunner)
 
 	// Store benchmark binding for context injection
 	app.SetBenchmarkBinding(benchmarkBinding)
 	app.SetMonitorBinding(monitorBinding)
 	app.SetTaskBinding(taskBinding)
+	app.SetAutoBenchBinding(autobenchBinding)
 
 	// Create application with options
 	err = wails.Run(&options.App{
@@ -120,6 +132,7 @@ func main() {
 			monitorBinding,
 			taskBinding,
 			reportBinding,
+			autobenchBinding,
 		},
 	})
 
