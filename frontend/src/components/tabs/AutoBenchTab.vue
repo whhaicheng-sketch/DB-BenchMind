@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { buildAutoBenchMonitorState } from './autobenchMonitorState.mjs'
 import { buildAutoBenchReportState } from './autobenchReportState.mjs'
 import {
@@ -7,8 +7,6 @@ import {
   connectionFilterOptions,
   createAutoBenchWizardDraft,
   describeSelectedProfiles,
-  filterPlaceholderConnections,
-  placeholderConnections,
   policySummaryItems,
   profileOptions,
   toggleDraftConnectionSelection,
@@ -16,6 +14,9 @@ import {
   validateAutoBenchWizardDraft
 } from './autobenchWizardDraft.mjs'
 import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding'
+import { useConnectionStore } from '../../stores/connection'
+
+const connectionStore = useConnectionStore()
 
 const draft = ref(createAutoBenchWizardDraft())
 const activeConnectionFilter = ref('all')
@@ -27,38 +28,58 @@ const createdSuiteId = ref('')
 const suiteStatus = ref(null)
 
 const wizardPlaceholder = {
-  description: 'This Wizard stays local-only in T2.3 and prepares a static draft shape for later orchestration tasks.'
+  description: 'Configure your AutoBench suite by selecting connections and profiles.'
 }
 
 const monitorPlaceholder = {
-  description: 'This area will later show suite status, stage progress, and item-level runtime visibility.',
+  description: 'Monitor suite execution status and item progress.',
   items: [
-    'Suite status placeholder',
-    'Stage progress placeholder',
-    'Item progress placeholder'
+    'Suite status',
+    'Stage progress',
+    'Item progress'
   ]
 }
 
 const reportPlaceholder = {
-  description: 'This area now reserves report summary and artifact entry points while staying local-only until suite wiring lands.'
+  description: 'View generated reports and export artifacts after suite execution.'
 }
 
 const monitorSnapshot = ref(null)
 const reportSnapshot = ref(null)
 
+// Real connections from store
+const realConnections = computed(() => {
+  return connectionStore.connections.map(conn => ({
+    id: conn.id,
+    label: conn.name,
+    databaseType: conn.type,
+    detail: `${conn.host}:${conn.port}`
+  }))
+})
+
 const wizardValidation = computed(() => validateAutoBenchWizardDraft(draft.value))
-const filteredConnections = computed(() => filterPlaceholderConnections(placeholderConnections, activeConnectionFilter.value))
+const filteredConnections = computed(() => {
+  if (activeConnectionFilter.value === 'all') {
+    return realConnections.value
+  }
+  return realConnections.value.filter(conn => conn.databaseType === activeConnectionFilter.value)
+})
 const selectedProfileSummary = computed(() => describeSelectedProfiles(draft.value.selectedProfiles))
-const planPreview = computed(() => buildLocalPlanPreview(draft.value, placeholderConnections))
+const planPreview = computed(() => buildLocalPlanPreview(draft.value, realConnections.value))
 const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.value))
 const reportState = computed(() => buildAutoBenchReportState(reportSnapshot.value))
 
 const canCreateSuite = computed(() => {
-  return !isCreating.value && wizardValidation.value.valid && !createdSuiteId.value
+  return !isCreating.value && wizardValidation.value.canCreateSuite && !createdSuiteId.value
 })
 
 const canStartSuite = computed(() => {
   return createdSuiteId.value && !isStarting.value
+})
+
+// Load connections on mount
+onMounted(async () => {
+  await connectionStore.fetchConnections()
 })
 
 function toggleConnectionSelection(connectionId) {
