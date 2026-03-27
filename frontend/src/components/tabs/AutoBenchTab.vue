@@ -1,9 +1,6 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
-import { buildAutoBenchMonitorState } from './autobenchMonitorState.mjs'
-import { buildAutoBenchReportState } from './autobenchReportState.mjs'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import {
-  buildLocalPlanPreview,
   connectionFilterOptions,
   createAutoBenchWizardDraft,
   describeSelectedProfiles,
@@ -15,8 +12,10 @@ import {
 } from './autobenchWizardDraft.mjs'
 import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding'
 import { useConnectionStore } from '../../stores/connection'
+import { useAppStore } from '../../stores/app'
 
 const connectionStore = useConnectionStore()
+const appStore = useAppStore()
 
 const draft = ref(createAutoBenchWizardDraft())
 const activeConnectionFilter = ref('all')
@@ -26,26 +25,10 @@ const createError = ref('')
 const startError = ref('')
 const createdSuiteId = ref('')
 const suiteStatus = ref(null)
-
-const wizardPlaceholder = {
-  description: 'Configure your AutoBench suite by selecting connections and profiles.'
-}
-
-const monitorPlaceholder = {
-  description: 'Monitor suite execution status and item progress.',
-  items: [
-    'Suite status',
-    'Stage progress',
-    'Item progress'
-  ]
-}
-
-const reportPlaceholder = {
-  description: 'View generated reports and export artifacts after suite execution.'
-}
-
-const monitorSnapshot = ref(null)
-const reportSnapshot = ref(null)
+const isPolling = ref(false)
+let pollTimeout = null
+let consecutiveErrors = 0
+const MAX_CONSECUTIVE_ERRORS = 5
 
 // Real connections from store
 const realConnections = computed(() => {
@@ -65,21 +48,45 @@ const filteredConnections = computed(() => {
   return realConnections.value.filter(conn => conn.databaseType === activeConnectionFilter.value)
 })
 const selectedProfileSummary = computed(() => describeSelectedProfiles(draft.value.selectedProfiles))
-const planPreview = computed(() => buildLocalPlanPreview(draft.value, realConnections.value))
-const monitorState = computed(() => buildAutoBenchMonitorState(monitorSnapshot.value))
-const reportState = computed(() => buildAutoBenchReportState(reportSnapshot.value))
 
 const canCreateSuite = computed(() => {
   return !isCreating.value && wizardValidation.value.canCreateSuite && !createdSuiteId.value
 })
 
 const canStartSuite = computed(() => {
-  return createdSuiteId.value && !isStarting.value
+  if (!createdSuiteId.value || isStarting.value) return false
+  if (!suiteStatus.value) return true
+  // Can only start if status is draft or ready
+  return ['draft', 'ready'].includes(suiteStatus.value.status)
+})
+
+const isSuiteRunning = computed(() => {
+  return suiteStatus.value?.status === 'running'
+})
+
+const suiteSummary = computed(() => {
+  if (!suiteStatus.value) return null
+  const s = suiteStatus.value
+  return {
+    status: s.status,
+    name: s.name,
+    total: s.total_items,
+    pending: s.pending_items,
+    running: s.running_items,
+    completed: s.completed_items,
+    progress: s.total_items > 0 ? Math.round((s.completed_items / s.total_items) * 100) : 0
+  }
 })
 
 // Load connections on mount
 onMounted(async () => {
   await connectionStore.fetchConnections()
+})
+
+onUnmounted(() => {
+  if (pollTimeout) {
+    clearTimeout(pollTimeout)
+  }
 })
 
 function toggleConnectionSelection(connectionId) {
@@ -107,6 +114,8 @@ async function handleCreateSuite() {
       createError.value = result.error
     } else {
       createdSuiteId.value = result.suite_id
+      // Fetch initial status
+      await fetchSuiteStatus()
     }
   } catch (err) {
     createError.value = String(err)
@@ -128,7 +137,7 @@ async function handleStartSuite() {
       startError.value = result.error
     } else {
       // Start polling for status
-      pollSuiteStatus()
+      startPolling()
     }
   } catch (err) {
     startError.value = String(err)
@@ -137,22 +146,95 @@ async function handleStartSuite() {
   }
 }
 
-async function pollSuiteStatus() {
-  if (!createdSuiteId.value) return
+async function fetchSuiteStatus() {
+  if (!createdSuiteId.value) return false
 
   try {
     const result = await AutoBenchBinding.GetSuiteStatus(createdSuiteId.value)
     if (!result.error) {
       suiteStatus.value = result
-
-      // Continue polling if running
-      if (result.status === 'running') {
-        setTimeout(pollSuiteStatus, 1000)
-      }
+      consecutiveErrors = 0
+      return true
     }
+    consecutiveErrors++
+    return false
   } catch {
-    // Ignore polling errors
+    consecutiveErrors++
+    return false
   }
+}
+
+function startPolling() {
+  if (isPolling.value) return
+  isPolling.value = true
+  pollSuiteStatus()
+}
+
+function stopPolling() {
+  isPolling.value = false
+  if (pollTimeout) {
+    clearTimeout(pollTimeout)
+    pollTimeout = null
+  }
+}
+
+async function pollSuiteStatus() {
+  if (!createdSuiteId.value || !isPolling.value) return
+
+  await fetchSuiteStatus()
+
+  // Stop polling if too many consecutive errors
+  if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+    stopPolling()
+    return
+  }
+
+  // Continue polling if running, with backoff on errors
+  if (suiteStatus.value?.status === 'running') {
+    const delay = consecutiveErrors > 0 ? 1000 * Math.min(consecutiveErrors, 5) : 1000
+    pollTimeout = setTimeout(pollSuiteStatus, delay)
+  } else {
+    stopPolling()
+  }
+}
+
+function viewReport(reportId) {
+  if (!reportId) return
+  // Navigate to Reports tab and show the report
+  appStore.setActiveTab('reports')
+}
+
+function goToReports() {
+  appStore.setActiveTab('reports')
+}
+
+function resetSuite() {
+  createdSuiteId.value = ''
+  suiteStatus.value = null
+  createError.value = ''
+  startError.value = ''
+  stopPolling()
+}
+
+function getStatusLabel(status) {
+  const labels = {
+    draft: 'Draft',
+    ready: 'Ready',
+    running: 'Running',
+    success: 'Success',
+    partial_success: 'Partial Success',
+    failed: 'Failed',
+    cancelled: 'Cancelled'
+  }
+  return labels[status] || status
+}
+
+function getStatusClass(status) {
+  if (['success'].includes(status)) return 'status-success'
+  if (['failed', 'cancelled'].includes(status)) return 'status-error'
+  if (['running'].includes(status)) return 'status-running'
+  if (['partial_success'].includes(status)) return 'status-warning'
+  return ''
 }
 </script>
 
@@ -162,79 +244,152 @@ async function pollSuiteStatus() {
       <div>
         <h1 class="page-title">AutoBench</h1>
         <p class="page-subtitle">
-          Standalone suite workspace for future automated database testing flows. This page currently provides a local
-          Wizard draft only.
+          Automated database benchmark suite. Select connections and profiles to create and run benchmark suites.
         </p>
       </div>
-      <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
-        {{ isCreating ? 'Creating...' : 'Create Suite' }}
-      </button>
-      <button v-if="createdSuiteId" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
-        {{ isStarting ? 'Starting...' : 'Start Suite' }}
-      </button>
-      <p v-if="createError" class="create-error">{{ createError }}</p>
-      <p v-if="startError" class="create-error">{{ startError }}</p>
-      <p v-if="createdSuiteId && !startError" class="create-success">Suite created: {{ createdSuiteId }}</p>
-      <p v-if="suiteStatus" class="status-info">Status: {{ suiteStatus.status }} ({{ suiteStatus.completed_items }}/{{ suiteStatus.total_items }})</p>
+      <div class="header-actions">
+        <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
+          {{ isCreating ? 'Creating...' : 'Create Suite' }}
+        </button>
+        <button v-if="createdSuiteId && !isSuiteRunning" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
+          {{ isStarting ? 'Starting...' : 'Start Suite' }}
+        </button>
+        <button v-if="isSuiteRunning" class="primary-action running-action" type="button" disabled>
+          Running...
+        </button>
+        <button v-if="createdSuiteId && !isSuiteRunning" class="secondary-action" type="button" @click="resetSuite">
+          New Suite
+        </button>
+      </div>
     </header>
 
-    <div class="autobench-grid">
+    <div v-if="createError || startError" class="error-banner">
+      <span>{{ createError || startError }}</span>
+    </div>
+
+    <div v-if="createdSuiteId && suiteStatus" class="suite-status-panel">
+      <div class="status-header">
+        <h3>Suite: {{ suiteStatus.name || createdSuiteId }}</h3>
+        <span :class="['status-badge', getStatusClass(suiteStatus.status)]">
+          {{ getStatusLabel(suiteStatus.status) }}
+        </span>
+      </div>
+
+      <div class="status-metrics">
+        <div class="metric">
+          <span class="metric-label">Total Items</span>
+          <span class="metric-value">{{ suiteStatus.total_items }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Pending</span>
+          <span class="metric-value">{{ suiteStatus.pending_items }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Running</span>
+          <span class="metric-value">{{ suiteStatus.running_items }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Completed</span>
+          <span class="metric-value">{{ suiteStatus.completed_items }}</span>
+        </div>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar" :style="{ width: suiteSummary.progress + '%' }"></div>
+        <span class="progress-label">{{ suiteSummary.progress }}%</span>
+      </div>
+
+      <div v-if="suiteStatus.items && suiteStatus.items.length > 0" class="items-list">
+        <h4>Items ({{ suiteStatus.items.length }})</h4>
+        <div class="items-header">
+          <span>Connection</span>
+          <span>Type</span>
+          <span>Status</span>
+          <span>Report</span>
+        </div>
+        <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
+          <span class="item-connection">{{ item.connection_id }}</span>
+          <span class="item-type">{{ item.profile_type }}</span>
+          <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
+          <span class="item-report">
+            <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
+              View Report
+            </button>
+            <span v-else-if="item.error_message" class="error-text" :title="item.error_message">
+              Error
+            </span>
+            <span v-else class="muted">-</span>
+          </span>
+        </div>
+      </div>
+
+      <div v-if="['success', 'partial_success', 'failed'].includes(suiteStatus.status)" class="suite-actions">
+        <button class="primary-action" @click="goToReports">
+          View All Reports
+        </button>
+      </div>
+    </div>
+
+    <div v-if="!createdSuiteId" class="autobench-grid">
       <section class="autobench-section autobench-wizard" aria-labelledby="autobench-wizard-title">
         <div class="section-header">
           <h2 id="autobench-wizard-title">Wizard</h2>
-          <p>{{ wizardPlaceholder.description }}</p>
+          <p>Select connections and profiles to create a benchmark suite.</p>
         </div>
 
         <div class="wizard-groups">
           <section class="wizard-group" aria-labelledby="autobench-connections-title">
             <div class="wizard-group-header">
-              <h3 id="autobench-connections-title">Selected Connections</h3>
+              <h3 id="autobench-connections-title">Connections</h3>
               <span class="wizard-chip">{{ draft.selectedConnectionIds.length }} selected</span>
             </div>
-            <p class="wizard-group-copy">Static placeholder targets only. No connection store or backend data is used here.</p>
-            <div class="filter-block">
-              <h4>Database Type Filter</h4>
-              <div class="filter-options">
-                <button
-                  v-for="option in connectionFilterOptions"
-                  :key="option.id"
-                  type="button"
-                  :class="['filter-pill', { active: activeConnectionFilter === option.id }]"
-                  @click="activeConnectionFilter = option.id"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
+
+            <div v-if="connectionStore.loading" class="loading-state">
+              Loading connections...
             </div>
-            <label
-              v-for="connection in filteredConnections"
-              :key="connection.id"
-              class="wizard-option-card"
-            >
-              <input
-                type="checkbox"
-                :checked="draft.selectedConnectionIds.includes(connection.id)"
-                @change="toggleConnectionSelection(connection.id)"
+            <div v-else-if="realConnections.length === 0" class="empty-state">
+              No connections available. Create connections first.
+            </div>
+            <template v-else>
+              <div class="filter-block">
+                <div class="filter-options">
+                  <button
+                    v-for="option in connectionFilterOptions"
+                    :key="option.id"
+                    type="button"
+                    :class="['filter-pill', { active: activeConnectionFilter === option.id }]"
+                    @click="activeConnectionFilter = option.id"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+              <label
+                v-for="connection in filteredConnections"
+                :key="connection.id"
+                class="wizard-option-card"
               >
-              <span class="wizard-option-copy">
-                <strong>{{ connection.label }}</strong>
-                <small class="wizard-option-meta">{{ connection.databaseType }}</small>
-                <small>{{ connection.detail }}</small>
-              </span>
-            </label>
+                <input
+                  type="checkbox"
+                  :checked="draft.selectedConnectionIds.includes(connection.id)"
+                  @change="toggleConnectionSelection(connection.id)"
+                >
+                <span class="wizard-option-copy">
+                  <strong>{{ connection.label }}</strong>
+                  <small class="wizard-option-meta">{{ connection.databaseType }}</small>
+                  <small>{{ connection.detail }}</small>
+                </span>
+              </label>
+            </template>
             <p v-if="wizardValidation.connectionError" class="wizard-validation">{{ wizardValidation.connectionError }}</p>
           </section>
 
-          <section class="wizard-group" aria-labelledby="autobench-profiles-title">
+          <section class="wizard-group" aria-labelledby="autobench-benchmark-types-title">
             <div class="wizard-group-header">
-              <h3 id="autobench-profiles-title">Profiles</h3>
-              <span class="wizard-chip">Default order preserved</span>
+              <h3 id="autobench-benchmark-types-title">Benchmark Types</h3>
+              <span class="wizard-chip">{{ draft.selectedProfiles.length }} selected</span>
             </div>
-            <p class="wizard-group-copy">First-stage profiles stay local and ordered as test, cpu_bound, io_bound.</p>
-            <div class="filter-block">
-              <h4>Profile Scope</h4>
-              <p class="wizard-group-copy compact">Local-only profile metadata. This is not yet a suite plan preview.</p>
-            </div>
+
             <label
               v-for="profile in profileOptions"
               :key="profile.id"
@@ -255,157 +410,17 @@ async function pollSuiteStatus() {
             <p v-if="wizardValidation.profileError" class="wizard-validation">{{ wizardValidation.profileError }}</p>
           </section>
 
-          <section class="wizard-group" aria-labelledby="autobench-policy-title">
+          <section class="wizard-group">
             <div class="wizard-group-header">
-              <h3>Plan Preview</h3>
-              <span class="wizard-chip">{{ planPreview.totalItems }} local items</span>
+              <h3>Execution Policy</h3>
+              <span class="wizard-chip">Default</span>
             </div>
-            <p class="wizard-group-copy">Preview only. This is a local orchestration sketch and does not create or run a suite.</p>
-            <div v-if="planPreview.totalItems === 0" class="preview-empty">
-              Select at least one connection and one profile to build the local preview.
-            </div>
-            <ul v-else class="preview-list">
-              <li v-for="item in planPreview.items" :key="item.id" class="preview-row">
-                <span>#{{ item.order }}</span>
-                <strong>{{ item.connectionLabel }}</strong>
-                <small>{{ item.databaseType }}</small>
-                <small>{{ item.profileId }}</small>
-              </li>
-            </ul>
-          </section>
-
-          <section class="wizard-group" aria-labelledby="autobench-policy-title">
-            <div class="wizard-group-header">
-              <h3 id="autobench-policy-title">Execution Policy</h3>
-              <span class="wizard-chip">Read-only stage one defaults</span>
-            </div>
-            <p class="wizard-group-copy">This round only exposes the default orchestration policy and does not offer a strategy editor.</p>
             <dl class="policy-summary">
               <div v-for="item in policySummaryItems" :key="item.label" class="policy-row">
                 <dt>{{ item.label }}</dt>
                 <dd>{{ item.value }}</dd>
               </div>
             </dl>
-          </section>
-        </div>
-      </section>
-
-      <section class="autobench-section autobench-monitor" aria-labelledby="autobench-monitor-title">
-        <div class="section-header">
-          <h2 id="autobench-monitor-title">Monitor</h2>
-          <p>{{ monitorPlaceholder.description }}</p>
-        </div>
-        <div class="monitor-groups">
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Suite Progress</h3>
-              <span class="wizard-chip">{{ monitorState.progressPercent }}%</span>
-            </div>
-            <p class="wizard-group-copy">Overall status: {{ monitorState.statusLabel }}</p>
-            <p class="wizard-order">{{ monitorState.completedLabel }}</p>
-          </section>
-
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Current Item</h3>
-              <span class="wizard-chip">{{ monitorState.currentItem ? monitorState.currentItem.status : 'idle' }}</span>
-            </div>
-            <div v-if="monitorState.currentItem" class="monitor-current-item">
-              <strong>{{ monitorState.currentItem.connectionId }}</strong>
-              <small>{{ monitorState.currentItem.profileType }}</small>
-              <small>{{ monitorState.currentItem.status }}</small>
-            </div>
-            <p v-else class="preview-empty">{{ monitorState.emptyMessage }}</p>
-          </section>
-
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Item Status</h3>
-              <span class="wizard-chip">{{ monitorState.itemRows.length }} tracked</span>
-            </div>
-            <div v-if="monitorState.itemRows.length === 0" class="preview-empty">
-              Item-level monitor rows will appear after a suite snapshot is available.
-            </div>
-            <ul v-else class="preview-list">
-              <li v-for="item in monitorState.itemRows" :key="item.id" class="preview-row monitor-row">
-                <strong>{{ item.connectionId }}</strong>
-                <small>{{ item.profileType }}</small>
-                <small>{{ item.status }}</small>
-                <small>{{ item.phaseLabel }}</small>
-                <small>{{ item.logLabel }}</small>
-                <small>{{ item.resultSummary || 'No summary yet' }}</small>
-              </li>
-            </ul>
-          </section>
-        </div>
-      </section>
-
-      <section class="autobench-section autobench-report" aria-labelledby="autobench-report-title">
-        <div class="section-header">
-          <h2 id="autobench-report-title">Report</h2>
-          <p>{{ reportPlaceholder.description }}</p>
-        </div>
-        <div class="monitor-groups">
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Generated</h3>
-              <span class="wizard-chip">{{ reportState.generatedAtLabel }}</span>
-            </div>
-            <p class="wizard-group-copy">Current suite report status: {{ reportState.statusLabel }}</p>
-            <p class="wizard-order" v-if="reportState.generatedAtLabel === 'Pending'">
-              No AutoBench report has been generated yet. Export entries stay visible but unavailable until artifacts exist.
-            </p>
-          </section>
-
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Summary</h3>
-              <span class="wizard-chip">{{ reportState.summaryCards.length }} metrics</span>
-            </div>
-            <dl class="policy-summary">
-              <div v-for="card in reportState.summaryCards" :key="card.label" class="policy-row">
-                <dt>{{ card.label }}</dt>
-                <dd>{{ card.value }}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Failure Analysis</h3>
-              <span class="wizard-chip">{{ reportState.failureRows.length }} items</span>
-            </div>
-            <div v-if="reportState.failureRows.length === 0" class="preview-empty">
-              No failed or skipped suite items are recorded in the current report snapshot.
-            </div>
-            <ul v-else class="preview-list">
-              <li v-for="failure in reportState.failureRows" :key="failure.id" class="preview-row report-failure-row">
-                <strong>{{ failure.connectionId }}</strong>
-                <small>{{ failure.profileType }}</small>
-                <small>{{ failure.errorSummary }}</small>
-              </li>
-            </ul>
-            <ul class="recommendation-list">
-              <li v-for="item in reportState.recommendations" :key="item">{{ item }}</li>
-            </ul>
-          </section>
-
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Export Entries</h3>
-              <span class="wizard-chip">{{ reportState.exportEntries.length }} formats</span>
-            </div>
-            <div class="report-entry-list">
-              <div v-for="entry in reportState.exportEntries" :key="entry.id" class="report-entry">
-                <div>
-                  <strong>{{ entry.label }}</strong>
-                  <small>{{ entry.path || 'Artifact path pending' }}</small>
-                </div>
-                <span :class="['wizard-chip', { 'report-entry-unavailable': !entry.available }]">
-                  {{ entry.available ? 'Available' : 'Pending' }}
-                </span>
-              </div>
-            </div>
           </section>
         </div>
       </section>
@@ -432,6 +447,7 @@ async function pollSuiteStatus() {
   font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .page-subtitle {
@@ -441,14 +457,10 @@ async function pollSuiteStatus() {
   line-height: 1.5;
 }
 
-.placeholder-action {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  background: var(--bg-secondary);
-  color: var(--text-muted);
-  cursor: not-allowed;
-  box-shadow: none;
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .primary-action {
@@ -467,33 +479,212 @@ async function pollSuiteStatus() {
   cursor: not-allowed;
 }
 
-.create-error {
-  margin-top: 8px;
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.create-success {
-  margin-top: 8px;
-  color: var(--success);
-  font-size: 13px;
+.secondary-action {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: none;
+  font-weight: 500;
 }
 
 .start-action {
-  margin-left: 8px;
   background: var(--success);
   border-color: var(--success);
 }
 
-.status-info {
-  margin-top: 8px;
-  color: var(--text-secondary);
+.running-action {
+  background: var(--warning);
+  border-color: var(--warning);
+}
+
+.error-banner {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  color: var(--danger);
+}
+
+.suite-status-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.status-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
   font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.status-success {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.status-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.status-running {
+  background: var(--primary-bg);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.status-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.status-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.progress-bar-container {
+  position: relative;
+  height: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+.progress-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.items-list {
+  margin-top: 16px;
+}
+
+.items-list h4 {
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+}
+
+.items-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.item-connection {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.item-type {
+  color: var(--text-secondary);
+}
+
+.item-status {
+  text-transform: capitalize;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  color: var(--primary-dark);
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.suite-actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
 }
 
 .autobench-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -502,13 +693,12 @@ async function pollSuiteStatus() {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 24px;
-  box-shadow: var(--shadow-sm);
-  min-height: 220px;
 }
 
 .section-header h2 {
   font-size: 18px;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .section-header p {
@@ -541,6 +731,7 @@ async function pollSuiteStatus() {
 .wizard-group-header h3 {
   font-size: 15px;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .wizard-chip {
@@ -554,43 +745,11 @@ async function pollSuiteStatus() {
   font-size: 12px;
 }
 
-.wizard-group-copy {
-  margin-top: 8px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.wizard-group-copy.compact {
-  margin-top: 6px;
-}
-
-.wizard-option-card {
-  margin-top: 12px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  cursor: pointer;
-}
-
-.wizard-option-card-profile {
-  align-items: center;
-}
-
 .filter-block {
   margin-top: 14px;
 }
 
-.filter-block h4 {
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
 .filter-options {
-  margin-top: 10px;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -608,6 +767,22 @@ async function pollSuiteStatus() {
 .filter-pill.active {
   color: var(--primary);
   border-color: var(--primary);
+}
+
+.wizard-option-card {
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
+.wizard-option-card-profile {
+  align-items: center;
 }
 
 .wizard-option-copy {
@@ -634,6 +809,7 @@ async function pollSuiteStatus() {
   margin-top: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+  font-size: 13px;
 }
 
 .wizard-validation {
@@ -642,38 +818,14 @@ async function pollSuiteStatus() {
   font-size: 13px;
 }
 
-.preview-empty {
+.loading-state,
+.empty-state {
   margin-top: 12px;
+  padding: 16px;
+  text-align: center;
   color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.preview-list {
-  margin-top: 12px;
-  display: grid;
-  gap: 10px;
-  padding-left: 0;
-  list-style: none;
-}
-
-.preview-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-}
-
-.preview-row strong {
-  color: var(--text-primary);
-}
-
-.preview-row small,
-.preview-row span {
-  color: var(--text-secondary);
+  border-radius: var(--radius-md);
 }
 
 .policy-summary {
@@ -700,77 +852,14 @@ async function pollSuiteStatus() {
   text-align: right;
 }
 
-.monitor-groups {
-  margin-top: 16px;
-  display: grid;
-  gap: 16px;
-}
+@media (max-width: 768px) {
+  .status-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
-.monitor-current-item {
-  margin-top: 12px;
-  display: grid;
-  gap: 6px;
-}
-
-.monitor-current-item strong {
-  color: var(--text-primary);
-}
-
-.monitor-current-item small {
-  color: var(--text-secondary);
-}
-
-.monitor-row {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.report-failure-row {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr);
-}
-
-.recommendation-list {
-  margin-top: 12px;
-  padding-left: 18px;
-  color: var(--text-secondary);
-  display: grid;
-  gap: 8px;
-}
-
-.report-entry-list {
-  margin-top: 12px;
-  display: grid;
-  gap: 10px;
-}
-
-.report-entry {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-}
-
-.report-entry strong {
-  color: var(--text-primary);
-}
-
-.report-entry small {
-  margin-top: 4px;
-  display: block;
-  color: var(--text-secondary);
-  word-break: break-all;
-}
-
-.report-entry-unavailable {
-  color: var(--text-muted);
-}
-
-@media (max-width: 1080px) {
-  .autobench-grid {
-    grid-template-columns: 1fr;
+  .items-header,
+  .item-row {
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

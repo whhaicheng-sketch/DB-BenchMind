@@ -1,34 +1,27 @@
 # AutoBench 架构重构进度
 
-**状态: AutoBench Usable Implementation - 进行中**
-
-当前阶段: AutoBench 可用化实现（非 Phase 2 监控扩展）
-当前模块: M10
-当前任务: T10.2
-下一任务: T10.3
+**状态: AutoBench Usable Implementation - ✅ 已完成**
 
 ---
 
-## 真实状态说明
+## 完成状态说明
 
-### Phase 1 - Reports 持久化层 ✅ 已完成
+### Phase 1 - Reports 持久化层 ✅
 
 - M0-M8 全部完成
 - Reports 数据模型、Usecase、前端页面已完成
 - 单次 Benchmark 自动生成 report (suite_id="standalone")
 - suite_manifest.json 结构已定义
 
-### AutoBench UI 当前状态 ⚠️
+### AutoBench 可用化 ✅
 
-**AutoBench 页面是占位草稿，非可用产品**：
-- "Create Suite (later task)" 按钮是 `disabled` 占位符
-- Wizard 使用本地静态假数据，不调用真实 API
-- 不能创建真实 Suite
-- 不能执行 Suite
-
-### 本轮目标
-
-把 AutoBench 从"占位/草稿 UI"实现为"可创建 Suite、可执行 Suite、可写入 Reports 的真实可用功能"。
+**AutoBench 页面已实现为可用产品**：
+- Create Suite 按钮调用真实 API
+- Start Suite 按钮调用真实 API
+- 使用真实 Connections 数据
+- Suite 状态面板展示进度
+- Item 级别状态展示
+- Reports 联动导航
 
 ---
 
@@ -46,84 +39,49 @@
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ✅ 完成 |
 | M9 | AutoBench 后端 API | ✅ 完成 |
-| M10 | Suite 创建功能 | 🔄 进行中 |
-| M11 | Suite 执行功能 | ⏳ 待开始 |
-| M12 | AutoBench UI 激活 | ⏳ 待开始 |
-| M13 | 文档修正与最终验收 | ⏳ 待开始 |
+| M10 | Suite 创建功能 | ✅ 完成 |
+| M11 | Suite 执行功能 | ✅ 完成 |
+| M12 | AutoBench UI 激活 | ✅ 完成 |
+| M13 | 文档修正与最终验收 | ✅ 完成 |
 
 ---
 
-## 任务日志
+## 测试状态
 
-### M9 - AutoBench 后端 API ✅
+### 后端 AutoBench 测试 (12 个)
+- `TestAutoBenchBinding_CreateSuite` - 3 子测试 ✅
+- `TestAutoBenchBinding_GetSuiteStatus` ✅
+- `TestAutoBenchBinding_GetSuiteStatus_NotFound` ✅
+- `TestAutoBenchBinding_GetExecutionPlan` ✅
+- `TestAutoBenchBinding_ListProfiles` ✅
+- `TestAutoBenchBinding_StartSuite_NoRunner` ✅
+- `TestSuiteRepository_Save` ✅
+- `TestSuiteRepository_FindByID_NotFound` ✅
+- `TestSuiteRepository_FindAll` ✅
+- `TestSuiteRepository_UpdateStatus` ✅
+- `TestSuiteRepository_Delete` ✅
+- `TestSuiteRepository_Delete_NotFound` ✅
 
-- [x] T9.1 定义 AutoBenchBinding API
-  - CreateSuite: 创建 Suite（基于 connection_ids + template_ids）
-  - StartSuite: 启动 Suite 执行
-  - GetSuiteStatus: 获取 Suite 状态
-  - GetSuiteItems: 获取 SuiteItem 列表
-  - CancelSuite: 取消 Suite 执行
-- [x] T9.2 实现 SuiteRepository
-  - CreateSuite: 插入 suites 表
-  - GetSuite: 查询单条
-  - ListSuites: 分页查询
-  - UpdateSuiteStatus: 更新状态
-- [x] T9.3 后端单元测试
-
-### M10 - Suite 创建功能 🔄
-
-- [x] T10.1 Suite 创建逻辑
-  - 基于 selected_connection_ids + selected_template_ids
-  - 生成 SuiteItem 列表
-  - 写入 suites 表
-  - 生成初始 suite_manifest.json (on start)
-- [ ] T10.2 前端 Create Suite 按钮
-  - 移除 disabled 属性
-  - 调用 CreateSuite API
-  - 显示创建结果
-- [ ] T10.3 后端单元测试
-
-### M11 - Suite 执行功能 ⏳
-
-- [x] T11.1 Suite 执行编排
-  - 实现 AutoBenchSuiteRunner (已存在)
-  - 逐个执行 SuiteItem
-  - 调用现有 BenchmarkUseCase
-  - 通过 ReportCollector 生成 report
-  - 更新 item 状态
-- [x] T11.2 状态回写
-  - 更新 suite_manifest.json
-  - 更新 suites 表状态
-  - 实时进度更新
-- [ ] T11.3 前端 Start Suite 按钮
-  - 移除 disabled 属性
-  - 调用 StartSuite API
-  - 显示执行进度
-- [ ] T11.4 后端单元测试
-
-### M12 - AutoBench UI 激活 🔄
-
-- [x] T12.1 真实数据源接入
-  - Connections 列表从真实 API 获取
-  - Templates 列表从真实 API 获取
-  - 删除静态假数据
-- [ ] T12.2 Suite 状态展示
-  - Suite 级别状态
-  - Item 级别状态
-  - 执行进度条
-- [ ] T12.3 Reports 联动
-  - AutoBench 结果出现在 Reports 列表
-  - 点击可查看报告详情
-- [ ] T12.4 前端单元测试
-
-### M13 - 文档修正与最终验收 ⏳
-
-- [ ] T13.1 文档修正
-  - 删除旧草稿术语
-  - 准确描述当前状态
-  - 更新架构图
-- [ ] T13.2 兼容性回归测试
-- [ ] T13.3 最终验收
+### 前端 AutoBench 测试 (19 个)
+- T12.2: Suite 状态面板展示 ✅
+- T12.2: Item 级别状态展示 ✅
+- T12.2: 进度条展示 ✅
+- T12.2: 状态徽章样式 ✅
+- T12.3: viewReport 函数 ✅
+- T12.3: goToReports 函数 ✅
+- T12.3: View Report 按钮 ✅
+- T12.3: View All Reports 按钮 ✅
+- T12.1: 真实数据源 ✅
+- T12.1: 加载连接 ✅
+- M10: CreateSuite API ✅
+- M11: StartSuite API ✅
+- M11: GetSuiteStatus API ✅
+- T12.2: suiteSummary computed ✅
+- T12.2: 按钮状态 ✅
+- T12.2: 错误处理 ✅
+- T12.2: 清理 polling ✅
+- T12.2: 连接类型过滤 ✅
+- T12.2: wizard draft ✅
 
 ---
 
@@ -146,7 +104,7 @@
 | D013 | 监控取数路径 | 直接访问 SystemCollector，不依赖前端事件 |
 | D014 | 持久化失败处理 | 记录日志 + PersistError 字段 |
 | D015 | 写入顺序 | 文件先写，SQLite 后写 |
-| D016 | AutoBench 当前状态 | 占位草稿，非可用产品 |
+| D016 | AutoBench 当前状态 | 可用实现已完成 |
 | D017 | 本轮目标 | AutoBench 可用化，非 Phase 2 监控扩展 |
 | D018 | 数据源 | 真实 Connections/Templates API |
 | D019 | 执行策略 | 复用 BenchmarkUseCase，不重写执行引擎 |
@@ -166,7 +124,7 @@
 
 ## 本轮不做
 
-以下能力不在本轮范围：
+以下能力不在本轮范围（可在后续迭代中实现）：
 
 - Memory 使用率
 - Network IO (rx/tx)
@@ -180,3 +138,4 @@
 
 **创建日期**: 2026-03-25
 **最后更新**: 2026-03-27
+**状态**: ✅ 完成

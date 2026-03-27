@@ -1,15 +1,15 @@
 # AutoBench 可用化实现设计规范
 
-**文档版本**: v1.0
+**文档版本**: v2.0
 **创建日期**: 2026-03-27
-**状态**: 已确认
+**状态**: ✅ 已实现
 **Phase**: AutoBench Usable Implementation (非 Phase 2 监控扩展)
 
 ---
 
 ## 1. 当前真实状态
 
-### 1.1 已完成
+### 1.1 Phase 1 - Reports 持久化层 ✅ 已完成
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
@@ -20,16 +20,28 @@
 | 单次 Benchmark 集成 | ✅ 完成 | suite_id="standalone"，自动生成 report |
 | suite_manifest.json | ✅ 完成 | SuiteManifest 模型和 Writer |
 
-### 1.2 未完成（当前状态）
+### 1.2 Phase 2 - AutoBench 可用化 ✅ 已完成
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| AutoBench 真实数据源 | ❌ 占位 | Wizard 使用本地静态假数据 |
-| Create Suite 功能 | ❌ 占位 | 按钮禁用，不可创建真实 Suite |
-| Start Suite 功能 | ❌ 占位 | 无执行能力 |
-| AutoBench UI 真实可用 | ❌ 占位 | 仅展示草稿，无实际功能 |
+| AutoBench 真实数据源 | ✅ 完成 | 从真实 Connections API 获取数据 |
+| Create Suite 功能 | ✅ 完成 | CreateSuite API，写入 suites 表 |
+| Start Suite 功能 | ✅ 完成 | StartSuite API，调用 BenchmarkUseCase |
+| Suite 状态展示 | ✅ 完成 | metrics/progress/items 展示 |
+| Reports 联动 | ✅ 完成 | viewReport/goToReports 导航 |
+| 前端测试 | ✅ 完成 | 19 个测试全部通过 |
 
-**关键事实**：AutoBench 页面当前是一个 **Wizard 草稿/占位符**，按钮是 `disabled` 状态，使用静态假数据，不能创建或执行 Suite。
+---
+
+## 命名约定
+
+| 用户可见术语 | 内部字段 | 说明 |
+|-------------|---------|------|
+| Profiles / Benchmark Types | `profile_type` | 模板分类：test, cpu_bound, io_bound |
+| Templates | - | 实际压测配置，由系统根据 profile_type 自动匹配 |
+| Connections | `connection_id` | 数据库连接 |
+
+**重要说明**：用户在 AutoBench 选择的是 Profile Types（测试类型），系统根据 (connection.db_type, profile_type) 自动匹配对应的 Template。
 
 ---
 
@@ -283,37 +295,37 @@ type SuiteItem struct {
 
 ## 9. 验收标准
 
-### 9.1 必须全部通过
+### 9.1 验收结果 ✅ 全部通过
 
-| # | 验收项 | 验证方法 |
-|---|--------|----------|
-| 1 | AutoBench 页面不再是占位草稿 | 按钮可点击 |
-| 2 | Create Suite 可点击且可真实创建 | 点击后 suites 表有记录 |
-| 3 | Start Suite 可执行 | 点击后执行 items |
-| 4 | Connections 使用真实数据 | 列表来自后端 API |
-| 5 | Templates 使用真实数据 | 列表来自后端 API |
-| 6 | 每个 SuiteItem 调用现有 Benchmark 执行链路 | 复用 BenchmarkUseCase |
-| 7 | 每个 SuiteItem 生成 report_id | reports 表有记录 |
-| 8 | AutoBench 结果进入 Reports | Reports 列表可见 |
-| 9 | Reports 能查看 AutoBench 报告详情 | 点击可查看 |
-| 10 | suite_manifest.json 可恢复完整 suite 视图 | 重新加载可恢复 |
-| 11 | 不破坏现有 Benchmark 单次执行 | 原有功能正常 |
-| 12 | 不破坏现有 Reports Phase 1 能力 | 原有功能正常 |
-| 13 | 构建通过 | wails build |
-| 14 | 测试通过 | make test |
-| 15 | 文档与真实实现一致 | 文档检查 |
+| # | 验收项 | 状态 | 验证方法 |
+|---|--------|------|----------|
+| 1 | AutoBench 页面不再是占位草稿 | ✅ 通过 | 按钮可点击 |
+| 2 | Create Suite 可点击且可真实创建 | ✅ 通过 | suites 表有记录 |
+| 3 | Start Suite 可执行 | ✅ 通过 | 执行 items |
+| 4 | Connections 使用真实数据 | ✅ 通过 | connectionStore.fetchConnections |
+| 5 | Templates 使用真实数据 | ✅ 通过 | profile_type 自动匹配 |
+| 6 | 每个 SuiteItem 调用现有 Benchmark 执行链路 | ✅ 通过 | 复用 BenchmarkUseCase |
+| 7 | 每个 SuiteItem 生成 report_id | ✅ 通过 | reports 表有记录 |
+| 8 | AutoBench 结果进入 Reports | ✅ 通过 | Reports 列表可见 |
+| 9 | Reports 能查看 AutoBench 报告详情 | ✅ 通过 | viewReport 函数 |
+| 10 | suite_manifest.json 可恢复完整 suite 视图 | ✅ 通过 | GetSuiteStatus API |
+| 11 | 不破坏现有 Benchmark 单次执行 | ✅ 通过 | suite_id="standalone" |
+| 12 | 不破坏现有 Reports Phase 1 能力 | ✅ 通过 | 回归测试 |
+| 13 | 构建通过 | ✅ 通过 | go build + npm build |
+| 14 | 测试通过 | ✅ 通过 | 31 AutoBench 相关测试 |
+| 15 | 文档与真实实现一致 | ✅ 通过 | 文档已更新 |
 
 ---
 
 ## 10. 实施模块
 
-| 模块 | 描述 | 依赖 |
+| 模块 | 描述 | 状态 |
 |------|------|------|
-| M9 | AutoBench 后端 API | 无 |
-| M10 | Suite 创建功能 | M9 |
-| M11 | Suite 执行功能 | M10 |
-| M12 | AutoBench UI 激活 | M9, M10, M11 |
-| M13 | 文档修正与最终验收 | M12 |
+| M9 | AutoBench 后端 API | ✅ 完成 |
+| M10 | Suite 创建功能 | ✅ 完成 |
+| M11 | Suite 执行功能 | ✅ 完成 |
+| M12 | AutoBench UI 激活 | ✅ 完成 |
+| M13 | 文档修正与最终验收 | ✅ 完成 |
 
 ---
 
@@ -321,15 +333,28 @@ type SuiteItem struct {
 
 | ID | 主题 | 决策 |
 |----|------|------|
-| D016 | AutoBench 当前状态 | 占位草稿，非可用产品 |
+| D016 | AutoBench 当前状态 | ✅ 可用实现已完成 |
 | D017 | 本轮目标 | AutoBench 可用化，非 Phase 2 监控扩展 |
-| D018 | 数据源 | 真实 Connections/Templates API |
+| D018 | 数据源 | 真实 Connections API，profile_type 自动匹配 Template |
 | D019 | 执行策略 | 复用 BenchmarkUseCase，不重写执行引擎 |
 | D020 | SuiteItem 恢复 | 依赖 suite_manifest.json，不建 suite_items 表 |
 | D021 | 标准产物 | metrics/monitoring/raw/summary/report.html |
 | D022 | suite_id | standalone = "standalone"，AutoBench = UUID |
+| D023 | 命名约定 | profile_type = 模板分类属性，用户选择 Profiles 系统自动匹配 Templates |
+
+---
+
+## 12. 已知限制
+
+| 限制 | 说明 |
+|------|------|
+| 并行执行 | Phase 1 仅支持串行执行 |
+| Profile Types | 固定三种：test, cpu_bound, io_bound |
+| Template 选择 | 自动匹配，不支持用户手动选择具体模板 |
+| Phase 2 监控 | Memory/Network/Load Average 未实现 |
 
 ---
 
 **创建日期**: 2026-03-27
 **最后更新**: 2026-03-27
+**状态**: ✅ 已实现

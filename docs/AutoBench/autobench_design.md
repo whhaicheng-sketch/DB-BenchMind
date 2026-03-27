@@ -1,13 +1,30 @@
 # AutoBench 设计文档
 
+> **状态**: ✅ 已实现 (2026-03-27)
+> **实现版本**: AutoBench Usable Implementation
+
 ## 1. 目标与定位
-AutoBench 是一个**全新页面/新模块**，用于批量选择多个数据库连接，并基于现有模板与现有执行能力完成自动化测试与报告输出。AutoBench 只做编排与聚合，不改写当前单任务链路。
+AutoBench 是一个**批量压测编排模块**，用于批量选择多个数据库连接，并基于现有模板与现有执行能力完成自动化测试与报告输出。AutoBench 只做编排与聚合，不改写当前单任务链路。
 
 ### 核心定位
-- 新页面，不替代现有 Performance Analysis
+- 独立页面，不替代现有 Tasks & Monitor
 - 只调用现有 Connections、Templates、任务执行、指标采集能力
 - 不影响当前任何已有功能、默认值、交互语义与执行链路
 - 产出 Suite 级别结果与报告
+
+### 命名约定
+
+| 用户可见术语 | 内部字段 | Legacy/内部别名 | 说明 |
+|-------------|---------|----------------|------|
+| Benchmark Types | `profile_type` | profiles, profile_type | 测试类型：test, cpu_bound, io_bound |
+| Templates | - | - | 实际压测配置，由系统根据 benchmark type 自动匹配 |
+| Connections | `connection_id` | - | 数据库连接 |
+| Reports | `report_id` | - | 压测报告 |
+
+**重要说明**：
+- 用户在 AutoBench 选择的是 **Benchmark Types**（测试类型）
+- 系统根据 (connection.db_type, benchmark_type) 自动匹配对应的 **Template**
+- `profile_type` 作为内部字段名保留，是 Template 的分类属性
 
 ## 2. 设计原则
 1. **兼容性优先**：所有改动必须向后兼容。
@@ -44,37 +61,72 @@ AutoBench 是一个**全新页面/新模块**，用于批量选择多个数据�
 - AutoBenchReportView：展示汇总报告与导出入口
 
 ## 5. 领域模型
+
 ### 5.1 Suite
 表示一轮 AutoBench 批量执行。
-关键字段：
-- id
-- name
-- selected_connection_ids
-- selected_profiles
-- execution_policy
-- status
-- started_at / ended_at
-- items[]
-- report_path / report_json_path
+
+**数据库表 (suites)**:
+```sql
+CREATE TABLE IF NOT EXISTS suites (
+    id              TEXT PRIMARY KEY,
+    name            TEXT,
+    execution_mode  TEXT DEFAULT 'serial',
+    failure_policy  TEXT DEFAULT 'continue_by_connection',
+    cleanup_enabled INTEGER DEFAULT 1,
+    suite_manifest_json_path TEXT,
+    status          TEXT NOT NULL,
+    started_at      TEXT,
+    ended_at        TEXT,
+    total_items         INTEGER DEFAULT 0,
+    completed_items     INTEGER DEFAULT 0,
+    success_items       INTEGER DEFAULT 0,
+    failed_items        INTEGER DEFAULT 0,
+    skipped_items       INTEGER DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**关键字段说明**:
+- `id`: UUID，AutoBench Suite 唯一标识
+- `suite_manifest_json_path`: 恢复 SuiteItem 状态的快照锚点
+- `status`: draft/ready/running/success/partial_success/failed/cancelled
 
 ### 5.2 SuiteItem
-一个 connection + 一个 profile/template 的执行单元。
-关键字段：
-- id
-- suite_id
-- connection_id
-- database_type
-- profile_type
-- template_id
-- status
-- phase_status
-- linked_task_id
-- metrics_summary
-- log_refs
-- error_summary
+一个 connection + 一个 profile_type 的执行单元。
 
-### 5.3 SuiteResult / SuiteReport
-用于最终汇总和导出。
+**注意**: SuiteItem 不单独建表，状态存储在 `suite_manifest.json`。
+
+**关键字段**:
+- `id`: UUID
+- `suite_id`: 关联的 Suite ID
+- `connection_id`: 数据库连接 ID
+- `profile_type`: 压测类型 (test/cpu_bound/io_bound)
+- `template_id`: 自动匹配的模板 ID（运行时确定）
+- `status`: pending/running/success/failed/skipped
+- `report_id`: 执行完成后生成的报告 ID
+
+### 5.3 SuiteManifest (suite_manifest.json)
+恢复完整 Suite 状态的唯一快照锚点。
+
+```json
+{
+  "schema_version": "1.0",
+  "suite_id": "uuid",
+  "name": "AutoBench Suite",
+  "execution_policy": {...},
+  "items": [...],
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+### 5.4 suite_id 策略
+
+| 场景 | suite_id 值 |
+|------|-------------|
+| 单次 Benchmark | `"standalone"` (字符串常量) |
+| AutoBench Suite | UUID |
 
 ## 6. 编排策略
 ### 默认执行策略
