@@ -101,9 +101,9 @@
   - 显示执行进度
 - [ ] T11.4 后端单元测试
 
-### M12 - AutoBench UI 激活 ⏳
+### M12 - AutoBench UI 激活 🔄
 
-- [ ] T12.1 真实数据源接入
+- [x] T12.1 真实数据源接入
   - Connections 列表从真实 API 获取
   - Templates 列表从真实 API 获取
   - 删除静态假数据
