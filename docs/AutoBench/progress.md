@@ -1,11 +1,34 @@
-# AutoBench 架构重构进度 — Reports 持久化层
+# AutoBench 架构重构进度
 
-**状态: Phase 1 - 完成 ✅**
+**状态: AutoBench Usable Implementation - 进行中**
 
-当前阶段: Phase 1 - 核心功能实现
-当前模块: M8 (完成)
-当前任务: T8.4 (已完成)
-下一任务: Phase 2 规划
+当前阶段: AutoBench 可用化实现（非 Phase 2 监控扩展）
+当前模块: M9
+当前任务: T9.1
+下一任务: T9.2
+
+---
+
+## 真实状态说明
+
+### Phase 1 - Reports 持久化层 ✅ 已完成
+
+- M0-M8 全部完成
+- Reports 数据模型、Usecase、前端页面已完成
+- 单次 Benchmark 自动生成 report (suite_id="standalone")
+- suite_manifest.json 结构已定义
+
+### AutoBench UI 当前状态 ⚠️
+
+**AutoBench 页面是占位草稿，非可用产品**：
+- "Create Suite (later task)" 按钮是 `disabled` 占位符
+- Wizard 使用本地静态假数据，不调用真实 API
+- 不能创建真实 Suite
+- 不能执行 Suite
+
+### 本轮目标
+
+把 AutoBench 从"占位/草稿 UI"实现为"可创建 Suite、可执行 Suite、可写入 Reports 的真实可用功能"。
 
 ---
 
@@ -22,142 +45,85 @@
 | M6 | AutoBench 集成 report_id | ✅ 完成 |
 | M7 | 单次 Benchmark 集成 report | ✅ 完成 |
 | M8 | 验收与兼容性回归 | ✅ 完成 |
+| M9 | AutoBench 后端 API | 🔄 进行中 |
+| M10 | Suite 创建功能 | ⏳ 待开始 |
+| M11 | Suite 执行功能 | ⏳ 待开始 |
+| M12 | AutoBench UI 激活 | ⏳ 待开始 |
+| M13 | 文档修正与最终验收 | ⏳ 待开始 |
 
 ---
 
 ## 任务日志
 
-### M0 - 设计规范与进度基础设施 ✅
+### M9 - AutoBench 后端 API 🔄
 
-- [x] T0.1 需求澄清与方案确认
-- [x] T0.2 架构概览文档定稿
-- [x] T0.3 数据模型设计定稿
-- [x] T0.4 执行流程设计定稿
-- [x] T0.5 持久化规范定稿
-- [x] T0.6 设计文档写入 docs/superpowers/specs/
-- [x] T0.7 实现计划写入 docs/superpowers/plans/
+- [ ] T9.1 定义 AutoBenchBinding API
+  - CreateSuite: 创建 Suite（基于 connection_ids + template_ids）
+  - StartSuite: 启动 Suite 执行
+  - GetSuiteStatus: 获取 Suite 状态
+  - GetSuiteItems: 获取 SuiteItem 列表
+  - CancelSuite: 取消 Suite 执行
+- [ ] T9.2 实现 SuiteRepository
+  - CreateSuite: 插入 suites 表
+  - GetSuite: 查询单条
+  - ListSuites: 分页查询
+  - UpdateSuiteStatus: 更新状态
+- [ ] T9.3 后端单元测试
 
-### M1 - 导航 UI 标签重命名 ✅
+### M10 - Suite 创建功能 ⏳
 
-- [x] T1.1 更新 navigationTabs.mjs 标签文本
-- [x] T1.2 前端测试验证
+- [ ] T10.1 Suite 创建逻辑
+  - 基于 selected_connection_ids + selected_template_ids
+  - 生成 SuiteItem 列表
+  - 写入 suites 表
+  - 生成初始 suite_manifest.json
+- [ ] T10.2 前端 Create Suite 按钮
+  - 移除 disabled 属性
+  - 调用 CreateSuite API
+  - 显示创建结果
+- [ ] T10.3 后端单元测试
 
-### M2 - Reports 数据模型与 SQLite 表 ✅
+### M11 - Suite 执行功能 ⏳
 
-- [x] T2.1 定义 Report 领域模型
-- [x] T2.2 SQLite reports/suites 表结构
-- [x] T2.3 集成报告 schema 到 SQLite 初始化
-- [x] T2.4 扩展报告 schema 测试覆盖
+- [ ] T11.1 Suite 执行编排
+  - 实现 AutoBenchSuiteRunner
+  - 逐个执行 SuiteItem
+  - 调用现有 BenchmarkUseCase
+  - 通过 ReportCollector 生成 report
+  - 更新 item 状态
+- [ ] T11.2 状态回写
+  - 更新 suite_manifest.json
+  - 更新 suites 表状态
+  - 实时进度更新
+- [ ] T11.3 前端 Start Suite 按钮
+  - 移除 disabled 属性
+  - 调用 StartSuite API
+  - 显示执行进度
+- [ ] T11.4 后端单元测试
 
-### M3 - ReportCollector 包装器实现 ✅
+### M12 - AutoBench UI 激活 ⏳
 
-- [x] T3.1 ReportCollector 接口定义
-- [x] T3.2 实现 CollectAndPersist 核心逻辑
-- [x] T3.3 文件持久化实现（metrics/monitoring/raw/summary）
+- [ ] T12.1 真实数据源接入
+  - Connections 列表从真实 API 获取
+  - Templates 列表从真实 API 获取
+  - 删除静态假数据
+- [ ] T12.2 Suite 状态展示
+  - Suite 级别状态
+  - Item 级别状态
+  - 执行进度条
+- [ ] T12.3 Reports 联动
+  - AutoBench 结果出现在 Reports 列表
+  - 点击可查看报告详情
+- [ ] T12.4 前端单元测试
 
-### M4 - Reports Usecase 与 API 绑定 ✅
+### M13 - 文档修正与最终验收 ⏳
 
-- [x] T4.1 ReportUsecase 实现
-  - ListReports: 分页查询、过滤（suite_id/status/connection_id）
-  - GetReport: 单条查询
-  - GetReportMetrics: 从 JSON 文件加载完整指标
-  - ListSuites: 分页查询、过滤（status）
-  - GetSuite: 单条查询
-  - 使用 SQLite 兼容的 `?` 占位符
-  - 完整的表驱动测试覆盖
-- [x] T4.2 Wails ReportBinding 暴露
-  - ListReports: 暴露给前端，带 DTO 转换
-  - GetReport: 返回单个报告
-  - GetReportMetrics: 返回 MetricsData
-  - ListSuites: 列出套件
-  - GetSuite: 返回单个套件
-- [x] T4.3 后端单元测试
-
-### M5 - Reports 前端页面 ✅
-
-- [x] T5.1 Reports 列表页（HistoryTab 改造为 ReportsTab）
-- [x] T5.2 Reports 详情页
-- [x] T5.3 图表组件集成
-- [x] T5.4 JSON/HTML 导出功能
-- [x] T5.5 前端单元测试
-  - 格式化函数测试：formatSourceType, formatStatus, getStatusClass, formatDateTime, formatDuration, formatNumber
-  - 过滤器逻辑测试：filterReports
-  - 分页逻辑测试：calculatePagination
-  - 导出数据生成测试：generateMockHTML, buildExportData
-  - 延迟百分位计算测试：calculatePercentile
-  - 共 56 个测试用例全部通过
-
-### M6 - AutoBench 集成 report_id ✅
-
-- [x] T6.1 SuiteItem 关联 report_id
-- [x] T6.2 suite_manifest.json 生成与更新
-  - 添加 SuiteManifest 模型 (schema_version, suite_id, generated_at, suite_info, items, statistics)
-  - 添加 SuiteManifestWriter 用于持久化 suite_manifest.json
-  - 在 AutoBenchSuiteRunner 中集成 manifest 写入：
-    - Suite 开始时写入初始 manifest
-    - 每个 Item 完成时更新 manifest
-    - Suite 结束时写入最终 manifest
-  - 添加 StartedAt/EndedAt 时间字段到 SuiteItem
-- [x] T6.3 后端单元测试
-  - TestSuiteManifestWriter_WriteManifest: nil suite、有效 suite、已完成 items
-  - TestSuiteManifestWriter_ReadManifest: 不存在、有效、无效 JSON
-  - TestSuiteManifestWriter_UpdateManifestItem: 不存在 manifest、不存在 item、更新成功、更新失败
-  - TestSuiteManifestWriter_CalculateStatistics: 空、全部 pending、混合状态、全部成功
-  - TestSuite_ToManifest: 模型转换验证
-  - TestSuiteManifest_ToJSON: JSON 序列化验证
-
-### M7 - 单次 Benchmark 集成 report ✅
-
-- [x] T7.1 单次执行生成 standalone report
-  - 添加 reportCollector 字段到 BenchmarkUseCase
-  - 实现 WithReportCollector 选项模式
-  - 实现 collectStandaloneReport 方法
-  - 使用 suite_id='standalone' 标识独立报告
-  - 在 goroutine 中执行，不阻塞响应
-- [x] T7.2 suite_id = "standalone" 策略实现
-  - 添加 `StandaloneSuiteID` 常量 (= "standalone")
-  - 添加 `IsStandalone(suiteID string) bool` 辅助函数
-  - 添加 `IsAutoBench(suiteID string) bool` 辅助函数
-  - 确保 ReportCollector 使用 StandaloneSuiteID 常量
-  - 确保 suites 表不包含 standalone 条目
-  - 单元测试覆盖所有边界情况
-- [x] T7.3 后端单元测试
-  - TestCollectStandaloneReport_SkipsWhenNoCollector: nil collector 不 panic
-  - TestCollectStandaloneReport_SkipsWhenNoResult: 无 Result 时跳过
-  - TestCollectStandaloneReport_SkipsWhenNotTerminal: 非终态时跳过
-  - TestCollectStandaloneReport_CollectsForCompletedRunWithResult: 成功完成时收集
-  - TestCollectStandaloneReport_CollectsForFailedRunWithResult: 失败但有 Result 时也收集
-  - TestWithReportCollector: 选项模式验证
-  - TestSetReportCollector: setter 方法验证
-  - TestReportCollectorInterface: 接口验证
-  - TestReportCollectorCollectAndPersist: CollectAndPersist 核心逻辑（5 子测试）
-  - TestReportCollectorFilePersistence: 文件持久化验证
-  - 修复 NewTemplateUseCase 调用签名
-
-### M8 - 验收与兼容性回归 🔄
-
-- [x] T8.1 后端回归测试
-  - Go 构建通过: `go build ./...` ✅
-  - Report 模型测试: 6/6 通过 ✅
-  - ReportUsecase 测试: 15/15 通过 ✅
-  - SuiteManifest 测试: 4/4 通过 ✅
-  - ReportCollector 测试: 7/7 通过 ✅
-  - CollectStandaloneReport 测试: 5/5 通过 ✅
-  - 预先存在的测试失败（非 Reports 相关）已记录
-- [x] T8.2 前端回归测试
-  - 前端构建通过: `npm run build` ✅
-  - reportStore 测试: 56/56 通过 ✅
-  - autobenchReportState 测试: 10/10 通过 ✅
-  - 预先存在的测试失败（3 个，非 Reports 相关）已记录
-- [x] T8.3 集成测试
-  - Wails 构建通过: `wails build` ✅
-  - 应用启动验证通过 ✅
-  - 数据库迁移验证通过（旧表自动添加新列）✅
-  - 修复现有数据库的 schema 兼容性问题
-- [x] T8.4 文档同步更新
-  - README.md 结构更新（添加 autobench/report 领域）✅
-  - architecture.md 更新（添加 AutoBench 领域描述）✅
-  - 数据库迁移说明添加 ✅
+- [ ] T13.1 文档修正
+  - 删除旧草稿术语
+  - 准确描述当前状态
+  - 更新架构图
+- [ ] T13.2 兼容性回归测试
+- [ ] T13.3 最终验收
 
 ---
 
@@ -173,42 +139,42 @@
 | D006 | 持久化失败策略 | 不破坏主执行结果，记录错误可追踪 |
 | D007 | suites 表字段 | 使用 suite_manifest_json_path |
 | D008 | SuiteItem 持久化 | 使用 suite_manifest.json |
-| D009 | JSON 导出策略 | Phase 1 运行时动态打包 |
+| D009 | JSON 导出策略 | 运行时动态打包 |
 | D010 | 原始输出存储 | stdout/stderr 内联 raw.json |
 | D011 | JSON Schema 版本 | 所有 JSON 必须包含 schema_version |
 | D012 | 报告来源类型 | reports.source_type 显式字段 |
 | D013 | 监控取数路径 | 直接访问 SystemCollector，不依赖前端事件 |
 | D014 | 持久化失败处理 | 记录日志 + PersistError 字段 |
 | D015 | 写入顺序 | 文件先写，SQLite 后写 |
+| D016 | AutoBench 当前状态 | 占位草稿，非可用产品 |
+| D017 | 本轮目标 | AutoBench 可用化，非 Phase 2 监控扩展 |
+| D018 | 数据源 | 真实 Connections/Templates API |
+| D019 | 执行策略 | 复用 BenchmarkUseCase，不重写执行引擎 |
+| D020 | SuiteItem 恢复 | 依赖 suite_manifest.json，不建 suite_items 表 |
+| D021 | 标准产物 | metrics/monitoring/raw/summary/report.html |
+| D022 | suite_id | standalone = "standalone"，AutoBench = UUID |
 
 ---
 
 ## 设计文档
 
-- **主文档**: docs/superpowers/specs/2026-03-25-autobench-reports-design.md
-- **实现计划**: docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md
+- **Phase 1 设计**: docs/superpowers/specs/2026-03-25-autobench-reports-design.md
+- **Phase 1 实现**: docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md
+- **本轮设计**: docs/superpowers/specs/2026-03-27-autobench-usable-implementation-design.md
 
 ---
 
-## Phase 2 预留扩展
+## 本轮不做
 
-以下能力不在 Phase 1 范围，但在数据模型中预留：
+以下能力不在本轮范围：
 
 - Memory 使用率
 - Network IO (rx/tx)
 - Load Average
 - DB 连接数
 - DB 活跃会话
-
----
-
-## 最近提交
-
-1. `87fc90d` feat(benchmark): integrate standalone report collection
-2. `bc33ce5` feat(bindings): add ReportBinding for Wails frontend
-3. `42a0d18` feat(usecase): add ReportUsecase for querying reports and suites
-4. `537dfbc` feat(autobench): add ReportID field to SuiteItem
-5. `4e62fd8` refactor(ui): rename HistoryTab to ReportsTab
+- stdout.log / stderr.log 单独文件
+- suite_items 表
 
 ---
 
