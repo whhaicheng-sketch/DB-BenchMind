@@ -160,6 +160,42 @@
       "date": "2026-03-27"
     }
   ],
+  "e2e_validation": {
+    "date": "2026-03-27",
+    "status": "all_passed",
+    "connections_tested": ["MySQL", "Oracle", "PostgreSQL", "SQLServer"],
+    "suite_profile": "test",
+    "results": {
+      "MySQL":     { "tps": 73.86,  "latency_avg_ms": 13.53, "tool": "sysbench", "status": "success" },
+      "Oracle":    { "tps": 490.98, "latency_avg_ms": 1.95,  "tool": "swingbench", "status": "success" },
+      "PostgreSQL":{ "tps": 70.18,  "latency_avg_ms": null,   "tool": "sysbench", "status": "success" },
+      "SQLServer": { "tps": 217.30, "latency_avg_ms": null,   "tool": "hammerdb", "status": "success" }
+    },
+    "bugs_found_and_fixed": [
+      {
+        "id": "P1",
+        "severity": "critical",
+        "description": "ReportCollector only wrote files, never inserted into SQLite reports table",
+        "fix": "Added db field, WithDB() option, persistToDB() method to report_collector.go"
+      },
+      {
+        "id": "P2",
+        "severity": "high",
+        "description": "main.go never called benchmarkUC.SetReportCollector()",
+        "fix": "Added report collector creation with DB and SetReportCollector call"
+      },
+      {
+        "id": "P3",
+        "severity": "high",
+        "description": "autobenchUC created without SuiteRepository option",
+        "fix": "Added WithSuiteRepository(suiteRepo) to main.go"
+      }
+    ],
+    "connections_preserved": true,
+    "recovery_script_verified": true,
+    "reports_in_db": 4,
+    "reports_on_disk": 4
+  },
   "changed_files": [
     "docs/superpowers/specs/2026-03-25-autobench-reports-design.md",
     "docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md",
@@ -168,6 +204,8 @@
     "docs/AutoBench/progress.json",
     "internal/app/usecase/report_usecase.go",
     "internal/app/usecase/report_usecase_test.go",
+    "internal/app/usecase/report_collector.go",
+    "internal/app/usecase/report_collector_test.go",
     "internal/transportwails/bindings/report.go",
     "internal/transportwails/bindings/report_test.go",
     "internal/app/usecase/benchmark_usecase.go",
@@ -192,7 +230,10 @@
     "frontend/wailsjs/go/bindings/AutoBenchBinding.js",
     "frontend/wailsjs/go/bindings/AutoBenchBinding.d.ts",
     "frontend/tests/reportStore.test.mjs",
-    "frontend/tests/autoBenchTab.test.mjs"
+    "frontend/tests/autoBenchTab.test.mjs",
+    "cmd/e2e-test/main.go",
+    "scripts/restore_initial_connections.sh",
+    "main.go"
   ],
   "created_at": "2026-03-25",
   "updated_at": "2026-03-27"

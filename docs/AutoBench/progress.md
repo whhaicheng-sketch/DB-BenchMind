@@ -136,6 +136,31 @@
 
 ---
 
+### Phase E2E - 端到端真实验证 ✅ (2026-03-27)
+
+**四库全部通过，真实压测执行成功**
+
+| 数据库 | 工具 | TPS | 平均延迟 | 状态 |
+|--------|------|-----|----------|------|
+| MySQL 5.7.44 | sysbench oltp_read_write | 73.86 | 13.53ms | ✅ 通过 |
+| Oracle 11g | swingbench charbench | 490.98 | 1.95ms | ✅ 通过 |
+| PostgreSQL 13.14 | sysbench oltp_read_write | 70.18 | - | ✅ 通过 |
+| SQL Server 2019 | hammerdb TPROC-C | 217.30 | - | ✅ 通过 |
+
+**发现并修复的问题**:
+- P1: ReportCollector 只写文件不写 SQLite reports 表 → 新增 persistToDB() 方法
+- P2: main.go 未调用 SetReportCollector() → 已修复
+- P3: main.go 未传入 SuiteRepository → 已修复 WithSuiteRepository(suiteRepo)
+
+**验证结果**:
+- 4/4 连接全部可达（含 SSH 隧道）
+- 4/4 压测全部成功（test profile）
+- 4/4 Reports 写入 SQLite + 文件落地（metrics.json, monitoring.json, raw.json）
+- 4/4 初始连接完整保留
+- 连接恢复脚本验证通过：`scripts/restore_initial_connections.sh`
+
+---
+
 **创建日期**: 2026-03-25
 **最后更新**: 2026-03-27
-**状态**: ✅ 完成
+**状态**: ✅ 完成（含端到端真实验证）

@@ -3,8 +3,10 @@ package usecase
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,6 +28,7 @@ type ReportCollector interface {
 // DefaultReportCollector is the default implementation.
 type DefaultReportCollector struct {
 	reportsDir string
+	db         *sql.DB
 }
 
 // ReportCollectorOption configures the collector.
@@ -35,6 +38,13 @@ type ReportCollectorOption func(*DefaultReportCollector)
 func WithReportsDir(dir string) ReportCollectorOption {
 	return func(c *DefaultReportCollector) {
 		c.reportsDir = dir
+	}
+}
+
+// WithDB sets the database connection for persisting report records.
+func WithDB(db *sql.DB) ReportCollectorOption {
+	return func(c *DefaultReportCollector) {
+		c.db = db
 	}
 }
 
@@ -118,7 +128,15 @@ func (c *DefaultReportCollector) CollectAndPersist(
 		return nil, fmt.Errorf("persist files: %w", err)
 	}
 
-	return &report.ReportResult{
+	// Set file paths on report before DB insert
+	rpt.MetricsJSONPath = paths.MetricsJSON
+	rpt.MonitoringJSONPath = paths.MonitoringJSON
+	rpt.RawJSONPath = paths.RawJSON
+	rpt.ReportHTMLPath = paths.ReportHTML
+	rpt.SummaryJSONPath = paths.SummaryJSON
+
+	// Persist report record to database
+	result := &report.ReportResult{
 		ReportID:    reportID,
 		ReportPaths: paths,
 		Summary: report.ReportSummary{
@@ -129,7 +147,14 @@ func (c *DefaultReportCollector) CollectAndPersist(
 			LatencyP95Ms: rpt.LatencyP95Ms,
 			ErrorCount:   rpt.ErrorCount,
 		},
-	}, nil
+	}
+	if err := c.persistToDB(ctx, rpt); err != nil {
+		// Log the error but don't fail the overall result — files are already written.
+		slog.Error("persist report to database", "report_id", reportID, "error", err)
+		result.PersistError = fmt.Errorf("persist report to database: %w", err)
+	}
+
+	return result, nil
 }
 
 // persistFiles writes all report files to the report directory.
@@ -178,6 +203,50 @@ func (c *DefaultReportCollector) persistFiles(
 	}
 
 	return paths, nil
+}
+
+// persistToDB inserts the report record into the SQLite reports table.
+func (c *DefaultReportCollector) persistToDB(ctx context.Context, rpt *report.Report) error {
+	if c.db == nil {
+		return nil // No database configured, skip DB persistence
+	}
+
+	var endedAt *string
+	if rpt.EndedAt != nil {
+		s := rpt.EndedAt.Format(time.RFC3339)
+		endedAt = &s
+	}
+
+	query := `
+		INSERT INTO reports (
+			id, suite_id, suite_item_id, source_type, connection_id, connection_name,
+			database_type, template_id, template_name, started_at, ended_at, duration_ms,
+			status, error_message, tpm, tps, qps, throughput, latency_avg_ms,
+			latency_p95_ms, latency_p99_ms, error_count, metrics_json_path,
+			monitoring_json_path, raw_json_path, report_html_path, summary_json_path,
+			created_at, updated_at, tags
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := c.db.ExecContext(ctx, query,
+		rpt.ID, rpt.SuiteID, nilIfEmpty(rpt.SuiteItemID), string(rpt.SourceType),
+		rpt.ConnectionID, nilIfEmpty(rpt.ConnectionName), rpt.DatabaseType,
+		nilIfEmpty(rpt.TemplateID), nilIfEmpty(rpt.TemplateName),
+		rpt.StartedAt.Format(time.RFC3339), endedAt, rpt.DurationMs,
+		string(rpt.Status), nilIfEmpty(rpt.ErrorMessage),
+		rpt.TPM, rpt.TPS, rpt.QPS, rpt.Throughput,
+		rpt.LatencyAvgMs, rpt.LatencyP95Ms, rpt.LatencyP99Ms, rpt.ErrorCount,
+		nilIfEmpty(rpt.MetricsJSONPath), nilIfEmpty(rpt.MonitoringJSONPath),
+		nilIfEmpty(rpt.RawJSONPath), nilIfEmpty(rpt.ReportHTMLPath),
+		nilIfEmpty(rpt.SummaryJSONPath),
+		rpt.CreatedAt.Format(time.RFC3339), rpt.UpdatedAt.Format(time.RFC3339),
+		nilIfEmpty(rpt.Tags),
+	)
+	if err != nil {
+		return fmt.Errorf("insert report row: %w", err)
+	}
+
+	return nil
 }
 
 // writeJSON writes data to path as formatted JSON (atomic write).

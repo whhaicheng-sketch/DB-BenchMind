@@ -85,8 +85,16 @@ func main() {
 	// Initialize report use case
 	reportUC := usecase.NewReportUsecase(db)
 
+	// Initialize report collector with DB for persisting report records
+	reportCollector := usecase.NewDefaultReportCollector(
+		usecase.WithReportsDir(filepath.Join(dataDir, "reports")),
+		usecase.WithDB(db),
+	)
+	benchmarkUC.SetReportCollector(reportCollector)
+
 	// Initialize AutoBench suite use case and runner
-	autobenchUC := usecase.NewAutoBenchSuiteUseCase()
+	suiteRepo := repository.NewSQLiteSuiteRepository(db)
+	autobenchUC := usecase.NewAutoBenchSuiteUseCase(usecase.WithSuiteRepository(suiteRepo))
 	autobenchRunner := usecase.NewAutoBenchSuiteRunner(
 		autobenchUC,
 		benchmarkUC,

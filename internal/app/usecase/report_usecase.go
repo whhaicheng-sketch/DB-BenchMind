@@ -662,6 +662,14 @@ func (uc *ReportUsecase) ExportReportHTML(ctx context.Context, id string) (strin
 	return string(data), nil
 }
 
+// nilIfEmpty returns nil for empty strings, otherwise returns a pointer to the string.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // GetExportFilePaths returns the file paths for all export files.
 func (uc *ReportUsecase) GetExportFilePaths(ctx context.Context, id string) (metrics, monitoring, raw, html string, err error) {
 	rpt, err := uc.GetReport(ctx, id)
