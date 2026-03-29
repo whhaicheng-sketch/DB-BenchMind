@@ -198,3 +198,51 @@ func TestReportBinding_ListSuites(t *testing.T) {
 		t.Errorf("expected total 0, got %d", result.Total)
 	}
 }
+
+func TestReportBinding_DeleteReport(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := usecase.NewReportUsecase(db)
+	binding := NewReportBinding(uc)
+
+	insertTestReportBinding(t, db, &report.Report{
+		ID:           "rpt-del",
+		SuiteID:      report.StandaloneSuiteID,
+		SourceType:   report.SourceTypeBenchmark,
+		ConnectionID: "conn-1",
+		DatabaseType: "mysql",
+		Status:       report.StatusCompleted,
+		StartedAt:    time.Now(),
+	})
+
+	result := binding.DeleteReport("rpt-del")
+	if result.Error != "" {
+		t.Fatalf("DeleteReport returned error: %s", result.Error)
+	}
+	if !result.Success {
+		t.Error("DeleteReport() expected success=true")
+	}
+
+	// Verify report is gone
+	getResult := binding.GetReport("rpt-del")
+	if getResult.Error == "" {
+		t.Error("DeleteReport() report should be deleted but GetReport succeeded")
+	}
+}
+
+func TestReportBinding_DeleteReport_NotFound(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := usecase.NewReportUsecase(db)
+	binding := NewReportBinding(uc)
+
+	result := binding.DeleteReport("nonexistent")
+	if result.Error == "" {
+		t.Error("DeleteReport() should return error for nonexistent report")
+	}
+	if result.Success {
+		t.Error("DeleteReport() should not return success for nonexistent report")
+	}
+}

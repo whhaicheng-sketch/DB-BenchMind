@@ -823,6 +823,34 @@ export namespace bindings {
 		    return a;
 		}
 	}
+	export class DeleteAllResult {
+	    count?: number;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DeleteAllResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.error = source["error"];
+	    }
+	}
+	export class DeleteReportResult {
+	    success?: boolean;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DeleteReportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
+	}
 	export class ExportFilePathsResult {
 	    metrics?: string;
 	    monitoring?: string;

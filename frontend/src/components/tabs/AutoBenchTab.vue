@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import {
   connectionFilterOptions,
   createAutoBenchWizardDraft,
@@ -13,9 +13,11 @@ import {
 import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding'
 import { useConnectionStore } from '../../stores/connection'
 import { useAppStore } from '../../stores/app'
+import { useAutoBenchStore } from '../../stores/autobench'
 
 const connectionStore = useConnectionStore()
 const appStore = useAppStore()
+const autobenchStore = useAutoBenchStore()
 
 const draft = ref(createAutoBenchWizardDraft())
 const activeConnectionFilter = ref('all')
@@ -26,7 +28,9 @@ const startError = ref('')
 const createdSuiteId = ref('')
 const suiteStatus = ref(null)
 const isPolling = ref(false)
+const elapsedSeconds = ref(0)
 let pollTimeout = null
+let elapsedInterval = null
 let consecutiveErrors = 0
 const MAX_CONSECUTIVE_ERRORS = 5
 
@@ -56,12 +60,24 @@ const canCreateSuite = computed(() => {
 const canStartSuite = computed(() => {
   if (!createdSuiteId.value || isStarting.value) return false
   if (!suiteStatus.value) return true
-  // Can only start if status is draft or ready
   return ['draft', 'ready'].includes(suiteStatus.value.status)
 })
 
 const isSuiteRunning = computed(() => {
   return suiteStatus.value?.status === 'running'
+})
+
+const connNameMap = computed(() => {
+  const map = {}
+  for (const conn of connectionStore.connections) {
+    map[conn.id] = conn.name
+  }
+  return map
+})
+
+const currentItem = computed(() => {
+  if (!suiteStatus.value?.items) return null
+  return suiteStatus.value.items.find(item => item.status === 'running') || null
 })
 
 const suiteSummary = computed(() => {
@@ -78,14 +94,65 @@ const suiteSummary = computed(() => {
   }
 })
 
-// Load connections on mount
+// Elapsed timer management
+watch(isSuiteRunning, (running) => {
+  if (running) {
+    elapsedSeconds.value = 0
+    if (elapsedInterval) clearInterval(elapsedInterval)
+    elapsedInterval = setInterval(() => {
+      elapsedSeconds.value++
+    }, 1000)
+  } else {
+    if (elapsedInterval) {
+      clearInterval(elapsedInterval)
+      elapsedInterval = null
+    }
+  }
+})
+
+function formatElapsed(secs) {
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+// Load connections on mount, recover running suite from store
 onMounted(async () => {
   await connectionStore.fetchConnections()
+
+  // Recover from Pinia store if a suite was active before tab switch
+  if (autobenchStore.createdSuiteId) {
+    createdSuiteId.value = autobenchStore.createdSuiteId
+    if (autobenchStore.suiteStatus) {
+      suiteStatus.value = autobenchStore.suiteStatus
+    }
+    // Always fetch fresh status from backend
+    const ok = await fetchSuiteStatus()
+    if (ok && suiteStatus.value?.status === 'running') {
+      startPolling()
+      // Estimate elapsed from started_at if available
+      if (suiteStatus.value.started_at) {
+        try {
+          const startMs = new Date(suiteStatus.value.started_at).getTime()
+          const nowMs = Date.now()
+          elapsedSeconds.value = Math.max(0, Math.floor((nowMs - startMs) / 1000))
+        } catch { /* ignore */ }
+      }
+      // Restart elapsed counter
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
+    }
+  }
 })
 
 onUnmounted(() => {
   if (pollTimeout) {
     clearTimeout(pollTimeout)
+  }
+  if (elapsedInterval) {
+    clearInterval(elapsedInterval)
   }
 })
 
@@ -114,7 +181,7 @@ async function handleCreateSuite() {
       createError.value = result.error
     } else {
       createdSuiteId.value = result.suite_id
-      // Fetch initial status
+      autobenchStore.setSuiteId(result.suite_id)
       await fetchSuiteStatus()
     }
   } catch (err) {
@@ -136,7 +203,6 @@ async function handleStartSuite() {
     if (result.error) {
       startError.value = result.error
     } else {
-      // Start polling for status
       startPolling()
     }
   } catch (err) {
@@ -153,6 +219,7 @@ async function fetchSuiteStatus() {
     const result = await AutoBenchBinding.GetSuiteStatus(createdSuiteId.value)
     if (!result.error) {
       suiteStatus.value = result
+      autobenchStore.setSuiteStatus(result)
       consecutiveErrors = 0
       return true
     }
@@ -183,13 +250,11 @@ async function pollSuiteStatus() {
 
   await fetchSuiteStatus()
 
-  // Stop polling if too many consecutive errors
   if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
     stopPolling()
     return
   }
 
-  // Continue polling if running, with backoff on errors
   if (suiteStatus.value?.status === 'running') {
     const delay = consecutiveErrors > 0 ? 1000 * Math.min(consecutiveErrors, 5) : 1000
     pollTimeout = setTimeout(pollSuiteStatus, delay)
@@ -200,7 +265,6 @@ async function pollSuiteStatus() {
 
 function viewReport(reportId) {
   if (!reportId) return
-  // Navigate to Reports tab and show the report
   appStore.setActiveTab('reports')
 }
 
@@ -213,7 +277,9 @@ function resetSuite() {
   suiteStatus.value = null
   createError.value = ''
   startError.value = ''
+  elapsedSeconds.value = 0
   stopPolling()
+  autobenchStore.resetSuite()
 }
 
 function getStatusLabel(status) {
@@ -244,13 +310,10 @@ function getStatusClass(status) {
       <div>
         <h1 class="page-title">AutoBench</h1>
         <p class="page-subtitle">
-          Automated database benchmark suite. Select connections and profiles to create and run benchmark suites.
+          Create and run benchmark suites. Monitor execution progress here.
         </p>
       </div>
       <div class="header-actions">
-        <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
-          {{ isCreating ? 'Creating...' : 'Create Suite' }}
-        </button>
         <button v-if="createdSuiteId && !isSuiteRunning" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
           {{ isStarting ? 'Starting...' : 'Start Suite' }}
         </button>
@@ -267,59 +330,68 @@ function getStatusClass(status) {
       <span>{{ createError || startError }}</span>
     </div>
 
-    <div v-if="createdSuiteId && suiteStatus" class="suite-status-panel">
-      <div class="status-header">
-        <h3>Suite: {{ suiteStatus.name || createdSuiteId }}</h3>
+    <!-- Active Run Section -->
+    <div v-if="createdSuiteId && suiteStatus" class="active-run-section">
+      <div class="run-strip">
         <span :class="['status-badge', getStatusClass(suiteStatus.status)]">
           {{ getStatusLabel(suiteStatus.status) }}
         </span>
+        <span class="run-name">{{ suiteStatus.name || createdSuiteId }}</span>
+        <span class="run-progress">
+          {{ suiteStatus.completed_items }}/{{ suiteStatus.total_items }}
+        </span>
+        <span v-if="currentItem" class="run-current">
+          Running: {{ connNameMap[currentItem.connection_id] || currentItem.connection_id }} - {{ currentItem.profile_type }}
+        </span>
+        <span v-if="isSuiteRunning" class="run-elapsed">{{ formatElapsed(elapsedSeconds) }}</span>
       </div>
 
-      <div class="status-metrics">
-        <div class="metric">
-          <span class="metric-label">Total Items</span>
-          <span class="metric-value">{{ suiteStatus.total_items }}</span>
+      <div class="run-detail">
+        <div class="status-metrics">
+          <div class="metric">
+            <span class="metric-label">Total</span>
+            <span class="metric-value">{{ suiteStatus.total_items }}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Pending</span>
+            <span class="metric-value">{{ suiteStatus.pending_items }}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Running</span>
+            <span class="metric-value">{{ suiteStatus.running_items }}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Completed</span>
+            <span class="metric-value">{{ suiteStatus.completed_items }}</span>
+          </div>
         </div>
-        <div class="metric">
-          <span class="metric-label">Pending</span>
-          <span class="metric-value">{{ suiteStatus.pending_items }}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Running</span>
-          <span class="metric-value">{{ suiteStatus.running_items }}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Completed</span>
-          <span class="metric-value">{{ suiteStatus.completed_items }}</span>
-        </div>
-      </div>
 
-      <div class="progress-bar-container">
-        <div class="progress-bar" :style="{ width: suiteSummary.progress + '%' }"></div>
-        <span class="progress-label">{{ suiteSummary.progress }}%</span>
-      </div>
-
-      <div v-if="suiteStatus.items && suiteStatus.items.length > 0" class="items-list">
-        <h4>Items ({{ suiteStatus.items.length }})</h4>
-        <div class="items-header">
-          <span>Connection</span>
-          <span>Type</span>
-          <span>Status</span>
-          <span>Report</span>
+        <div class="progress-bar-container">
+          <div class="progress-bar" :style="{ width: suiteSummary.progress + '%' }"></div>
+          <span class="progress-label">{{ suiteSummary.progress }}%</span>
         </div>
-        <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
-          <span class="item-connection">{{ item.connection_id }}</span>
-          <span class="item-type">{{ item.profile_type }}</span>
-          <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
-          <span class="item-report">
-            <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
-              View Report
-            </button>
-            <span v-else-if="item.error_message" class="error-text" :title="item.error_message">
-              Error
+
+        <div v-if="suiteStatus.items && suiteStatus.items.length > 0" class="items-list">
+          <div class="items-header">
+            <span>Connection</span>
+            <span>Type</span>
+            <span>Status</span>
+            <span>Report</span>
+          </div>
+          <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
+            <span class="item-connection">{{ connNameMap[item.connection_id] || item.connection_id }}</span>
+            <span class="item-type">{{ item.profile_type }}</span>
+            <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
+            <span class="item-report">
+              <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
+                View Report
+              </button>
+              <span v-else-if="item.error_message" class="error-text" :title="item.error_message">
+                Error
+              </span>
+              <span v-else class="muted">-</span>
             </span>
-            <span v-else class="muted">-</span>
-          </span>
+          </div>
         </div>
       </div>
 
@@ -330,100 +402,95 @@ function getStatusClass(status) {
       </div>
     </div>
 
-    <div v-if="!createdSuiteId" class="autobench-grid">
-      <section class="autobench-section autobench-wizard" aria-labelledby="autobench-wizard-title">
-        <div class="section-header">
-          <h2 id="autobench-wizard-title">Wizard</h2>
-          <p>Select connections and profiles to create a benchmark suite.</p>
+    <!-- Wizard Two-Column Layout -->
+    <div v-if="!createdSuiteId" class="wizard-columns">
+      <div class="wizard-col-left">
+        <div class="section-header-row">
+          <h3>Connections</h3>
+          <span class="wizard-chip">{{ draft.selectedConnectionIds.length }}</span>
         </div>
 
-        <div class="wizard-groups">
-          <section class="wizard-group" aria-labelledby="autobench-connections-title">
-            <div class="wizard-group-header">
-              <h3 id="autobench-connections-title">Connections</h3>
-              <span class="wizard-chip">{{ draft.selectedConnectionIds.length }} selected</span>
-            </div>
+        <div class="filter-block">
+          <div class="filter-options">
+            <button
+              v-for="option in connectionFilterOptions"
+              :key="option.id"
+              type="button"
+              :class="['filter-pill', { active: activeConnectionFilter === option.id }]"
+              @click="activeConnectionFilter = option.id"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
 
-            <div v-if="connectionStore.loading" class="loading-state">
-              Loading connections...
-            </div>
-            <div v-else-if="realConnections.length === 0" class="empty-state">
-              No connections available. Create connections first.
-            </div>
-            <template v-else>
-              <div class="filter-block">
-                <div class="filter-options">
-                  <button
-                    v-for="option in connectionFilterOptions"
-                    :key="option.id"
-                    type="button"
-                    :class="['filter-pill', { active: activeConnectionFilter === option.id }]"
-                    @click="activeConnectionFilter = option.id"
-                  >
-                    {{ option.label }}
-                  </button>
-                </div>
-              </div>
-              <label
-                v-for="connection in filteredConnections"
-                :key="connection.id"
-                class="wizard-option-card"
-              >
-                <input
-                  type="checkbox"
-                  :checked="draft.selectedConnectionIds.includes(connection.id)"
-                  @change="toggleConnectionSelection(connection.id)"
-                >
-                <span class="wizard-option-copy">
-                  <strong>{{ connection.label }}</strong>
-                  <small class="wizard-option-meta">{{ connection.databaseType }}</small>
-                  <small>{{ connection.detail }}</small>
-                </span>
-              </label>
-            </template>
-            <p v-if="wizardValidation.connectionError" class="wizard-validation">{{ wizardValidation.connectionError }}</p>
-          </section>
+        <div v-if="connectionStore.loading" class="loading-state">
+          Loading connections...
+        </div>
+        <div v-else-if="realConnections.length === 0" class="empty-state">
+          No connections available. Create connections first.
+        </div>
+        <template v-else>
+          <label
+            v-for="connection in filteredConnections"
+            :key="connection.id"
+            class="conn-row"
+            :class="{ selected: draft.selectedConnectionIds.includes(connection.id) }"
+          >
+            <input
+              type="checkbox"
+              :checked="draft.selectedConnectionIds.includes(connection.id)"
+              @change="toggleConnectionSelection(connection.id)"
+            >
+            <span class="conn-row-name">{{ connection.label }}</span>
+            <span class="conn-row-type">{{ connection.databaseType }}</span>
+            <span class="conn-row-host">{{ connection.detail }}</span>
+          </label>
+        </template>
+        <p v-if="wizardValidation.connectionError" class="wizard-validation">{{ wizardValidation.connectionError }}</p>
+      </div>
 
-          <section class="wizard-group" aria-labelledby="autobench-benchmark-types-title">
-            <div class="wizard-group-header">
-              <h3 id="autobench-benchmark-types-title">Benchmark Types</h3>
-              <span class="wizard-chip">{{ draft.selectedProfiles.length }} selected</span>
-            </div>
+      <div class="wizard-col-right">
+        <section>
+          <div class="section-header-row">
+            <h3>Benchmark Types</h3>
+            <span class="wizard-chip">{{ draft.selectedProfiles.length }}</span>
+          </div>
 
-            <label
+          <div class="profile-toggles">
+            <button
               v-for="profile in profileOptions"
               :key="profile.id"
-              class="wizard-option-card wizard-option-card-profile"
+              type="button"
+              :class="['profile-toggle', { active: draft.selectedProfiles.includes(profile.id) }]"
+              @click="toggleProfileSelection(profile.id)"
             >
-              <input
-                type="checkbox"
-                :checked="draft.selectedProfiles.includes(profile.id)"
-                @change="toggleProfileSelection(profile.id)"
-              >
-              <span class="wizard-option-copy">
-                <strong>{{ profile.label }}</strong>
-                <small class="wizard-option-meta">{{ profile.scope }}</small>
-                <small>{{ profile.description }}</small>
-              </span>
-            </label>
-            <p class="wizard-order">Selected order: {{ selectedProfileSummary }}</p>
-            <p v-if="wizardValidation.profileError" class="wizard-validation">{{ wizardValidation.profileError }}</p>
-          </section>
+              {{ profile.label }}
+            </button>
+          </div>
+          <p class="wizard-order">Selected order: {{ selectedProfileSummary }}</p>
+          <p v-if="wizardValidation.profileError" class="wizard-validation">{{ wizardValidation.profileError }}</p>
+        </section>
 
-          <section class="wizard-group">
-            <div class="wizard-group-header">
-              <h3>Execution Policy</h3>
-              <span class="wizard-chip">Default</span>
+        <section>
+          <div class="section-header-row">
+            <h3>Execution Policy</h3>
+            <span class="wizard-chip">Default</span>
+          </div>
+          <dl class="policy-summary">
+            <div v-for="item in policySummaryItems" :key="item.label" class="policy-row">
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value }}</dd>
             </div>
-            <dl class="policy-summary">
-              <div v-for="item in policySummaryItems" :key="item.label" class="policy-row">
-                <dt>{{ item.label }}</dt>
-                <dd>{{ item.value }}</dd>
-              </div>
-            </dl>
-          </section>
+          </dl>
+        </section>
+
+        <div class="wizard-actions">
+          <button class="primary-action" type="button" :disabled="!canCreateSuite" @click="handleCreateSuite">
+            {{ isCreating ? 'Creating...' : 'Create Suite' }}
+          </button>
         </div>
-      </section>
+      </div>
     </div>
   </section>
 </template>
@@ -508,24 +575,49 @@ function getStatusClass(status) {
   color: var(--danger);
 }
 
-.suite-status-panel {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+/* Active Run Section */
+.active-run-section {
+  border: 1px solid var(--primary);
+  border-left: 4px solid var(--primary);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: var(--spacing-lg);
+  background: var(--bg-primary);
 }
 
-.status-header {
+.run-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 
-.status-header h3 {
-  margin: 0;
+.run-name {
+  font-weight: 600;
   color: var(--text-primary);
+  font-size: 16px;
+}
+
+.run-progress {
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.run-current {
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.run-elapsed {
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.run-detail {
+  margin-top: 12px;
 }
 
 .status-badge {
@@ -683,44 +775,27 @@ function getStatusClass(status) {
   border-top: 1px solid var(--border-color);
 }
 
-.autobench-grid {
+/* Two-column wizard layout */
+.wizard-columns {
   display: grid;
-  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xl);
 }
 
-.autobench-section {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+@media (max-width: 768px) {
+  .wizard-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
-.section-header h2 {
-  font-size: 18px;
-  color: var(--text-primary);
-  margin: 0;
+.wizard-col-left,
+.wizard-col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.section-header p {
-  margin-top: 8px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-.wizard-groups {
-  margin-top: 18px;
-  display: grid;
-  gap: 18px;
-}
-
-.wizard-group {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  background: var(--bg-secondary);
-}
-
-.wizard-group-header {
+.section-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -728,7 +803,7 @@ function getStatusClass(status) {
   flex-wrap: wrap;
 }
 
-.wizard-group-header h3 {
+.section-header-row h3 {
   font-size: 15px;
   color: var(--text-primary);
   margin: 0;
@@ -746,7 +821,7 @@ function getStatusClass(status) {
 }
 
 .filter-block {
-  margin-top: 14px;
+  margin-top: 4px;
 }
 
 .filter-options {
@@ -769,40 +844,75 @@ function getStatusClass(status) {
   border-color: var(--primary);
 }
 
-.wizard-option-card {
-  margin-top: 12px;
+/* Compact connection row */
+.conn-row {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  cursor: pointer;
-}
-
-.wizard-option-card-profile {
   align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
 }
 
-.wizard-option-copy {
-  display: grid;
-  gap: 4px;
+.conn-row:hover {
+  background: var(--bg-hover);
 }
 
-.wizard-option-copy strong {
+.conn-row.selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.conn-row-name {
+  font-weight: 500;
+  min-width: 80px;
   color: var(--text-primary);
   font-size: 14px;
 }
 
-.wizard-option-copy small {
+.conn-row-type {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  background: var(--bg-secondary);
   color: var(--text-secondary);
-  line-height: 1.4;
+  text-transform: uppercase;
 }
 
-.wizard-option-meta {
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.conn-row-host {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Profile toggle pills */
+.profile-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.profile-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.profile-toggle.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
 }
 
 .wizard-order {
@@ -850,6 +960,12 @@ function getStatusClass(status) {
   color: var(--text-primary);
   font-weight: 600;
   text-align: right;
+}
+
+.wizard-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 @media (max-width: 768px) {

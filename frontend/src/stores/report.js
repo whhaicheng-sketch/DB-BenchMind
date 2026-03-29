@@ -7,7 +7,9 @@ import {
   GetSuite as GetSuiteApi,
   ExportReportJSON as ExportReportJSONApi,
   ExportReportHTML as ExportReportHTMLApi,
-  GetExportFilePaths as GetExportFilePathsApi
+  GetExportFilePaths as GetExportFilePathsApi,
+  DeleteReport as DeleteReportApi,
+  DeleteAllReports as DeleteAllReportsApi
 } from '../../wailsjs/go/bindings/ReportBinding'
 
 const ENABLE_REPORT_BACKEND = typeof window !== 'undefined' && !!window.go?.bindings?.ReportBinding
@@ -403,6 +405,74 @@ export const useReportStore = defineStore('report', {
   </footer>
 </body>
 </html>`
+    },
+
+    async deleteReport(id) {
+      try {
+        if (ENABLE_REPORT_BACKEND) {
+          const result = await DeleteReportApi(id)
+          if (result.error) {
+            throw new Error(result.error)
+          }
+        }
+        this.reports = this.reports.filter((r) => r.id !== id)
+        this.pagination.total = Math.max(0, this.pagination.total - 1)
+        if (this.selectedReportId === id) {
+          this.closeReportDetail()
+        }
+        this.showNotice('Report deleted', 'success')
+      } catch (err) {
+        this.error = err.message || 'Delete report failed'
+        this.showNotice(this.error, 'warning')
+      }
+    },
+
+    async deleteSelectedReports(ids) {
+      if (!ids || ids.length === 0) return
+      let deleted = 0
+      let failed = 0
+      for (const id of ids) {
+        try {
+          if (ENABLE_REPORT_BACKEND) {
+            const result = await DeleteReportApi(id)
+            if (result.error) {
+              failed++
+              continue
+            }
+          }
+          deleted++
+        } catch {
+          failed++
+        }
+      }
+      this.reports = this.reports.filter((r) => !ids.includes(r.id))
+      this.pagination.total = Math.max(0, this.pagination.total - deleted)
+      if (ids.includes(this.selectedReportId)) {
+        this.closeReportDetail()
+      }
+      if (failed > 0) {
+        this.showNotice(`Deleted ${deleted}, failed ${failed}`, 'warning')
+      } else {
+        this.showNotice(`${deleted} report(s) deleted`, 'success')
+      }
+    },
+
+    async deleteAllReports() {
+      try {
+        if (ENABLE_REPORT_BACKEND) {
+          const result = await DeleteAllReportsApi()
+          if (result.error) {
+            throw new Error(result.error)
+          }
+        }
+        this.reports = []
+        this.pagination.total = 0
+        this.closeReportDetail()
+        this.showNotice('All reports cleared', 'success')
+      } catch (err) {
+        this.error = err.message || 'Clear all reports failed'
+        this.showNotice(this.error, 'warning')
+      }
     },
 
     clearNotice() {

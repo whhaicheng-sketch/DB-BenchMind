@@ -43,6 +43,7 @@
 | M11 | Suite 执行功能 | ✅ 完成 |
 | M12 | AutoBench UI 激活 | ✅ 完成 |
 | M13 | 文档修正与最终验收 | ✅ 完成 |
+| M14 | AutoBench UI Overhaul + Report Delete | ✅ 完成 |
 
 ---
 
@@ -62,7 +63,7 @@
 - `TestSuiteRepository_Delete` ✅
 - `TestSuiteRepository_Delete_NotFound` ✅
 
-### 前端 AutoBench 测试 (19 个)
+### 前端 AutoBench 测试 (26 个)
 - T12.2: Suite 状态面板展示 ✅
 - T12.2: Item 级别状态展示 ✅
 - T12.2: 进度条展示 ✅
@@ -82,6 +83,13 @@
 - T12.2: 清理 polling ✅
 - T12.2: 连接类型过滤 ✅
 - T12.2: wizard draft ✅
+- UI Overhaul: Two-column wizard layout ✅
+- UI Overhaul: Compact connection rows ✅
+- UI Overhaul: Profile toggle pills ✅
+- UI Overhaul: Active run section with left border ✅
+- UI Overhaul: Elapsed time tracking ✅
+- UI Overhaul: currentItem computed ✅
+- UI Overhaul: connNameMap connection resolution ✅
 
 ---
 
@@ -190,4 +198,4 @@
 
 **创建日期**: 2026-03-25
 **最后更新**: 2026-03-29
-**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复）
+**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复 + UI Overhaul + Report Delete）

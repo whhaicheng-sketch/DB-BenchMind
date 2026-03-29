@@ -264,6 +264,37 @@ func suiteToDTO(s *report.Suite) SuiteDTO {
 	return dto
 }
 
+// DeleteAllResult is the result of DeleteAllReports.
+type DeleteAllResult struct {
+	Count int    `json:"count"`
+	Error string `json:"error,omitempty"`
+}
+
+// DeleteAllReports deletes all reports.
+func (b *ReportBinding) DeleteAllReports() DeleteAllResult {
+	count, err := b.uc.DeleteAllReports(context.Background())
+	if err != nil {
+		slog.Error("DeleteAllReports failed", "error", err)
+		return DeleteAllResult{Error: err.Error()}
+	}
+	return DeleteAllResult{Count: count}
+}
+
+// DeleteReportResult is the result of DeleteReport.
+type DeleteReportResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// DeleteReport deletes a report by ID.
+func (b *ReportBinding) DeleteReport(id string) DeleteReportResult {
+	if err := b.uc.DeleteReport(context.Background(), id); err != nil {
+		slog.Error("DeleteReport failed", "id", id, "error", err)
+		return DeleteReportResult{Error: err.Error()}
+	}
+	return DeleteReportResult{Success: true}
+}
+
 // ExportJSONResult is the result of ExportReportJSON.
 type ExportJSONResult struct {
 	Data  string `json:"data,omitempty"`

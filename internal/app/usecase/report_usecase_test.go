@@ -740,3 +740,86 @@ func TestReportUsecase_ListReports_MaxPageSize(t *testing.T) {
 		t.Errorf("ListReports() count = %d, want 5", len(reports))
 	}
 }
+
+// =============================================================================
+// DeleteReport Tests
+// =============================================================================
+
+func TestReportUsecase_DeleteReport(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-del",
+		SuiteID:      report.StandaloneSuiteID,
+		SourceType:   report.SourceTypeBenchmark,
+		ConnectionID: "conn-1",
+		DatabaseType: "mysql",
+		Status:       report.StatusCompleted,
+	})
+
+	err := uc.DeleteReport(ctx, "rpt-del")
+	if err != nil {
+		t.Fatalf("DeleteReport() error = %v", err)
+	}
+
+	// Verify report is gone
+	_, err = uc.GetReport(ctx, "rpt-del")
+	if err == nil {
+		t.Error("DeleteReport() report should be deleted but still found")
+	}
+}
+
+func TestReportUsecase_DeleteReport_NotFound(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	err := uc.DeleteReport(ctx, "nonexistent")
+	if err == nil {
+		t.Error("DeleteReport() should return error for nonexistent report")
+	}
+}
+
+func TestReportUsecase_DeleteReport_CleansUpFiles(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	metricsPath := filepath.Join(tmpDir, "metrics.json")
+	htmlPath := filepath.Join(tmpDir, "report.html")
+	os.WriteFile(metricsPath, []byte(`{"test":true}`), 0644)
+	os.WriteFile(htmlPath, []byte(`<html></html>`), 0644)
+
+	insertTestReport(t, db, &report.Report{
+		ID:              "rpt-files",
+		SuiteID:         report.StandaloneSuiteID,
+		SourceType:      report.SourceTypeBenchmark,
+		ConnectionID:    "conn-1",
+		DatabaseType:    "mysql",
+		Status:          report.StatusCompleted,
+		MetricsJSONPath: metricsPath,
+		ReportHTMLPath:  htmlPath,
+	})
+
+	err := uc.DeleteReport(ctx, "rpt-files")
+	if err != nil {
+		t.Fatalf("DeleteReport() error = %v", err)
+	}
+
+	// Verify files were cleaned up
+	if _, err := os.Stat(metricsPath); !os.IsNotExist(err) {
+		t.Error("DeleteReport() should have removed metrics file")
+	}
+	if _, err := os.Stat(htmlPath); !os.IsNotExist(err) {
+		t.Error("DeleteReport() should have removed HTML file")
+	}
+}

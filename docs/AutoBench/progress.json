@@ -19,7 +19,8 @@
     "T10.1", "T10.2", "T10.3",
     "T11.1", "T11.2", "T11.3", "T11.4",
     "T12.1", "T12.2", "T12.3", "T12.4",
-    "T13.1", "T13.2", "T13.3"
+    "T13.1", "T13.2", "T13.3",
+    "T14.1", "T14.2", "T14.3", "T14.4"
   ],
   "pending_tasks": [],
   "blocked_tasks": [],
@@ -270,5 +271,24 @@
     "internal/app/usecase/autobench_runner_test.go"
   ],
   "created_at": "2026-03-25",
-  "updated_at": "2026-03-27"
+  "ui_overhaul": {
+    "date": "2026-03-29",
+    "changes": [
+      "AutoBench two-column wizard layout (grid 1fr 1fr, responsive fallback at 768px)",
+      "Compact connection rows (.conn-row) replacing tall .wizard-option-card",
+      "Profile toggle pills (.profile-toggle) replacing benchmark type cards",
+      "Active run section (.active-run-section) with colored left border strip",
+      "Elapsed time tracking (elapsedSeconds ref + formatElapsed helper)",
+      "currentItem computed for real-time running item display",
+      "connNameMap computed resolving connection IDs to names",
+      "Report Delete: backend (usecase + binding), frontend (store action + delete button)",
+      "Create Suite button moved into wizard right column for first-screen flow"
+    ],
+    "tests_added": {
+      "frontend": 7,
+      "backend_usecase": 3,
+      "backend_binding": 2
+    }
+  },
+  "updated_at": "2026-03-29"
 }

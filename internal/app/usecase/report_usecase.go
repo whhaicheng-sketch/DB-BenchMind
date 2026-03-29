@@ -662,6 +662,54 @@ func (uc *ReportUsecase) ExportReportHTML(ctx context.Context, id string) (strin
 	return string(data), nil
 }
 
+// DeleteAllReports deletes all reports, cleaning up associated files.
+func (uc *ReportUsecase) DeleteAllReports(ctx context.Context) (int, error) {
+	rows, err := uc.db.QueryContext(ctx, "SELECT id, metrics_json_path, monitoring_json_path, raw_json_path, report_html_path, summary_json_path FROM reports")
+	if err != nil {
+		return 0, fmt.Errorf("query reports for delete all: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+		var id, metrics, monitoring, raw, html, summary string
+		if err := rows.Scan(&id, &metrics, &monitoring, &raw, &html, &summary); err != nil {
+			continue
+		}
+		for _, p := range []string{metrics, monitoring, raw, html, summary} {
+			if p != "" {
+				os.Remove(p)
+			}
+		}
+	}
+
+	_, err = uc.db.ExecContext(ctx, "DELETE FROM reports")
+	if err != nil {
+		return count, fmt.Errorf("delete all reports: %w", err)
+	}
+	return count, nil
+}
+
+// DeleteReport deletes a report by ID, cleaning up associated files.
+func (uc *ReportUsecase) DeleteReport(ctx context.Context, id string) error {
+	rpt, err := uc.GetReport(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get report for delete: %w", err)
+	}
+	// Best-effort file cleanup
+	for _, p := range []string{rpt.MetricsJSONPath, rpt.MonitoringJSONPath, rpt.RawJSONPath, rpt.ReportHTMLPath, rpt.SummaryJSONPath} {
+		if p != "" {
+			os.Remove(p)
+		}
+	}
+	_, err = uc.db.ExecContext(ctx, "DELETE FROM reports WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete report %s: %w", id, err)
+	}
+	return nil
+}
+
 // nilIfEmpty returns nil for empty strings, otherwise returns a pointer to the string.
 func nilIfEmpty(s string) *string {
 	if s == "" {

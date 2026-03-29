@@ -7,6 +7,12 @@
         <p class="page-subtitle">View benchmark reports and results</p>
       </div>
       <div class="header-right">
+        <button v-if="checkedIds.length > 0" class="btn btn-danger" @click="handleDeleteSelected">
+          Delete Selected ({{ checkedIds.length }})
+        </button>
+        <button v-if="reportStore.reports.length > 0" class="btn btn-danger-outline" @click="handleClearAll">
+          Clear All
+        </button>
         <button class="btn" @click="refreshReports">
           Refresh
         </button>
@@ -43,13 +49,18 @@
 
         <!-- Reports List -->
         <div v-else class="reports-list">
+          <div class="select-all-row" @click="toggleAll">
+            <input type="checkbox" class="checkbox" :checked="allChecked" :indeterminate.prop="someChecked && !allChecked" />
+            <span class="select-all-label">{{ allChecked ? 'Deselect All' : 'Select All' }}</span>
+          </div>
           <div
             v-for="report in reportStore.reports"
             :key="report.id"
             class="report-item"
-            :class="{ selected: selectedReportId === report.id }"
+            :class="{ selected: selectedReportId === report.id, checked: checkedIds.includes(report.id) }"
             @click="selectReport(report.id)"
           >
+            <input type="checkbox" class="checkbox" :checked="checkedIds.includes(report.id)" @click.stop="toggleCheck(report.id)" />
             <div class="report-info">
               <div class="report-name">
                 {{ report.template_name || report.database_type || 'Unnamed Report' }}
@@ -77,6 +88,7 @@
               <span class="status-badge" :class="getStatusClass(report.status)">
                 {{ getStatusText(report.status) }}
               </span>
+              <button class="delete-btn" title="Delete report" @click.stop="handleDelete(report.id)">x</button>
             </div>
           </div>
         </div>
@@ -114,6 +126,10 @@ import ReportDetailPanel from '../report/ReportDetailPanel.vue'
 const reportStore = useReportStore()
 const selectedReportId = ref(null)
 const statusFilter = ref('')
+const checkedIds = ref([])
+
+const allChecked = computed(() => reportStore.reports.length > 0 && checkedIds.value.length === reportStore.reports.length)
+const someChecked = computed(() => checkedIds.value.length > 0 && checkedIds.value.length < reportStore.reports.length)
 
 onMounted(() => {
   refreshReports()
@@ -183,6 +199,43 @@ const getStatusText = (status) => {
     pending: 'Pending'
   }
   return textMap[status] || status
+}
+
+const handleDelete = async (id) => {
+  if (!confirm('Delete this report?')) return
+  await reportStore.deleteReport(id)
+  checkedIds.value = checkedIds.value.filter((cid) => cid !== id)
+}
+
+const toggleCheck = (id) => {
+  const idx = checkedIds.value.indexOf(id)
+  if (idx >= 0) {
+    checkedIds.value.splice(idx, 1)
+  } else {
+    checkedIds.value.push(id)
+  }
+}
+
+const toggleAll = () => {
+  if (allChecked.value) {
+    checkedIds.value = []
+  } else {
+    checkedIds.value = reportStore.reports.map((r) => r.id)
+  }
+}
+
+const handleDeleteSelected = async () => {
+  if (checkedIds.value.length === 0) return
+  if (!confirm(`Delete ${checkedIds.value.length} selected report(s)?`)) return
+  const ids = [...checkedIds.value]
+  await reportStore.deleteSelectedReports(ids)
+  checkedIds.value = []
+}
+
+const handleClearAll = async () => {
+  if (!confirm('Delete ALL reports? This cannot be undone.')) return
+  await reportStore.deleteAllReports()
+  checkedIds.value = []
 }
 </script>
 
@@ -398,6 +451,94 @@ const getStatusText = (status) => {
 .report-status {
   display: flex;
   align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.delete-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background-color: var(--danger-bg);
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background-color: var(--danger);
+  color: white;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
+.btn-danger-outline {
+  padding: 8px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-danger-outline:hover {
+  background-color: var(--danger-bg);
+}
+
+.select-all-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.select-all-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.select-all-label {
+  user-select: none;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+.report-item.checked {
+  background-color: var(--primary-light);
+  border-color: var(--primary);
 }
 
 .status-badge {

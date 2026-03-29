@@ -7,45 +7,36 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const autoBenchSource = fs.readFileSync(path.resolve(__dirname, '../src/components/tabs/AutoBenchTab.vue'), 'utf8')
 
-test('T12.2: autobench renders suite status panel with metrics', () => {
-  // Suite status panel container
-  assert.match(autoBenchSource, /suite-status-panel/)
-  // Status header with name and badge
-  assert.match(autoBenchSource, /status-header/)
+test('T12.2: autobench renders active run section with status and metrics', () => {
+  assert.match(autoBenchSource, /active-run-section/)
+  assert.match(autoBenchSource, /run-strip/)
   assert.match(autoBenchSource, /status-badge/)
-  // Status metrics grid
   assert.match(autoBenchSource, /status-metrics/)
   assert.match(autoBenchSource, /metric-label/)
   assert.match(autoBenchSource, /metric-value/)
-  // Progress bar
   assert.match(autoBenchSource, /progress-bar-container/)
   assert.match(autoBenchSource, /progress-bar/)
   assert.match(autoBenchSource, /progress-label/)
-  // Items list with status
   assert.match(autoBenchSource, /items-list/)
   assert.match(autoBenchSource, /item-row/)
   assert.match(autoBenchSource, /item-status/)
 })
 
 test('T12.2: autobench displays item-level status with connection, type, and report', () => {
-  // Items header
   assert.match(autoBenchSource, /items-header/)
   assert.match(autoBenchSource, />Connection</)
   assert.match(autoBenchSource, />Type</)
   assert.match(autoBenchSource, />Status</)
   assert.match(autoBenchSource, />Report</)
-  // Item row fields
   assert.match(autoBenchSource, /item-connection/)
   assert.match(autoBenchSource, /item-type/)
   assert.match(autoBenchSource, /item-report/)
 })
 
 test('T12.2: autobench has progress bar with percentage display', () => {
-  // Progress container and bar
   assert.match(autoBenchSource, /class="progress-bar-container"/)
   assert.match(autoBenchSource, /class="progress-bar"/)
   assert.match(autoBenchSource, /:style=.*width.*progress/)
-  // Progress percentage display
   assert.match(autoBenchSource, /suiteSummary\.progress/)
 })
 
@@ -119,13 +110,9 @@ test('T12.2: autobench has computed suiteSummary with progress calculation', () 
 })
 
 test('T12.2: autobench button states for create/start/running', () => {
-  // Create Suite button
   assert.match(autoBenchSource, /:disabled="!canCreateSuite"/)
-  // Start Suite button
   assert.match(autoBenchSource, /:disabled="!canStartSuite"/)
-  // Running state
   assert.match(autoBenchSource, /isSuiteRunning/)
-  // Reset/New Suite button
   assert.match(autoBenchSource, /resetSuite/)
   assert.match(autoBenchSource, /New Suite/)
 })
@@ -155,4 +142,41 @@ test('T12.2: autobench uses wizard draft for connection and profile selection', 
   assert.match(autoBenchSource, /profileOptions/)
   assert.match(autoBenchSource, /selectedProfiles/)
   assert.match(autoBenchSource, /selectedConnectionIds/)
+})
+
+// UI Overhaul tests
+test('UI Overhaul: autobench has two-column wizard layout', () => {
+  assert.match(autoBenchSource, /wizard-columns/)
+  assert.match(autoBenchSource, /grid-template-columns: 1fr 1fr/)
+})
+
+test('UI Overhaul: autobench uses compact connection rows instead of cards', () => {
+  assert.match(autoBenchSource, /conn-row/)
+  assert.match(autoBenchSource, /conn-row-name/)
+  assert.match(autoBenchSource, /conn-row-type/)
+  assert.match(autoBenchSource, /conn-row-host/)
+})
+
+test('UI Overhaul: autobench uses profile toggle pills instead of cards', () => {
+  assert.match(autoBenchSource, /profile-toggle/)
+  assert.match(autoBenchSource, /profile-toggles/)
+})
+
+test('UI Overhaul: autobench has active run section with left border strip', () => {
+  assert.match(autoBenchSource, /active-run-section/)
+  assert.match(autoBenchSource, /border-left: 4px solid var\(--primary\)/)
+  assert.match(autoBenchSource, /run-strip/)
+})
+
+test('UI Overhaul: autobench has elapsed time tracking', () => {
+  assert.match(autoBenchSource, /elapsedSeconds/)
+  assert.match(autoBenchSource, /formatElapsed/)
+})
+
+test('UI Overhaul: autobench has currentItem computed for running item', () => {
+  assert.match(autoBenchSource, /const currentItem = computed/)
+})
+
+test('UI Overhaul: autobench resolves connection IDs to names via connNameMap', () => {
+  assert.match(autoBenchSource, /connNameMap/)
 })

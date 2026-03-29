@@ -4,9 +4,10 @@
  * Main application component with Tab navigation.
  * Navicat-style light desktop tool theme.
  */
-import { ref, onMounted, onUnmounted, onErrorCaptured } from 'vue'
+import { ref, onMounted, onUnmounted, onErrorCaptured, computed } from 'vue'
 import { useMonitorStore } from './stores/monitor'
 import { useAppStore } from './stores/app'
+import { useAutoBenchStore } from './stores/autobench'
 import { navigationTabs } from './constants/navigationTabs.mjs'
 
 // Tab components
@@ -23,6 +24,10 @@ const showError = ref(false)
 // Monitor store
 const monitorStore = useMonitorStore()
 const appStore = useAppStore()
+const autobenchStore = useAutoBenchStore()
+
+// AutoBench running indicator
+const isAutobenchRunning = computed(() => autobenchStore.isSuiteRunning)
 
 // Error boundary
 onErrorCaptured((error, instance, info) => {
@@ -95,6 +100,7 @@ onUnmounted(async () => {
         >
           <span class="tab-icon">{{ tab.icon }}</span>
           <span class="tab-label">{{ tab.label }}</span>
+          <span v-if="tab.id === 'autobench' && isAutobenchRunning" class="tab-running-dot"></span>
         </button>
       </div>
     </div>
@@ -179,6 +185,19 @@ html, body, #app {
   color: var(--primary);
   border-bottom-color: var(--primary);
   background-color: transparent;
+}
+
+.tab-running-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .tab-icon {
