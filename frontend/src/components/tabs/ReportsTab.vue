@@ -4,13 +4,13 @@
     <div class="page-header">
       <div class="header-left">
         <h1 class="page-title">Reports</h1>
-        <p class="page-subtitle">View benchmark reports and results</p>
+        <p class="page-subtitle">View benchmark reports grouped by suite</p>
       </div>
       <div class="header-right">
         <button v-if="checkedIds.length > 0" class="btn btn-danger" @click="handleDeleteSelected">
           Delete Selected ({{ checkedIds.length }})
         </button>
-        <button v-if="reportStore.reports.length > 0" class="btn btn-danger-outline" @click="handleClearAll">
+        <button v-if="allReportIds.length > 0" class="btn btn-danger-outline" @click="handleClearAll">
           Clear All
         </button>
         <button class="btn" @click="refreshReports">
@@ -31,6 +31,7 @@
             <option value="failed">Failed</option>
             <option value="cancelled">Cancelled</option>
             <option value="running">Running</option>
+            <option value="pending">Pending</option>
           </select>
         </div>
 
@@ -41,63 +42,96 @@
         </div>
 
         <!-- Empty State -->
-        <div v-else-if="reportStore.reports.length === 0" class="empty-state">
+        <div v-else-if="allReportIds.length === 0" class="empty-state">
           <div class="empty-state-icon">📋</div>
           <p class="empty-state-title">No benchmark reports</p>
           <p class="empty-state-description">Run a benchmark task to see results appear here.</p>
         </div>
 
-        <!-- Reports List -->
+        <!-- Grouped Reports List -->
         <div v-else class="reports-list">
           <div class="select-all-row" @click="toggleAll">
             <input type="checkbox" class="checkbox" :checked="allChecked" :indeterminate.prop="someChecked && !allChecked" />
             <span class="select-all-label">{{ allChecked ? 'Deselect All' : 'Select All' }}</span>
           </div>
-          <div
-            v-for="report in reportStore.reports"
-            :key="report.id"
-            class="report-item"
-            :class="{ selected: selectedReportId === report.id, checked: checkedIds.includes(report.id) }"
-            @click="selectReport(report.id)"
-          >
-            <input type="checkbox" class="checkbox" :checked="checkedIds.includes(report.id)" @click.stop="toggleCheck(report.id)" />
-            <div class="report-info">
-              <div class="report-name">
-                {{ report.template_name || report.database_type || 'Unnamed Report' }}
+
+          <template v-for="group in reportGroups" :key="group.key">
+            <!-- Suite Group Row -->
+            <div v-if="group.isSuite" class="suite-group">
+              <div class="suite-row" @click="toggleGroup(group.key)">
+                <span class="expand-icon">{{ expandedGroups[group.key] ? '▾' : '▸' }}</span>
+                <input type="checkbox" class="checkbox" :checked="isGroupChecked(group)" @click.stop="toggleGroupCheck(group)" />
+                <div class="suite-info">
+                  <span class="suite-name">{{ group.name }}</span>
+                  <span class="suite-meta">
+                    {{ group.reports.length }} items · {{ formatDate(group.startedAt) }}
+                  </span>
+                </div>
+                <span class="status-badge" :class="getStatusClass(group.status)">{{ getStatusText(group.status) }}</span>
+                <button class="delete-btn" title="Delete suite" @click.stop="handleDeleteGroup(group)">x</button>
               </div>
-              <div class="report-meta">
-                <span class="report-date">{{ formatDate(report.started_at) }}</span>
-                <span class="report-source">{{ formatSourceType(report.source_type) }}</span>
+              <!-- Expanded sub-items -->
+              <div v-if="expandedGroups[group.key]" class="suite-items">
+                <div
+                  v-for="report in group.reports"
+                  :key="report.id"
+                  class="report-item sub-item"
+                  :class="{ selected: selectedReportId === report.id, checked: checkedIds.includes(report.id) }"
+                  @click="selectReport(report.id)"
+                >
+                  <input type="checkbox" class="checkbox" :checked="checkedIds.includes(report.id)" @click.stop="toggleCheck(report.id)" />
+                  <div class="report-info">
+                    <span class="sub-connection">{{ report.connection_name || report.database_type || '-' }}</span>
+                    <span class="sub-type">{{ report.template_name || report.source_type }}</span>
+                  </div>
+                  <div class="report-metrics-compact">
+                    <span v-if="report.tpm">TPM {{ formatNumber(report.tpm) }}</span>
+                    <span v-if="report.tps">TPS {{ formatNumber(report.tps) }}</span>
+                    <span v-if="report.latency_avg_ms">{{ formatLatency(report.latency_avg_ms) }}</span>
+                  </div>
+                  <span class="status-badge small" :class="getStatusClass(report.status)">{{ getStatusText(report.status) }}</span>
+                  <button class="delete-btn small" title="Delete report" @click.stop="handleDelete(report.id)">x</button>
+                </div>
               </div>
             </div>
-            <div class="report-metrics">
-              <div class="metric">
-                <span class="metric-label">TPM</span>
-                <span class="metric-value">{{ formatNumber(report.tpm) }}</span>
+
+            <!-- Standalone Report Row -->
+            <div v-else class="report-item standalone" :class="{ selected: selectedReportId === group.reports[0]?.id, checked: checkedIds.includes(group.reports[0]?.id) }" @click="selectReport(group.reports[0]?.id)">
+              <input type="checkbox" class="checkbox" :checked="checkedIds.includes(group.reports[0]?.id)" @click.stop="toggleCheck(group.reports[0]?.id)" />
+              <div class="report-info">
+                <div class="report-name">
+                  {{ group.reports[0]?.template_name || group.reports[0]?.database_type || 'Single Benchmark' }}
+                </div>
+                <div class="report-meta">
+                  <span class="report-date">{{ formatDate(group.reports[0]?.started_at) }}</span>
+                  <span class="report-source">Single</span>
+                </div>
               </div>
-              <div class="metric">
-                <span class="metric-label">TPS</span>
-                <span class="metric-value">{{ formatNumber(report.tps) }}</span>
+              <div class="report-metrics">
+                <div class="metric">
+                  <span class="metric-label">TPM</span>
+                  <span class="metric-value">{{ formatNumber(group.reports[0]?.tpm) }}</span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">TPS</span>
+                  <span class="metric-value">{{ formatNumber(group.reports[0]?.tps) }}</span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">Latency</span>
+                  <span class="metric-value">{{ formatLatency(group.reports[0]?.latency_avg_ms) }}</span>
+                </div>
               </div>
-              <div class="metric">
-                <span class="metric-label">Latency</span>
-                <span class="metric-value">{{ formatLatency(report.latency_avg_ms) }}</span>
+              <div class="report-status">
+                <span class="status-badge" :class="getStatusClass(group.reports[0]?.status)">{{ getStatusText(group.reports[0]?.status) }}</span>
+                <button class="delete-btn" title="Delete report" @click.stop="handleDelete(group.reports[0]?.id)">x</button>
               </div>
             </div>
-            <div class="report-status">
-              <span class="status-badge" :class="getStatusClass(report.status)">
-                {{ getStatusText(report.status) }}
-              </span>
-              <button class="delete-btn" title="Delete report" @click.stop="handleDelete(report.id)">x</button>
-            </div>
-          </div>
+          </template>
         </div>
 
         <!-- Pagination -->
-        <div v-if="reportStore.reports.length > 0" class="pagination">
-          <span class="pagination-info">
-            {{ reportStore.pagination.total }} reports
-          </span>
+        <div v-if="allReportIds.length > 0" class="pagination">
+          <span class="pagination-info">{{ reportStore.pagination.total }} reports</span>
         </div>
       </div>
 
@@ -127,19 +161,98 @@ const reportStore = useReportStore()
 const selectedReportId = ref(null)
 const statusFilter = ref('')
 const checkedIds = ref([])
+const expandedGroups = ref({})
 
-const allChecked = computed(() => reportStore.reports.length > 0 && checkedIds.value.length === reportStore.reports.length)
-const someChecked = computed(() => checkedIds.value.length > 0 && checkedIds.value.length < reportStore.reports.length)
+// All report IDs for select-all
+const allReportIds = computed(() => reportStore.reports.map((r) => r.id))
+
+const allChecked = computed(() => allReportIds.value.length > 0 && checkedIds.value.length === allReportIds.value.length)
+const someChecked = computed(() => checkedIds.value.length > 0 && checkedIds.value.length < allReportIds.value.length)
+
+// Group reports by suite_id. Suite reports stay grouped, standalone shown separately.
+const reportGroups = computed(() => {
+  const groups = []
+  const bySuite = {}
+
+  for (const report of reportStore.reports) {
+    const sid = report.suite_id || 'standalone'
+    if (!bySuite[sid]) {
+      bySuite[sid] = []
+    }
+    bySuite[sid].push(report)
+  }
+
+  // Build suite groups from the suite data
+  const suiteMap = {}
+  for (const s of reportStore.suites) {
+    suiteMap[s.id] = s
+  }
+
+  // Suites first (ordered by started_at desc)
+  for (const suite of reportStore.suites) {
+    const reports = bySuite[suite.id] || []
+    if (reports.length > 0) {
+      groups.push({
+        key: suite.id,
+        isSuite: true,
+        name: suite.name || `AutoBench Suite ${formatDate(suite.started_at)}`,
+        status: suite.status,
+        startedAt: suite.started_at,
+        reports
+      })
+      delete bySuite[suite.id]
+    }
+  }
+
+  // Remaining suite groups (suites not in store but reports have suite_id)
+  for (const [sid, reports] of Object.entries(bySuite)) {
+    if (sid === 'standalone') continue
+    groups.push({
+      key: sid,
+      isSuite: true,
+      name: reports[0]?.template_name || `Suite ${sid.slice(0, 8)}`,
+      status: deriveGroupStatus(reports),
+      startedAt: reports[0]?.started_at,
+      reports
+    })
+  }
+
+  // Standalone reports
+  const standalone = bySuite['standalone'] || []
+  for (const report of standalone) {
+    groups.push({
+      key: report.id,
+      isSuite: false,
+      reports: [report]
+    })
+  }
+
+  return groups
+})
+
+function deriveGroupStatus(reports) {
+  if (reports.length === 0) return 'pending'
+  const statuses = reports.map((r) => r.status)
+  if (statuses.every((s) => s === 'completed')) return 'completed'
+  if (statuses.some((s) => s === 'running')) return 'running'
+  if (statuses.some((s) => s === 'failed')) return 'partial_success'
+  if (statuses.every((s) => s === 'cancelled')) return 'cancelled'
+  return 'partial_success'
+}
 
 onMounted(() => {
   refreshReports()
 })
 
 const refreshReports = async () => {
-  await reportStore.fetchReports()
+  await Promise.all([
+    reportStore.fetchReports(),
+    reportStore.fetchSuites()
+  ])
 }
 
 const selectReport = (id) => {
+  if (!id) return
   selectedReportId.value = id
 }
 
@@ -149,7 +262,11 @@ const closeDetail = () => {
 
 const onFilterChange = async () => {
   reportStore.setFilter('status', statusFilter.value)
-  await reportStore.fetchReports()
+  await refreshReports()
+}
+
+const toggleGroup = (key) => {
+  expandedGroups.value[key] = !expandedGroups.value[key]
 }
 
 const formatDate = (date) => {
@@ -159,14 +276,6 @@ const formatDate = (date) => {
   } catch {
     return date
   }
-}
-
-const formatSourceType = (source) => {
-  const labels = {
-    benchmark: 'Single',
-    autobench: 'Suite'
-  }
-  return labels[source] || source
 }
 
 const formatNumber = (num) => {
@@ -182,10 +291,14 @@ const formatLatency = (ms) => {
 const getStatusClass = (status) => {
   const classMap = {
     completed: 'status-success',
+    success: 'status-success',
     failed: 'status-error',
     cancelled: 'status-warning',
     running: 'status-info',
-    pending: 'status-default'
+    pending: 'status-default',
+    partial_success: 'status-warning',
+    draft: 'status-default',
+    ready: 'status-info'
   }
   return classMap[status] || 'status-default'
 }
@@ -193,21 +306,34 @@ const getStatusClass = (status) => {
 const getStatusText = (status) => {
   const textMap = {
     completed: 'Completed',
+    success: 'Success',
     failed: 'Failed',
     cancelled: 'Cancelled',
     running: 'Running',
-    pending: 'Pending'
+    pending: 'Pending',
+    partial_success: 'Partial',
+    draft: 'Draft',
+    ready: 'Ready'
   }
   return textMap[status] || status
 }
 
 const handleDelete = async (id) => {
-  if (!confirm('Delete this report?')) return
+  if (!id || !confirm('Delete this report?')) return
   await reportStore.deleteReport(id)
   checkedIds.value = checkedIds.value.filter((cid) => cid !== id)
 }
 
+const handleDeleteGroup = async (group) => {
+  const ids = group.reports.map((r) => r.id)
+  if (ids.length === 0) return
+  if (!confirm(`Delete all ${ids.length} report(s) in this group?`)) return
+  await reportStore.deleteSelectedReports(ids)
+  checkedIds.value = checkedIds.value.filter((cid) => !ids.includes(cid))
+}
+
 const toggleCheck = (id) => {
+  if (!id) return
   const idx = checkedIds.value.indexOf(id)
   if (idx >= 0) {
     checkedIds.value.splice(idx, 1)
@@ -216,11 +342,30 @@ const toggleCheck = (id) => {
   }
 }
 
+const isGroupChecked = (group) => {
+  const ids = group.reports.map((r) => r.id)
+  return ids.length > 0 && ids.every((id) => checkedIds.value.includes(id))
+}
+
+const toggleGroupCheck = (group) => {
+  const ids = group.reports.map((r) => r.id)
+  const allIn = ids.every((id) => checkedIds.value.includes(id))
+  if (allIn) {
+    checkedIds.value = checkedIds.value.filter((id) => !ids.includes(id))
+  } else {
+    for (const id of ids) {
+      if (!checkedIds.value.includes(id)) {
+        checkedIds.value.push(id)
+      }
+    }
+  }
+}
+
 const toggleAll = () => {
   if (allChecked.value) {
     checkedIds.value = []
   } else {
-    checkedIds.value = reportStore.reports.map((r) => r.id)
+    checkedIds.value = [...allReportIds.value]
   }
 }
 
@@ -366,14 +511,67 @@ const handleClearAll = async () => {
   gap: var(--spacing-sm);
 }
 
+/* Suite Group */
+.suite-group {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.suite-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background-color: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.suite-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.expand-icon {
+  font-size: 12px;
+  color: var(--text-secondary);
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.suite-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.suite-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suite-meta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Sub-items in expanded suite */
+.suite-items {
+  border-top: 1px solid var(--border-color);
+}
+
 .report-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-md);
   background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
   gap: var(--spacing-md);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -387,6 +585,27 @@ const handleClearAll = async () => {
 .report-item.selected {
   border-color: var(--primary);
   background-color: var(--primary-light);
+}
+
+.report-item.checked {
+  background-color: var(--primary-light);
+  border-color: var(--primary);
+}
+
+.report-item.sub-item {
+  padding: 8px 12px 8px 40px;
+  border: none;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 0;
+}
+
+.report-item.sub-item:last-child {
+  border-bottom: none;
+}
+
+.report-item.standalone {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .report-info {
@@ -420,6 +639,29 @@ const handleClearAll = async () => {
   padding: 2px 6px;
   background-color: var(--bg-secondary);
   border-radius: var(--radius-sm);
+}
+
+.sub-connection {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.sub-type {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.report-metrics-compact {
+  display: flex;
+  gap: 10px;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .report-metrics {
@@ -468,12 +710,19 @@ const handleClearAll = async () => {
   font-size: 14px;
   line-height: 1;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .delete-btn:hover {
   color: var(--danger);
   border-color: var(--danger);
   background-color: var(--danger-bg);
+}
+
+.delete-btn.small {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
 }
 
 .btn-danger {
@@ -536,11 +785,6 @@ const handleClearAll = async () => {
   accent-color: var(--primary);
 }
 
-.report-item.checked {
-  background-color: var(--primary-light);
-  border-color: var(--primary);
-}
-
 .status-badge {
   padding: 4px 12px;
   border-radius: var(--radius-sm);
@@ -548,6 +792,12 @@ const handleClearAll = async () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.status-badge.small {
+  padding: 2px 8px;
+  font-size: 10px;
 }
 
 .status-success {

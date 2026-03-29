@@ -41,7 +41,7 @@ test('keeps the current connection when it remains valid', () => {
   assert.equal(preferredConnectionId, 'pg-b')
 })
 
-test('connection placeholder uses Select one when no candidate connection exists', () => {
+test('connection placeholder uses database type when no candidate connection exists', () => {
   assert.match(tasksMonitorTabSource, /Select one/)
   assert.doesNotMatch(tasksMonitorTabSource, /Select connection/)
 })

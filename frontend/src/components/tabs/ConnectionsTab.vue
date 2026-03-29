@@ -144,7 +144,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import ConnectionForm from '../connection/ConnectionForm.vue'
 import { getAiBadgeTooltip, hasConfiguredAiAssistants } from './connectionCardBadges'
@@ -209,11 +209,17 @@ const connectionGroups = computed(() => {
 })
 
 // Close more menu when clicking outside
+const handleDocumentClick = () => {
+  moreMenuId.value = null
+}
+
 onMounted(async () => {
   await connectionStore.fetchConnections()
-  document.addEventListener('click', () => {
-    moreMenuId.value = null
-  })
+  document.addEventListener('click', handleDocumentClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick)
 })
 
 const selectConnection = (conn) => {

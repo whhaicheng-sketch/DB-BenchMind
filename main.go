@@ -107,13 +107,14 @@ func main() {
 	app := transportwails.NewApp()
 
 	// Create Wails bindings
+	execGuard := bindings.NewExecutionGuard()
 	connBinding := bindings.NewConnectionBinding(connUC)
 	templateBinding := bindings.NewTemplateBinding(templateUC)
-	benchmarkBinding := bindings.NewBenchmarkBinding(benchmarkUC, connUC, templateUC)
+	benchmarkBinding := bindings.NewBenchmarkBinding(benchmarkUC, connUC, templateUC, execGuard)
 	monitorBinding := bindings.NewMonitorBinding()
 	taskBinding := bindings.NewTaskBinding(benchmarkUC, connUC, templateUC, runRepo)
 	reportBinding := bindings.NewReportBinding(reportUC)
-	autobenchBinding := bindings.NewAutoBenchBinding(autobenchUC, autobenchRunner)
+	autobenchBinding := bindings.NewAutoBenchBinding(autobenchUC, autobenchRunner, execGuard)
 
 	// Store benchmark binding for context injection
 	app.SetBenchmarkBinding(benchmarkBinding)

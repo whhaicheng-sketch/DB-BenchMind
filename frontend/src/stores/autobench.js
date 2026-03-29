@@ -9,7 +9,8 @@ export const useAutoBenchStore = defineStore('autobench', {
   state: () => ({
     createdSuiteId: '',
     suiteStatus: null,
-    isPolling: false
+    isPolling: false,
+    startedAtTimestamp: null
   }),
 
   getters: {
@@ -29,6 +30,10 @@ export const useAutoBenchStore = defineStore('autobench', {
 
     setPolling(val) {
       this.isPolling = val
+    },
+
+    setStartedAtTimestamp(ts) {
+      this.startedAtTimestamp = ts
     },
 
     async fetchSuiteStatus() {
@@ -55,6 +60,7 @@ export const useAutoBenchStore = defineStore('autobench', {
       this.createdSuiteId = ''
       this.suiteStatus = null
       this.isPolling = false
+      this.startedAtTimestamp = null
     }
   }
 })

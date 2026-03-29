@@ -16,7 +16,7 @@ const listItemSource = fs.readFileSync(path.resolve(__dirname, '../src/component
 const listSource = fs.readFileSync(path.resolve(__dirname, '../src/components/template/TemplateList.vue'), 'utf8')
 const storeSource = fs.readFileSync(path.resolve(__dirname, '../src/stores/template.js'), 'utf8')
 const modelSource = fs.readFileSync(path.resolve(__dirname, '../src/models/template.js'), 'utf8')
-const bindingModelsSource = fs.readFileSync(path.resolve(__dirname, '../wailsjs/go/models.ts.body'), 'utf8')
+const bindingModelsSource = fs.readFileSync(path.resolve(__dirname, '../wailsjs/go/models.ts'), 'utf8')
 const tasksMonitorSource = fs.readFileSync(path.resolve(__dirname, '../src/components/tabs/TasksMonitorTab.vue'), 'utf8')
 
 function loadTemplateModelModule() {

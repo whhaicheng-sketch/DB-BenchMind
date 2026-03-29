@@ -2,6 +2,7 @@ package bindings
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/app/usecase"
@@ -13,25 +14,38 @@ type AutoBenchBinding struct {
 	ctx    context.Context
 	suites *usecase.AutoBenchSuiteUseCase
 	runner *usecase.AutoBenchSuiteRunner
+	guard  *ExecutionGuard
 
 	mu          sync.RWMutex
 	activeSuite string
+	cancelFunc  context.CancelFunc
+	paused      bool
 }
 
 // NewAutoBenchBinding creates a new AutoBenchBinding.
 func NewAutoBenchBinding(
 	suites *usecase.AutoBenchSuiteUseCase,
 	runner *usecase.AutoBenchSuiteRunner,
+	guard *ExecutionGuard,
 ) *AutoBenchBinding {
 	return &AutoBenchBinding{
 		suites: suites,
 		runner: runner,
+		guard:  guard,
 	}
 }
 
 // SetContext sets the context for the binding.
 func (b *AutoBenchBinding) SetContext(ctx context.Context) {
 	b.ctx = ctx
+}
+
+// IsAnyTaskRunning returns true if a benchmark or AutoBench suite is currently running.
+func (b *AutoBenchBinding) IsAnyTaskRunning() bool {
+	if b.guard != nil {
+		return b.guard.IsAnyTaskRunning()
+	}
+	return false
 }
 
 // AutoBenchCreateSuiteRequest contains the parameters for creating a suite.
@@ -92,28 +106,137 @@ type AutoBenchStartSuiteResult struct {
 
 // StartSuite starts execution of an existing suite.
 func (b *AutoBenchBinding) StartSuite(suiteID string) AutoBenchStartSuiteResult {
-	ctx := b.ctx
-	if ctx == nil {
-		ctx = context.Background()
+	// Serial execution guard
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("autobench", suiteID, "AutoBench Suite"); err != nil {
+			return AutoBenchStartSuiteResult{Error: err.Error()}
+		}
 	}
+
+	// Create a cancellable context for the suite run
+	suiteCtx, cancel := context.WithCancel(context.Background())
 
 	b.mu.Lock()
 	b.activeSuite = suiteID
+	b.cancelFunc = cancel
+	b.paused = false
 	b.mu.Unlock()
 
 	go func() {
-		// Run in background to not block the UI
-		// If runner is nil, RunSuite will handle the error internally
-		if b.runner != nil {
-			_ = b.runner.RunSuite(context.Background(), suiteID)
-		}
+		defer func() {
+			b.mu.Lock()
+			b.activeSuite = ""
+			b.cancelFunc = nil
+			b.paused = false
+			b.mu.Unlock()
 
-		b.mu.Lock()
-		b.activeSuite = ""
-		b.mu.Unlock()
+			if b.guard != nil {
+				b.guard.Release()
+			}
+		}()
+
+		// Run in background to not block the UI.
+		// If runner is nil, RunSuite will handle the error internally.
+		if b.runner != nil {
+			_ = b.runner.RunSuite(suiteCtx, suiteID)
+		}
 	}()
 
 	return AutoBenchStartSuiteResult{Success: true}
+}
+
+// AutoBenchPauseSuiteResult contains the result of pausing a suite.
+type AutoBenchPauseSuiteResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// PauseSuite pauses execution of a running suite.
+// The currently running benchmark item will complete, but the next item
+// will not start until ResumeSuite is called.
+func (b *AutoBenchBinding) PauseSuite(suiteID string) AutoBenchPauseSuiteResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.activeSuite != suiteID {
+		return AutoBenchPauseSuiteResult{
+			Error: "no active suite with given ID is running",
+		}
+	}
+	if b.paused {
+		return AutoBenchPauseSuiteResult{
+			Error: "suite is already paused",
+		}
+	}
+
+	b.paused = true
+	slog.Info("AutoBench: suite paused", "suite_id", suiteID)
+	return AutoBenchPauseSuiteResult{Success: true}
+}
+
+// AutoBenchResumeSuiteResult contains the result of resuming a suite.
+type AutoBenchResumeSuiteResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ResumeSuite resumes execution of a paused suite.
+func (b *AutoBenchBinding) ResumeSuite(suiteID string) AutoBenchResumeSuiteResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.activeSuite != suiteID {
+		return AutoBenchResumeSuiteResult{
+			Error: "no active suite with given ID is running",
+		}
+	}
+	if !b.paused {
+		return AutoBenchResumeSuiteResult{
+			Error: "suite is not paused",
+		}
+	}
+
+	b.paused = false
+	slog.Info("AutoBench: suite resumed", "suite_id", suiteID)
+	return AutoBenchResumeSuiteResult{Success: true}
+}
+
+// AutoBenchStopSuiteResult contains the result of stopping a suite.
+type AutoBenchStopSuiteResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// StopSuite cancels execution of a running suite.
+// The context for the suite run is cancelled, which causes the runner
+// to stop after the current item finishes.
+func (b *AutoBenchBinding) StopSuite(suiteID string) AutoBenchStopSuiteResult {
+	b.mu.Lock()
+
+	if b.activeSuite != suiteID {
+		b.mu.Unlock()
+		return AutoBenchStopSuiteResult{
+			Error: "no active suite with given ID is running",
+		}
+	}
+
+	cancelFn := b.cancelFunc
+	b.paused = false
+	b.mu.Unlock()
+
+	if cancelFn != nil {
+		cancelFn()
+	}
+
+	slog.Info("AutoBench: suite stop requested", "suite_id", suiteID)
+	return AutoBenchStopSuiteResult{Success: true}
+}
+
+// IsSuitePaused reports whether the active suite is currently paused.
+func (b *AutoBenchBinding) IsSuitePaused() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.paused
 }
 
 // AutoBenchSuiteStatusResult contains the status of a suite.

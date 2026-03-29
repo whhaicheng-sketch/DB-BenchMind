@@ -8,7 +8,7 @@ import (
 
 func TestAutoBenchBinding_CreateSuite(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil)
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard())
 
 	tests := []struct {
 		name    string
@@ -59,7 +59,7 @@ func TestAutoBenchBinding_CreateSuite(t *testing.T) {
 
 func TestAutoBenchBinding_GetSuiteStatus(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil)
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard())
 
 	// Create a suite first
 	createResult := binding.CreateSuite(AutoBenchCreateSuiteRequest{
@@ -86,7 +86,7 @@ func TestAutoBenchBinding_GetSuiteStatus(t *testing.T) {
 
 func TestAutoBenchBinding_GetSuiteStatus_NotFound(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil)
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard())
 
 	result := binding.GetSuiteStatus("non-existent-id")
 	if result.Error == "" {
@@ -96,7 +96,7 @@ func TestAutoBenchBinding_GetSuiteStatus_NotFound(t *testing.T) {
 
 func TestAutoBenchBinding_GetExecutionPlan(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil)
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard())
 
 	// Create a suite first
 	createResult := binding.CreateSuite(AutoBenchCreateSuiteRequest{
@@ -123,7 +123,7 @@ func TestAutoBenchBinding_GetExecutionPlan(t *testing.T) {
 
 func TestAutoBenchBinding_ListProfiles(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil)
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard())
 
 	result := binding.ListProfiles()
 	if len(result.Profiles) != 3 {
@@ -133,7 +133,7 @@ func TestAutoBenchBinding_ListProfiles(t *testing.T) {
 
 func TestAutoBenchBinding_StartSuite_NoRunner(t *testing.T) {
 	suitesUC := usecase.NewAutoBenchSuiteUseCase()
-	binding := NewAutoBenchBinding(suitesUC, nil) // No runner
+	binding := NewAutoBenchBinding(suitesUC, nil, NewExecutionGuard()) // No runner
 
 	// Create a suite first
 	createResult := binding.CreateSuite(AutoBenchCreateSuiteRequest{

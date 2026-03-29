@@ -63,6 +63,8 @@ const canStartSuite = computed(() => {
   return ['draft', 'ready'].includes(suiteStatus.value.status)
 })
 
+const isSuitePaused = ref(false)
+
 const isSuiteRunning = computed(() => {
   return suiteStatus.value?.status === 'running'
 })
@@ -116,6 +118,13 @@ function formatElapsed(secs) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// Recover elapsed time from store timestamp
+function recoverElapsed() {
+  if (autobenchStore.startedAtTimestamp) {
+    elapsedSeconds.value = Math.max(0, Math.floor((Date.now() - autobenchStore.startedAtTimestamp) / 1000))
+  }
+}
+
 // Load connections on mount, recover running suite from store
 onMounted(async () => {
   await connectionStore.fetchConnections()
@@ -126,18 +135,14 @@ onMounted(async () => {
     if (autobenchStore.suiteStatus) {
       suiteStatus.value = autobenchStore.suiteStatus
     }
+    // Check pause state
+    isSuitePaused.value = autobenchStore.isPolling === false && suiteStatus.value?.status === 'running'
     // Always fetch fresh status from backend
     const ok = await fetchSuiteStatus()
     if (ok && suiteStatus.value?.status === 'running') {
       startPolling()
-      // Estimate elapsed from started_at if available
-      if (suiteStatus.value.started_at) {
-        try {
-          const startMs = new Date(suiteStatus.value.started_at).getTime()
-          const nowMs = Date.now()
-          elapsedSeconds.value = Math.max(0, Math.floor((nowMs - startMs) / 1000))
-        } catch { /* ignore */ }
-      }
+      // Recover elapsed from store timestamp
+      recoverElapsed()
       // Restart elapsed counter
       if (elapsedInterval) clearInterval(elapsedInterval)
       elapsedInterval = setInterval(() => {
@@ -203,7 +208,14 @@ async function handleStartSuite() {
     if (result.error) {
       startError.value = result.error
     } else {
+      // Record start timestamp for elapsed recovery
+      autobenchStore.setStartedAtTimestamp(Date.now())
+      elapsedSeconds.value = 0
       startPolling()
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
     }
   } catch (err) {
     startError.value = String(err)
@@ -278,8 +290,61 @@ function resetSuite() {
   createError.value = ''
   startError.value = ''
   elapsedSeconds.value = 0
+  isSuitePaused.value = false
   stopPolling()
   autobenchStore.resetSuite()
+}
+
+async function handlePauseSuite() {
+  if (!createdSuiteId.value) return
+  try {
+    const result = await AutoBenchBinding.PauseSuite(createdSuiteId.value)
+    if (result.error) {
+      startError.value = result.error
+    } else {
+      isSuitePaused.value = true
+      stopPolling()
+    }
+  } catch (err) {
+    startError.value = String(err)
+  }
+}
+
+async function handleResumeSuite() {
+  if (!createdSuiteId.value) return
+  try {
+    const result = await AutoBenchBinding.ResumeSuite(createdSuiteId.value)
+    if (result.error) {
+      startError.value = result.error
+    } else {
+      isSuitePaused.value = false
+      // Re-sync elapsed from store timestamp
+      recoverElapsed()
+      startPolling()
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
+    }
+  } catch (err) {
+    startError.value = String(err)
+  }
+}
+
+async function handleStopSuite() {
+  if (!createdSuiteId.value) return
+  if (!confirm('Stop the entire suite? All remaining items will be cancelled.')) return
+  try {
+    const result = await AutoBenchBinding.StopSuite(createdSuiteId.value)
+    if (result.error) {
+      startError.value = result.error
+    } else {
+      stopPolling()
+      await fetchSuiteStatus()
+    }
+  } catch (err) {
+    startError.value = String(err)
+  }
 }
 
 function getStatusLabel(status) {
@@ -314,13 +379,19 @@ function getStatusClass(status) {
         </p>
       </div>
       <div class="header-actions">
-        <button v-if="createdSuiteId && !isSuiteRunning" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
+        <button v-if="createdSuiteId && !isSuiteRunning && !isSuitePaused" class="primary-action start-action" type="button" :disabled="!canStartSuite" @click="handleStartSuite">
           {{ isStarting ? 'Starting...' : 'Start Suite' }}
         </button>
-        <button v-if="isSuiteRunning" class="primary-action running-action" type="button" disabled>
-          Running...
+        <button v-if="isSuiteRunning && !isSuitePaused" class="primary-action warning-action" type="button" @click="handlePauseSuite">
+          Pause
         </button>
-        <button v-if="createdSuiteId && !isSuiteRunning" class="secondary-action" type="button" @click="resetSuite">
+        <button v-if="isSuitePaused" class="primary-action start-action" type="button" @click="handleResumeSuite">
+          Resume
+        </button>
+        <button v-if="isSuiteRunning || isSuitePaused" class="primary-action danger-action" type="button" @click="handleStopSuite">
+          Stop
+        </button>
+        <button v-if="createdSuiteId && !isSuiteRunning && !isSuitePaused" class="secondary-action" type="button" @click="resetSuite">
           New Suite
         </button>
       </div>
@@ -334,16 +405,16 @@ function getStatusClass(status) {
     <div v-if="createdSuiteId && suiteStatus" class="active-run-section">
       <div class="run-strip">
         <span :class="['status-badge', getStatusClass(suiteStatus.status)]">
-          {{ getStatusLabel(suiteStatus.status) }}
+          {{ getStatusLabel(suiteStatus.status) }}{{ isSuitePaused ? ' (Paused)' : '' }}
         </span>
         <span class="run-name">{{ suiteStatus.name || createdSuiteId }}</span>
         <span class="run-progress">
           {{ suiteStatus.completed_items }}/{{ suiteStatus.total_items }}
         </span>
-        <span v-if="currentItem" class="run-current">
+        <span v-if="currentItem && !isSuitePaused" class="run-current">
           Running: {{ connNameMap[currentItem.connection_id] || currentItem.connection_id }} - {{ currentItem.profile_type }}
         </span>
-        <span v-if="isSuiteRunning" class="run-elapsed">{{ formatElapsed(elapsedSeconds) }}</span>
+        <span v-if="isSuiteRunning || isSuitePaused" class="run-elapsed">{{ formatElapsed(elapsedSeconds) }}</span>
       </div>
 
       <div class="run-detail">
@@ -565,6 +636,16 @@ function getStatusClass(status) {
 .running-action {
   background: var(--warning);
   border-color: var(--warning);
+}
+
+.warning-action {
+  background: var(--warning);
+  border-color: var(--warning);
+}
+
+.danger-action {
+  background: var(--danger);
+  border-color: var(--danger);
 }
 
 .error-banner {

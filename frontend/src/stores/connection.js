@@ -30,6 +30,8 @@ export const useConnectionStore = defineStore('connection', {
     selectedConnectionId: null,
     // Loading state
     loading: false,
+    listLoading: false,
+    mutationLoading: false,
     // Error message
     error: null,
     // Test result
@@ -112,6 +114,7 @@ export const useConnectionStore = defineStore('connection', {
      * Fetch all connections from backend
      */
     async fetchConnections() {
+      this.listLoading = true
       this.loading = true
       this.error = null
 
@@ -128,6 +131,7 @@ export const useConnectionStore = defineStore('connection', {
         console.error('fetchConnections error:', err)
       } finally {
         this.loading = false
+        this.listLoading = false
       }
     },
 
@@ -149,6 +153,7 @@ export const useConnectionStore = defineStore('connection', {
      * Create a new connection
      */
     async createConnection(connectionData) {
+      this.mutationLoading = true
       this.loading = true
       this.error = null
 

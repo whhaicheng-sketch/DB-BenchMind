@@ -10,6 +10,26 @@ export function StartSuite(arg1) {
   return window['go']['bindings']['AutoBenchBinding']['StartSuite'](arg1);
 }
 
+export function PauseSuite(arg1) {
+  return window['go']['bindings']['AutoBenchBinding']['PauseSuite'](arg1);
+}
+
+export function ResumeSuite(arg1) {
+  return window['go']['bindings']['AutoBenchBinding']['ResumeSuite'](arg1);
+}
+
+export function StopSuite(arg1) {
+  return window['go']['bindings']['AutoBenchBinding']['StopSuite'](arg1);
+}
+
+export function IsSuitePaused() {
+  return window['go']['bindings']['AutoBenchBinding']['IsSuitePaused']();
+}
+
+export function IsAnyTaskRunning() {
+  return window['go']['bindings']['AutoBenchBinding']['IsAnyTaskRunning']();
+}
+
 export function GetSuiteStatus(arg1) {
   return window['go']['bindings']['AutoBenchBinding']['GetSuiteStatus'](arg1);
 }

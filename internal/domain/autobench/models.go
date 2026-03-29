@@ -19,6 +19,7 @@ const (
 	SuiteStatusDraft          SuiteStatus = "draft"
 	SuiteStatusReady          SuiteStatus = "ready"
 	SuiteStatusRunning        SuiteStatus = "running"
+	SuiteStatusPaused         SuiteStatus = "paused"
 	SuiteStatusPartialSuccess SuiteStatus = "partial_success"
 	SuiteStatusSuccess        SuiteStatus = "success"
 	SuiteStatusFailed         SuiteStatus = "failed"

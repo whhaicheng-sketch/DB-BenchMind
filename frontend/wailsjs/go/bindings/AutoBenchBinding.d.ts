@@ -81,6 +81,11 @@ export interface AutoBenchSuiteSummaryResult {
 
 export function CreateSuite(arg1: AutoBenchCreateSuiteRequest): Promise<AutoBenchCreateSuiteResult>;
 export function StartSuite(arg1: string): Promise<AutoBenchStartSuiteResult>;
+export function PauseSuite(arg1: string): Promise<{success: boolean; error?: string}>;
+export function ResumeSuite(arg1: string): Promise<{success: boolean; error?: string}>;
+export function StopSuite(arg1: string): Promise<{success: boolean; error?: string}>;
+export function IsSuitePaused(): Promise<boolean>;
+export function IsAnyTaskRunning(): Promise<boolean>;
 export function GetSuiteStatus(arg1: string): Promise<AutoBenchSuiteStatusResult>;
 export function GetExecutionPlan(arg1: string): Promise<AutoBenchExecutionPlanResult>;
 export function ListProfiles(): Promise<AutoBenchProfileListResult>;

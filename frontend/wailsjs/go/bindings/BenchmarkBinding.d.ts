@@ -18,3 +18,5 @@ export function SetContext(arg1:context.Context):Promise<void>;
 export function StartBenchmark(arg1:bindings.BenchmarkStartRequest):Promise<bindings.BenchmarkStartResult>;
 
 export function StopBenchmark(arg1:string,arg2:boolean):Promise<Record<string, any>>;
+
+export function IsAnyTaskRunning():Promise<boolean>;

@@ -17,15 +17,17 @@ type BenchmarkBinding struct {
 	uc         *usecase.BenchmarkUseCase
 	connUC     *usecase.ConnectionUseCase
 	templateUC *usecase.TemplateUseCase
+	guard      *ExecutionGuard
 	ctx        context.Context // Wails context for event emission
 }
 
 // NewBenchmarkBinding creates a new BenchmarkBinding.
-func NewBenchmarkBinding(uc *usecase.BenchmarkUseCase, connUC *usecase.ConnectionUseCase, templateUC *usecase.TemplateUseCase) *BenchmarkBinding {
+func NewBenchmarkBinding(uc *usecase.BenchmarkUseCase, connUC *usecase.ConnectionUseCase, templateUC *usecase.TemplateUseCase, guard *ExecutionGuard) *BenchmarkBinding {
 	return &BenchmarkBinding{
 		uc:         uc,
 		connUC:     connUC,
 		templateUC: templateUC,
+		guard:      guard,
 	}
 }
 
@@ -33,6 +35,14 @@ func NewBenchmarkBinding(uc *usecase.BenchmarkUseCase, connUC *usecase.Connectio
 // This is called by the app during startup.
 func (b *BenchmarkBinding) SetContext(ctx context.Context) {
 	b.ctx = ctx
+}
+
+// IsAnyTaskRunning returns true if a benchmark or AutoBench suite is currently running.
+func (b *BenchmarkBinding) IsAnyTaskRunning() bool {
+	if b.guard != nil {
+		return b.guard.IsAnyTaskRunning()
+	}
+	return false
 }
 
 // emitLog emits a log event to the frontend.
@@ -168,9 +178,18 @@ type BenchmarkListResult struct {
 func (b *BenchmarkBinding) StartBenchmark(req BenchmarkStartRequest) BenchmarkStartResult {
 	ctx := context.Background()
 
+	// Serial execution guard
+	taskID := uuid.New().String()
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("benchmark", taskID, "Benchmark Run"); err != nil {
+			return BenchmarkStartResult{Error: err.Error()}
+		}
+		defer b.guard.Release()
+	}
+
 	// Create task
 	task := &execution.BenchmarkTask{
-		ID:           uuid.New().String(),
+		ID:           taskID,
 		Name:         "Benchmark Run",
 		ConnectionID: req.ConnectionID,
 		TemplateID:   req.TemplateID,
@@ -201,8 +220,17 @@ func (b *BenchmarkBinding) StartBenchmark(req BenchmarkStartRequest) BenchmarkSt
 func (b *BenchmarkBinding) PrepareOnly(req BenchmarkStartRequest) BenchmarkStartResult {
 	ctx := context.Background()
 
+	// Serial execution guard
+	taskID := uuid.New().String()
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("benchmark", taskID, "Prepare Only"); err != nil {
+			return BenchmarkStartResult{Error: err.Error()}
+		}
+		defer b.guard.Release()
+	}
+
 	task := &execution.BenchmarkTask{
-		ID:           uuid.New().String(),
+		ID:           taskID,
 		Name:         "Prepare Only",
 		ConnectionID: req.ConnectionID,
 		TemplateID:   req.TemplateID,
@@ -235,8 +263,17 @@ func (b *BenchmarkBinding) PrepareOnly(req BenchmarkStartRequest) BenchmarkStart
 func (b *BenchmarkBinding) RunBenchmark(req BenchmarkStartRequest) BenchmarkStartResult {
 	ctx := context.Background()
 
+	// Serial execution guard
+	taskID := uuid.New().String()
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("benchmark", taskID, "Benchmark Run (skip prepare)"); err != nil {
+			return BenchmarkStartResult{Error: err.Error()}
+		}
+		defer b.guard.Release()
+	}
+
 	task := &execution.BenchmarkTask{
-		ID:           uuid.New().String(),
+		ID:           taskID,
 		Name:         "Benchmark Run",
 		ConnectionID: req.ConnectionID,
 		TemplateID:   req.TemplateID,
@@ -267,8 +304,17 @@ func (b *BenchmarkBinding) RunBenchmark(req BenchmarkStartRequest) BenchmarkStar
 func (b *BenchmarkBinding) CleanupOnly(req BenchmarkStartRequest) BenchmarkStartResult {
 	ctx := context.Background()
 
+	// Serial execution guard
+	taskID := uuid.New().String()
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("benchmark", taskID, "Cleanup Only"); err != nil {
+			return BenchmarkStartResult{Error: err.Error()}
+		}
+		defer b.guard.Release()
+	}
+
 	task := &execution.BenchmarkTask{
-		ID:           uuid.New().String(),
+		ID:           taskID,
 		Name:         "Cleanup Only",
 		ConnectionID: req.ConnectionID,
 		TemplateID:   req.TemplateID,
