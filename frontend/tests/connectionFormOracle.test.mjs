@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const connectionFormSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionForm.vue'), 'utf8')
+const connectionFormSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionGeneralSection.vue'), 'utf8')
+const stateSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/useConnectionFormState.mjs'), 'utf8')
 
 test('Oracle connection type selector only offers Basic and TNS', () => {
   assert.match(connectionFormSource, /<option value="basic">Basic<\/option>/)
@@ -15,8 +16,8 @@ test('Oracle connection type selector only offers Basic and TNS', () => {
 })
 
 test('Oracle defaults initialize connect type as Basic and identifier type as service name', () => {
-  assert.match(connectionFormSource, /oracle_connect_mode:\s*'basic'/)
-  assert.match(connectionFormSource, /oracle_basic_identifier_type:\s*'service_name'/)
+  assert.match(stateSource, /oracle_connect_mode:\s*'basic'/)
+  assert.match(stateSource, /oracle_basic_identifier_type:\s*'service_name'/)
 })
 
 test('Oracle Basic mode renders Service Name and SID radio choices', () => {
@@ -33,6 +34,6 @@ test('Oracle TNS mode renders a dedicated TNS field', () => {
 })
 
 test('Oracle mode switch uses mode-aware validation helpers', () => {
-  assert.match(connectionFormSource, /getOracleModeFieldError/)
-  assert.match(connectionFormSource, /clearOracleModeSpecificFields/)
+  assert.match(stateSource, /getOracleModeFieldError/)
+  assert.match(stateSource, /clearOracleModeSpecificFields/)
 })

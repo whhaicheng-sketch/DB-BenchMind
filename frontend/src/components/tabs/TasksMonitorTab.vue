@@ -131,12 +131,28 @@
         <section class="panel monitor-board">
           <div class="card-head">
             <h3>Monitor Overview</h3>
+            <div class="monitor-controls">
+              <div class="time-window-pills">
+                <button
+                  v-for="tw in TIME_WINDOWS"
+                  :key="tw.value"
+                  :class="['tw-pill', { active: timeWindowSeconds === tw.value }]"
+                  @click="timeWindowSeconds = tw.value"
+                >{{ tw.label }}</button>
+              </div>
+              <button
+                :class="['monitor-pause-btn', { paused: monitorPaused }]"
+                @click="monitorPaused = !monitorPaused"
+                :title="monitorPaused ? 'Resume rendering' : 'Pause rendering'"
+                :aria-label="monitorPaused ? 'Resume monitor rendering' : 'Pause monitor rendering'"
+              >{{ monitorPaused ? '▶ Resume' : '⏸ Pause' }}</button>
+            </div>
             <span v-if="!systemEnabled">{{ systemMessage }}</span>
           </div>
 
           <div class="monitor-board-grid">
             <div class="metric-grid">
-              <div class="metric-card" v-for="metric in businessMetrics" :key="metric.label" :data-metric-card="metric.label">
+              <div class="metric-card" v-for="metric in displayedBusinessMetrics" :key="metric.label" :data-metric-card="metric.label" :aria-label="`${metric.label}: current ${metric.current}, average ${metric.avg}, max ${metric.max}`">
                 <div class="metric-card-head">
                   <div class="metric-inline-bar">
                     <span class="metric-title">{{ metric.label }}</span>
@@ -147,7 +163,7 @@
                       </div>
                     </div>
                   </div>
-                  <span class="metric-status" :class="metric.statusClass">{{ metric.statusLabel }}</span>
+                  <span class="metric-status" :class="metric.statusClass"><span class="status-icon" aria-hidden="true">{{ metric.statusLabel === 'Stable' ? '✓' : metric.statusLabel === 'Fluctuating' ? '~' : metric.statusLabel === 'Sawtooth' ? '↕' : '' }}</span> {{ metric.statusLabel }}</span>
                 </div>
                 <div class="metric-history">
                   <div class="chart-shell metric-chart-shell" data-testid="metric-chart-shell">
@@ -163,7 +179,7 @@
                         <strong>{{ metric.current }}</strong>
                         <span>{{ metric.unit }}</span>
                       </div>
-                      <svg class="history-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                      <svg class="history-chart" viewBox="0 0 320 140" preserveAspectRatio="none" width="100%" role="img" :aria-label="`${metric.label} trend chart`">
                         <path :d="metric.areaPath" :fill="metric.fill" />
                         <line v-for="tick in metric.tickLines" :key="`${metric.label}-grid-${tick.label}`" :x1="tick.x1" :x2="tick.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline :points="metric.points" :stroke="metric.glow" :stroke-width="CHART_GLOW_WIDTH" stroke-linecap="round" stroke-linejoin="round" fill="none" class="history-glow metric-line-glow" />
@@ -200,7 +216,7 @@
                       <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
-                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none" width="100%" role="img" aria-label="CPU usage chart">
                         <line v-for="tick in cpuChart.leftTicks" :key="`cpu-grid-${tick.label}`" :x1="cpuChart.plotBounds.x1" :x2="cpuChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline
                           v-for="line in cpuChart.lines"
@@ -242,7 +258,7 @@
                       <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
-                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none">
+                      <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none" width="100%" role="img" aria-label="Disk IO chart">
                         <line v-for="tick in diskChart.leftTicks" :key="`disk-grid-${tick.label}`" :x1="diskChart.plotBounds.x1" :x2="diskChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline
                           v-for="line in diskChart.lines"
@@ -360,6 +376,13 @@ import {
 import { resolveTasksMonitorBinding } from './tasksMonitorTaskState.mjs'
 import { getPreferredTemplateId } from './tasksMonitorTemplateSelection.mjs'
 import { buildStatusStripModel } from './tasksMonitorStatusStrip.mjs'
+import {
+  TIME_WINDOWS,
+  DEFAULT_TIME_WINDOW,
+  cropSeriesToWindow,
+  cropMetricsToWindow
+} from './tasksMonitorTimeWindow.mjs'
+import { getValuesAtHover } from './tasksMonitorCorrelation.mjs'
 
 const appStore = useAppStore()
 const templateStore = useTemplateStore()
@@ -401,6 +424,9 @@ const logViewport = ref(null)
 const nowTick = ref(Date.now())
 const logActionNotice = ref(null)
 const retainedBusinessMetrics = ref(createEmptyRetainedBusinessMetricsState())
+const timeWindowSeconds = ref(DEFAULT_TIME_WINDOW)
+const monitorPaused = ref(false)
+const unifiedHoverIndex = ref(-1)
 let logNoticeTimer = null
 
 const selectedTemplate = computed(() => templates.value.find((template) => template.id === draft.template_id) || null)
@@ -536,6 +562,31 @@ const businessMetrics = computed(() => {
     metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
   ]
 })
+
+const windowedBusinessMetrics = computed(() => {
+  const rawMetrics = resolveDisplayedTaskMetrics(currentTask.value, retainedBusinessMetrics.value)
+  const metrics = cropMetricsToWindow(rawMetrics, timeWindowSeconds.value)
+  return [
+    metricCard(currentTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
+    metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
+  ]
+})
+
+const displayedBusinessMetrics = computed(() => {
+  if (monitorPaused.value) return lastRenderedMetrics.value
+  lastRenderedMetrics.value = windowedBusinessMetrics.value
+  return windowedBusinessMetrics.value
+})
+
+const lastRenderedMetrics = ref([])
+
+function handleChartHover(index) {
+  unifiedHoverIndex.value = index
+}
+
+function handleChartLeave() {
+  unifiedHoverIndex.value = -1
+}
 
 const systemEnabled = computed(() => !!currentTask.value?.metrics?.system_enabled)
 const systemMessage = computed(() => currentTask.value?.metrics?.system_message || 'SSH unavailable, benchmark continues without system metrics')
@@ -1866,7 +1917,7 @@ select:focus,
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 48px;
   height: 100%;
-  min-height: 0;
+  min-height: 100px;
   gap: 6px;
   overflow: hidden;
 }
@@ -2464,5 +2515,48 @@ select:focus,
     flex-wrap: wrap;
     row-gap: 2px;
   }
+}
+
+.monitor-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.time-window-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.tw-pill {
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tw-pill.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.monitor-pause-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.monitor-pause-btn.paused {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: var(--warning);
 }
 </style>

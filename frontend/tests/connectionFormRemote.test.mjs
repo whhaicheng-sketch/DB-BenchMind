@@ -18,6 +18,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const connectionFormSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionForm.vue'), 'utf8')
+const remoteSectionSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionRemoteSection.vue'), 'utf8')
+const stateSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/useConnectionFormState.mjs'), 'utf8')
 const connectionsTabSource = fs.readFileSync(path.resolve(__dirname, '../src/components/tabs/ConnectionsTab.vue'), 'utf8')
 const connectionStoreSource = fs.readFileSync(path.resolve(__dirname, '../src/stores/connection.js'), 'utf8')
 
@@ -145,12 +147,12 @@ test('remote blocking validation only checks the active remote type fields', () 
 })
 
 test('ConnectionForm renders Remote tab semantics instead of the legacy SSH-only tab', () => {
-  assert.match(connectionFormSource, /\{ id: 'remote', label: 'Remote' \}/)
-  assert.match(connectionFormSource, /remote_type/)
+  assert.match(stateSource, /\{ id: 'remote', label: 'Remote' \}/)
+  assert.match(stateSource, /remote_type/)
   assert.match(connectionFormSource, /Test WinRM/)
-  assert.match(connectionFormSource, /不使用远程连接/)
-  assert.match(connectionFormSource, /WinRM/)
-  assert.doesNotMatch(connectionFormSource, /\{ id: 'ssh', label: 'SSH' \}/)
+  assert.match(remoteSectionSource, /不使用远程连接/)
+  assert.match(remoteSectionSource, /WinRM/)
+  assert.doesNotMatch(stateSource, /\{ id: 'ssh', label: 'SSH' \}/)
 })
 
 test('ConnectionsTab derives remote badges and remote status from remote_type rather than raw enabled flags', () => {

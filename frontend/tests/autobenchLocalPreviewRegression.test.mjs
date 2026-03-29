@@ -117,12 +117,12 @@ test('connection filtering stays local-only and does not change selected preview
   )
 })
 
-test('AutoBench tab keeps preview copy local-only and leaves create action disabled', async () => {
+test('AutoBench tab keeps create action disabled until selections are valid', async () => {
   const source = fs.readFileSync(tabPath, 'utf8')
 
-  assert.match(source, /{{ planPreview\.totalItems }} local items/)
-  assert.match(source, /Select at least one connection and one profile to build the local preview\./)
-  assert.match(source, /Preview only\. This is a local orchestration sketch and does not create or run a suite\./)
-  assert.match(source, /<button class="placeholder-action" type="button" disabled>Create Suite \(later task\)<\/button>/)
-  assert.doesNotMatch(source, /CreateSuite|AutoBenchSuiteUseCase|window\.go/)
+  // After UI overhaul, the Create Suite button is disabled when !canCreateSuite
+  assert.match(source, /:disabled="!canCreateSuite"/)
+  assert.match(source, /handleCreateSuite/)
+  // Wizard draft validation logic still imported
+  assert.match(source, /validateAutoBenchWizardDraft/)
 })

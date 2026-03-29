@@ -23,6 +23,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const connectionFormSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionForm.vue'), 'utf8')
+const aiSectionSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/ConnectionAISection.vue'), 'utf8')
+const stateSource = fs.readFileSync(path.resolve(__dirname, '../src/components/connection/useConnectionFormState.mjs'), 'utf8')
 
 test('normalizeModelOptions accepts string and object model payloads', () => {
   assert.deepEqual(
@@ -239,39 +241,51 @@ test('AI test request uses unsaved assistant form values directly', () => {
 })
 
 test('ConnectionForm wires the visible AI test dialog entry points and removes the local API key placeholder row', () => {
-  assert.match(connectionFormSource, /测试模型/)
-  assert.match(connectionFormSource, /<AiTestDialog/)
-  assert.doesNotMatch(connectionFormSource, /本地模型无需 API 密钥/)
+  assert.match(aiSectionSource, /测试模型/)
+  assert.match(aiSectionSource, /<AiTestDialog/)
+  assert.doesNotMatch(aiSectionSource, /本地模型无需 API 密钥/)
 })
 
 test('ConnectionForm save flow only uses blocking validation for the top banner', () => {
-  assert.match(connectionFormSource, /if \(!validateForm\(\)\)/)
-  assert.doesNotMatch(connectionFormSource, /aiTestStatus[\s\S]{0,200}请修正表单中的错误/)
-  assert.doesNotMatch(connectionFormSource, /modelQueryError[\s\S]{0,200}请修正表单中的错误/)
+  assert.match(stateSource, /if \(!validateForm\(\)\)/)
+  assert.doesNotMatch(stateSource, /aiTestStatus[\s\S]{0,200}请修正表单中的错误/)
+  assert.doesNotMatch(stateSource, /modelQueryError[\s\S]{0,200}请修正表单中的错误/)
 })
 
 test('ConnectionForm save flow does not gate save on AI test failures or model query failures', () => {
-  const handleSaveMatch = connectionFormSource.match(/const handleSave = async \(\) => \{([\s\S]*?)\n\}/)
-  assert.ok(handleSaveMatch, 'expected handleSave source')
+  // Extract the handleSave function body using a brace-matching approach
+  const startIdx = stateSource.indexOf('const handleSave = async () => {')
+  assert.ok(startIdx >= 0, 'expected handleSave function')
 
-  const handleSaveSource = handleSaveMatch[1]
+  // Find the matching closing brace
+  let depth = 0
+  let endIdx = startIdx
+  for (let i = startIdx; i < stateSource.length; i++) {
+    if (stateSource[i] === '{') depth++
+    else if (stateSource[i] === '}') {
+      depth--
+      if (depth === 0) { endIdx = i; break }
+    }
+  }
+
+  const handleSaveSource = stateSource.slice(startIdx, endIdx)
   assert.doesNotMatch(handleSaveSource, /aiTestStatus|aiTestResult|modelQueryError|availableModels|QueryAIModels|TestAIConnection/)
 })
 
 test('ConnectionForm clears stale AI interaction state when switching providers or assistants', () => {
-  assert.match(connectionFormSource, /resetAiInteractionState\(\)/)
-  assert.match(connectionFormSource, /formData\.value\.ai_assistants\.map\(\(assistant\) => assistant\.provider\)\.join\('\|'\)/)
-  assert.match(connectionFormSource, /selectedAssistant\.value\?\.api_key \|\| ''/)
-  assert.match(connectionFormSource, /selectedAssistant\.value\?\.model \|\| ''/)
+  assert.match(stateSource, /resetAiInteractionState\(\)/)
+  assert.match(stateSource, /formData\.value\.ai_assistants\.map\(\(assistant\) => assistant\.provider\)\.join\('\|'\)/)
+  assert.match(stateSource, /selectedAssistant\.value\?\.api_key \|\| ''/)
+  assert.match(stateSource, /selectedAssistant\.value\?\.model \|\| ''/)
 })
 
 test('ConnectionForm uses China-region MiniMax defaults in provider options and initial assistant state', () => {
-  assert.match(connectionFormSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimaxi\.com', endpoint: '\/v1\/chat\/completions', model: 'MiniMax-M2\.7' \}/)
-  assert.doesNotMatch(connectionFormSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimax\.io'/)
+  assert.match(stateSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimaxi\.com', endpoint: '\/v1\/chat\/completions', model: 'MiniMax-M2\.7' \}/)
+  assert.doesNotMatch(stateSource, /\{ value: 'minimax', label: 'MiniMax', host: 'https:\/\/api\.minimax\.io'/)
 })
 
 test('ConnectionForm renders AI test buttons in the required left-to-right order', () => {
-  const testAreaMatch = connectionFormSource.match(/<div class="ai-config__test-area">([\s\S]*?)<\/div>\s*<\/template>/)
+  const testAreaMatch = aiSectionSource.match(/<div class="ai-config__test-area">([\s\S]*?)<\/div>\s*<\/template>/)
   assert.ok(testAreaMatch, 'expected AI test area markup')
 
   const testAreaSource = testAreaMatch[1]

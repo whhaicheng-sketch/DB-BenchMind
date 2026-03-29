@@ -420,6 +420,105 @@ export const useConnectionStore = defineStore('connection', {
       }
     },
 
+    async batchTestConnections(ids, concurrency = 3) {
+      const results = {}
+      const queue = [...ids]
+      const running = new Set()
+
+      const runNext = async () => {
+        if (queue.length === 0) return
+        const id = queue.shift()
+        running.add(id)
+        try {
+          await this.testConnectionById(id)
+          results[id] = { success: true }
+        } catch (err) {
+          results[id] = { success: false, error: err.message }
+        } finally {
+          running.delete(id)
+          if (queue.length > 0) {
+            await runNext()
+          }
+        }
+      }
+
+      const starters = []
+      for (let i = 0; i < Math.min(concurrency, ids.length); i++) {
+        starters.push(runNext())
+      }
+      await Promise.all(starters)
+      return results
+    },
+
+    async cloneConnection(id) {
+      const conn = this.connections.find(c => c.id === id)
+      if (!conn) return null
+
+      const cloneData = {
+        ...conn,
+        name: `${conn.name} - copy`,
+        password: '',
+        ssh_password: '',
+        winrm_password: ''
+      }
+      delete cloneData.id
+      delete cloneData.created_at
+      delete cloneData.updated_at
+
+      return await this.createConnection(cloneData)
+    },
+
+    exportConnectionsSanitized() {
+      return this.connections.map(conn => ({
+        name: conn.name,
+        type: conn.type,
+        host: conn.host,
+        port: conn.port,
+        database: conn.database || '',
+        username: conn.username,
+        remote_type: conn.remote_type || 'none',
+        ssh_host: conn.ssh_host || '',
+        ssh_port: conn.ssh_port || 22,
+        ssh_username: conn.ssh_username || '',
+        winrm_host: conn.winrm_host || '',
+        winrm_port: conn.winrm_port || 5985,
+        winrm_username: conn.winrm_username || '',
+        winrm_scheme: conn.winrm_scheme || 'http'
+      }))
+    },
+
+    async importConnections(data, mode = 'rename') {
+      if (!Array.isArray(data)) throw new Error('Invalid import data')
+      const results = { imported: 0, skipped: 0, errors: [] }
+
+      for (const item of data) {
+        try {
+          const existing = this.connections.find(c =>
+            c.name === item.name || (c.host === item.host && c.port === item.port)
+          )
+
+          if (existing && mode === 'skip') {
+            results.skipped++
+            continue
+          }
+
+          const connData = {
+            ...item,
+            name: existing && mode === 'rename' ? `${item.name} (imported)` : item.name,
+            password: item.password || ''
+          }
+          delete connData.id
+
+          await this.createConnection(connData)
+          results.imported++
+        } catch (err) {
+          results.errors.push({ name: item.name, error: err.message })
+        }
+      }
+
+      return results
+    },
+
     /**
      * Test SSH tunnel connection
      * @param {string|object} idOrConfig - Connection ID or SSH config (for backward compatibility)

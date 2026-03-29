@@ -229,6 +229,8 @@
       "monitoring_note": "Phase 2 reserved - system-level monitoring not yet implemented"
     }
   },
+  "known_risks": [],
+  "test_results": [],
   "changed_files": [
     "docs/superpowers/specs/2026-03-25-autobench-reports-design.md",
     "docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md",
