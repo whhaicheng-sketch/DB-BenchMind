@@ -159,8 +159,35 @@
 - 4/4 初始连接完整保留
 - 连接恢复脚本验证通过：`scripts/restore_initial_connections.sh`
 
+### Phase E2E-2 - 参数归一化修复与二次验证 ✅ (2026-03-29)
+
+**修复 AutoBench 空参数传递问题，四库重新验证通过**
+
+**发现并修复的问题**:
+- P4 (Critical): `autobench_runner.go` 创建 `BenchmarkTask` 时使用空 `Parameters: map[string]interface{}{}`，
+  导致 sysbench adapter 的 `ValidateConfig` 因缺少 `threads`/`time` 参数而失败。
+  → 重构 `selectTemplateIDForItem` 为 `selectTemplateForItem`（返回完整模板对象），
+  新增 `resolveDefaultRunParams` 从模板 Runtime/ToolConfig 提取默认参数。
+
+**二次验证结果 (2026-03-29)**:
+
+| 数据库 | 工具 | TPS | 平均延迟 | 状态 |
+|--------|------|-----|----------|------|
+| MySQL 5.7.44 | sysbench oltp_read_write | 545.56 | 14.65ms | ✅ 通过 |
+| Oracle 11g | swingbench charbench | 1371.63 | 22.82ms | ✅ 通过 |
+| PostgreSQL 13.14 | sysbench oltp_read_write | 648.76 | 12.33ms | ✅ 通过 |
+| SQL Server 2019 | hammerdb TPROC-C | 673.07 | - | ✅ 通过 |
+
+**数据产物验证**:
+- 4/4 Reports 写入 SQLite (status=completed, TPS/latency 正确)
+- 4/4 metrics.json 文件存在 (含 percentiles/summary)
+- 4/4 monitoring.json 文件存在 (结构正确, time_series=0 为 Phase 2 预期)
+- 4/4 raw.json 文件存在 (含 parsed_result: transactions/queries/errors)
+- 4/4 初始连接完整保留 (IDs 一致)
+- 连接恢复脚本验证通过
+
 ---
 
 **创建日期**: 2026-03-25
-**最后更新**: 2026-03-27
-**状态**: ✅ 完成（含端到端真实验证）
+**最后更新**: 2026-03-29
+**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复）

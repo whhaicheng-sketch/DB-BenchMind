@@ -196,6 +196,38 @@
     "reports_in_db": 4,
     "reports_on_disk": 4
   },
+  "e2e_validation_2": {
+    "date": "2026-03-29",
+    "status": "all_passed",
+    "trigger": "sysbench adapter ValidateConfig rejected empty parameters",
+    "bug_fixed": {
+      "id": "P4",
+      "severity": "critical",
+      "description": "autobench_runner.go created BenchmarkTask with empty Parameters map; sysbench ValidateConfig required threads/time for run phase",
+      "fix": "Refactored selectTemplateIDForItem to selectTemplateForItem (returns full template); added resolveDefaultRunParams to extract threads/time/tables from template Runtime/ToolConfig",
+      "files_changed": [
+        "internal/app/usecase/autobench_runner.go",
+        "internal/app/usecase/autobench_runner_test.go"
+      ]
+    },
+    "results": {
+      "MySQL":      { "tps": 545.56, "latency_avg_ms": 14.65, "tool": "sysbench",   "status": "success" },
+      "Oracle":     { "tps": 1371.63,"latency_avg_ms": 22.82, "tool": "swingbench", "status": "success" },
+      "PostgreSQL": { "tps": 648.76, "latency_avg_ms": 12.33, "tool": "sysbench",   "status": "success" },
+      "SQLServer":  { "tps": 673.07, "latency_avg_ms": null,   "tool": "hammerdb",  "status": "success" }
+    },
+    "connections_preserved": true,
+    "recovery_script_verified": true,
+    "reports_in_db": 4,
+    "reports_on_disk": 4,
+    "data_artifacts": {
+      "metrics_json": true,
+      "monitoring_json": true,
+      "raw_json": true,
+      "monitoring_time_series_samples": 0,
+      "monitoring_note": "Phase 2 reserved - system-level monitoring not yet implemented"
+    }
+  },
   "changed_files": [
     "docs/superpowers/specs/2026-03-25-autobench-reports-design.md",
     "docs/superpowers/plans/2026-03-26-autobench-reports-implementation.md",
@@ -233,7 +265,9 @@
     "frontend/tests/autoBenchTab.test.mjs",
     "cmd/e2e-test/main.go",
     "scripts/restore_initial_connections.sh",
-    "main.go"
+    "main.go",
+    "internal/app/usecase/autobench_runner.go",
+    "internal/app/usecase/autobench_runner_test.go"
   ],
   "created_at": "2026-03-25",
   "updated_at": "2026-03-27"

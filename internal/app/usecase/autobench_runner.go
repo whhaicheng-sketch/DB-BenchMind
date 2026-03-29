@@ -139,7 +139,7 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 		}
 
 		dbType := string(conn.GetType())
-		templateID, err := r.selectTemplateIDForItem(ctx, dbType, item.ProfileType)
+		tmpl, err := r.selectTemplateForItem(ctx, dbType, item.ProfileType)
 		if err != nil {
 			connectionFailure[item.ConnectionID] = true
 			if failErr := r.markSuiteItemFailed(suiteID, item.ID, err.Error()); failErr != nil {
@@ -157,7 +157,7 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 				return findErr
 			}
 			target.DatabaseType = dbType
-			target.TemplateID = templateID
+			target.TemplateID = tmpl.ID
 			target.Status = domainautobench.SuiteItemStatusRunning
 			target.PhaseStatus = execution.StatePending.String()
 			return nil
@@ -169,8 +169,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			ID:           uuid.New().String(),
 			Name:         fmt.Sprintf("AutoBench %s %s %s", strings.TrimSpace(suite.Name), item.ConnectionID, item.ProfileType),
 			ConnectionID: item.ConnectionID,
-			TemplateID:   templateID,
-			Parameters:   map[string]interface{}{},
+			TemplateID:   tmpl.ID,
+			Parameters:   resolveDefaultRunParams(tmpl),
 			Options: execution.TaskOptions{
 				SkipCleanup: !suite.ExecutionPolicy.CleanupEnabled,
 			},
@@ -304,10 +304,10 @@ func waitForNextAutoBenchPoll(ctx context.Context, interval time.Duration) error
 	}
 }
 
-func (r *AutoBenchSuiteRunner) selectTemplateIDForItem(ctx context.Context, dbType string, profile domainautobench.ProfileType) (string, error) {
+func (r *AutoBenchSuiteRunner) selectTemplateForItem(ctx context.Context, dbType string, profile domainautobench.ProfileType) (*domaintemplate.Template, error) {
 	templates, err := r.templates.ListTemplates(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	candidates := make([]*domaintemplate.Template, 0, len(templates))
@@ -325,7 +325,7 @@ func (r *AutoBenchSuiteRunner) selectTemplateIDForItem(ctx context.Context, dbTy
 	}
 
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("%w: %s/%s", ErrAutoBenchTemplateNotFound, dbType, profile)
+		return nil, fmt.Errorf("%w: %s/%s", ErrAutoBenchTemplateNotFound, dbType, profile)
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
@@ -334,7 +334,68 @@ func (r *AutoBenchSuiteRunner) selectTemplateIDForItem(ctx context.Context, dbTy
 		}
 		return candidates[i].ID < candidates[j].ID
 	})
-	return candidates[0].ID, nil
+	return candidates[0], nil
+}
+
+// resolveDefaultRunParams extracts default run parameters from a template's
+// Runtime and ToolConfig fields, matching the same logic used by the
+// task.go resolveParams function for GUI-initiated benchmarks.
+func resolveDefaultRunParams(tmpl *domaintemplate.Template) map[string]interface{} {
+	params := make(map[string]interface{})
+
+	// Template-level parameter defaults (e.g., scale, warehouses)
+	for key, def := range tmpl.Parameters {
+		if def.Default != nil {
+			params[key] = def.Default
+		}
+	}
+
+	// Duration (mapped to "time" for sysbench, "duration" for hammerdb)
+	if tmpl.Runtime.DurationSeconds > 0 {
+		params["time"] = tmpl.Runtime.DurationSeconds
+	}
+
+	// Tool-specific parameters
+	switch tmpl.Tool {
+	case domaintemplate.ToolSysbench:
+		if tmpl.ToolConfig.Sysbench.Tables > 0 {
+			params["tables"] = tmpl.ToolConfig.Sysbench.Tables
+		}
+		if tmpl.ToolConfig.Sysbench.TableSize > 0 {
+			params["table_size"] = tmpl.ToolConfig.Sysbench.TableSize
+		}
+		if tmpl.Runtime.Concurrency.Value > 0 {
+			params["threads"] = tmpl.Runtime.Concurrency.Value
+		}
+	case domaintemplate.ToolSwingbench:
+		if tmpl.ToolConfig.Swingbench.UserCount > 0 {
+			params["virtual_users"] = tmpl.ToolConfig.Swingbench.UserCount
+		}
+		if tmpl.ToolConfig.Swingbench.RunTimeSeconds > 0 {
+			params["time"] = tmpl.ToolConfig.Swingbench.RunTimeSeconds
+		}
+	case domaintemplate.ToolHammerDB:
+		if tmpl.ToolConfig.HammerDB.VirtualUsers > 0 {
+			params["virtual_users"] = tmpl.ToolConfig.HammerDB.VirtualUsers
+		}
+		if tmpl.WorkloadFamily == "tproc-c" && tmpl.ToolConfig.HammerDB.Warehouses > 0 {
+			params["warehouses"] = tmpl.ToolConfig.HammerDB.Warehouses
+		}
+		if tmpl.WorkloadFamily == "tproc-h" && tmpl.ToolConfig.HammerDB.ScaleFactor > 0 {
+			params["scale"] = tmpl.ToolConfig.HammerDB.ScaleFactor
+		}
+		if tmpl.Runtime.DurationSeconds > 0 {
+			params["duration"] = tmpl.Runtime.DurationSeconds
+		}
+		if tmpl.Runtime.RampUpSeconds > 0 {
+			params["rampup"] = tmpl.Runtime.RampUpSeconds
+		}
+		if tmpl.Runtime.Iterations > 0 {
+			params["iterations"] = tmpl.Runtime.Iterations
+		}
+	}
+
+	return params
 }
 
 func (r *AutoBenchSuiteRunner) markSuiteItemFailed(suiteID, itemID, summary string) error {

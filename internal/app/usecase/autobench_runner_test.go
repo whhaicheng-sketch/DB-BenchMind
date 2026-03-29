@@ -259,12 +259,12 @@ func TestAutoBenchSuiteRunner_SelectTemplateIDForItemPrefersBuiltinCandidate(t *
 		},
 	)
 
-	templateID, err := runner.selectTemplateIDForItem(context.Background(), "mysql", domainautobench.ProfileTest)
+	tmpl, err := runner.selectTemplateForItem(context.Background(), "mysql", domainautobench.ProfileTest)
 	if err != nil {
-		t.Fatalf("selectTemplateIDForItem() failed: %v", err)
+		t.Fatalf("selectTemplateForItem() failed: %v", err)
 	}
-	if templateID != "mysql_test_builtin" {
-		t.Fatalf("templateID = %q, want %q", templateID, "mysql_test_builtin")
+	if tmpl.ID != "mysql_test_builtin" {
+		t.Fatalf("template ID = %q, want %q", tmpl.ID, "mysql_test_builtin")
 	}
 }
 
