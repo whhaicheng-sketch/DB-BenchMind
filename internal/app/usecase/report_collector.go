@@ -206,9 +206,26 @@ func (c *DefaultReportCollector) persistFiles(
 }
 
 // persistToDB inserts the report record into the SQLite reports table.
+// If a row with the same suite_item_id already exists (from a running report),
+// it updates the existing row instead.
 func (c *DefaultReportCollector) persistToDB(ctx context.Context, rpt *report.Report) error {
 	if c.db == nil {
 		return nil // No database configured, skip DB persistence
+	}
+
+	// Check if a running report row exists for this suite_item_id
+	if rpt.SuiteItemID != "" {
+		var existingID string
+		err := c.db.QueryRowContext(ctx,
+			"SELECT id FROM reports WHERE suite_item_id = ?",
+			rpt.SuiteItemID,
+		).Scan(&existingID)
+		if err == nil {
+			// Row exists — update it with final data
+			rpt.ID = existingID
+			rpt.UpdatedAt = time.Now()
+			return c.updateReportRow(ctx, rpt)
+		}
 	}
 
 	var endedAt *string
@@ -246,6 +263,46 @@ func (c *DefaultReportCollector) persistToDB(ctx context.Context, rpt *report.Re
 		return fmt.Errorf("insert report row: %w", err)
 	}
 
+	return nil
+}
+
+// updateReportRow updates an existing report row with final data.
+func (c *DefaultReportCollector) updateReportRow(ctx context.Context, rpt *report.Report) error {
+	var endedAt *string
+	if rpt.EndedAt != nil {
+		s := rpt.EndedAt.Format(time.RFC3339)
+		endedAt = &s
+	}
+
+	query := `
+		UPDATE reports SET
+			source_type = ?, connection_id = ?, connection_name = ?,
+			database_type = ?, template_id = ?, template_name = ?,
+			ended_at = ?, duration_ms = ?, status = ?, error_message = ?,
+			tpm = ?, tps = ?, qps = ?, throughput = ?,
+			latency_avg_ms = ?, latency_p95_ms = ?, latency_p99_ms = ?, error_count = ?,
+			metrics_json_path = ?, monitoring_json_path = ?, raw_json_path = ?,
+			report_html_path = ?, summary_json_path = ?,
+			updated_at = ?, tags = ?
+		WHERE id = ?
+	`
+
+	_, err := c.db.ExecContext(ctx, query,
+		string(rpt.SourceType),
+		rpt.ConnectionID, nilIfEmpty(rpt.ConnectionName), rpt.DatabaseType,
+		nilIfEmpty(rpt.TemplateID), nilIfEmpty(rpt.TemplateName),
+		endedAt, rpt.DurationMs, string(rpt.Status), nilIfEmpty(rpt.ErrorMessage),
+		rpt.TPM, rpt.TPS, rpt.QPS, rpt.Throughput,
+		rpt.LatencyAvgMs, rpt.LatencyP95Ms, rpt.LatencyP99Ms, rpt.ErrorCount,
+		nilIfEmpty(rpt.MetricsJSONPath), nilIfEmpty(rpt.MonitoringJSONPath),
+		nilIfEmpty(rpt.RawJSONPath), nilIfEmpty(rpt.ReportHTMLPath),
+		nilIfEmpty(rpt.SummaryJSONPath),
+		rpt.UpdatedAt.Format(time.RFC3339), nilIfEmpty(rpt.Tags),
+		rpt.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update report row: %w", err)
+	}
 	return nil
 }
 

@@ -45,6 +45,23 @@ func (b *BenchmarkBinding) IsAnyTaskRunning() bool {
 	return false
 }
 
+// RunningTaskResult contains details about the currently running task.
+type RunningTaskResult struct {
+	Kind   string `json:"kind"`   // "benchmark" or "autobench"
+	ID     string `json:"id"`
+	Detail string `json:"detail"`
+	OK     bool   `json:"ok"`
+}
+
+// GetRunningTask returns details about the currently running task.
+func (b *BenchmarkBinding) GetRunningTask() RunningTaskResult {
+	if b.guard == nil {
+		return RunningTaskResult{}
+	}
+	kind, id, detail, ok := b.guard.RunningTask()
+	return RunningTaskResult{Kind: kind, ID: id, Detail: detail, OK: ok}
+}
+
 // emitLog emits a log event to the frontend.
 func (b *BenchmarkBinding) emitLog(runID, stream, content string) {
 	if b.ctx == nil {

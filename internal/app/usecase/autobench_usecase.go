@@ -51,6 +51,8 @@ type AutoBenchSuiteStatus struct {
 	CompletedItems   int
 	ExecutionPolicy  domainautobench.ExecutionPolicy
 	Items            []domainautobench.SuiteItem
+	StartedAt        *time.Time
+	EndedAt          *time.Time
 }
 
 type AutoBenchSuiteUseCase struct {
@@ -155,6 +157,8 @@ func (uc *AutoBenchSuiteUseCase) GetSuiteStatus(ctx context.Context, suiteID str
 		TotalItems:       len(suite.Items),
 		ExecutionPolicy:  cloneExecutionPolicy(suite.ExecutionPolicy),
 		Items:            append([]domainautobench.SuiteItem(nil), suite.Items...),
+		StartedAt:        suite.StartedAt,
+		EndedAt:          suite.EndedAt,
 	}
 	for _, item := range suite.Items {
 		switch item.Status {

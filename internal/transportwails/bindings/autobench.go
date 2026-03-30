@@ -250,20 +250,30 @@ type AutoBenchSuiteStatusResult struct {
 	CompletedItems int                         `json:"completed_items"`
 	Items          []AutoBenchItemStatusResult `json:"items"`
 	Error          string                      `json:"error,omitempty"`
+	StartedAt      string                      `json:"started_at,omitempty"`
+	EndedAt        string                      `json:"ended_at,omitempty"`
+}
+
+// PhaseTimingDTO represents a phase timing entry for the frontend.
+type PhaseTimingDTO struct {
+	Phase      string `json:"phase"`
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // AutoBenchItemStatusResult contains the status of a suite item.
 type AutoBenchItemStatusResult struct {
-	ID           string `json:"id"`
-	ConnectionID string `json:"connection_id"`
-	DatabaseType string `json:"database_type,omitempty"`
-	ProfileType  string `json:"profile_type"`
-	TemplateID   string `json:"template_id,omitempty"`
-	Status       string `json:"status"`
-	ReportID     string `json:"report_id,omitempty"`
-	StartedAt    string `json:"started_at,omitempty"`
-	EndedAt      string `json:"ended_at,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	ID           string           `json:"id"`
+	ConnectionID string           `json:"connection_id"`
+	DatabaseType string           `json:"database_type,omitempty"`
+	ProfileType  string           `json:"profile_type"`
+	TemplateID   string           `json:"template_id,omitempty"`
+	Status       string           `json:"status"`
+	ReportID     string           `json:"report_id,omitempty"`
+	StartedAt    string           `json:"started_at,omitempty"`
+	EndedAt      string           `json:"ended_at,omitempty"`
+	ErrorMessage string           `json:"error_message,omitempty"`
+	PhaseStatus  string           `json:"phase_status,omitempty"`
+	PhaseTimings []PhaseTimingDTO `json:"phase_timings,omitempty"`
 }
 
 // GetSuiteStatus returns the current status of a suite.
@@ -289,6 +299,7 @@ func (b *AutoBenchBinding) GetSuiteStatus(suiteID string) AutoBenchSuiteStatusRe
 			Status:       string(item.Status),
 			ReportID:     item.ReportID,
 			ErrorMessage: item.ErrorSummary,
+			PhaseStatus:  item.PhaseStatus,
 		}
 		if item.StartedAt != nil {
 			result.StartedAt = item.StartedAt.Format("2006-01-02T15:04:05Z07:00")
@@ -296,10 +307,15 @@ func (b *AutoBenchBinding) GetSuiteStatus(suiteID string) AutoBenchSuiteStatusRe
 		if item.EndedAt != nil {
 			result.EndedAt = item.EndedAt.Format("2006-01-02T15:04:05Z07:00")
 		}
+		for _, pt := range item.PhaseTimings {
+			result.PhaseTimings = append(result.PhaseTimings, PhaseTimingDTO{
+				Phase: pt.Phase, DurationMs: pt.DurationMs,
+			})
+		}
 		items = append(items, result)
 	}
 
-	return AutoBenchSuiteStatusResult{
+	result := AutoBenchSuiteStatusResult{
 		SuiteID:        status.SuiteID,
 		Name:           status.Name,
 		Status:         string(status.Status),
@@ -309,6 +325,13 @@ func (b *AutoBenchBinding) GetSuiteStatus(suiteID string) AutoBenchSuiteStatusRe
 		CompletedItems: status.CompletedItems,
 		Items:          items,
 	}
+	if status.StartedAt != nil {
+		result.StartedAt = status.StartedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if status.EndedAt != nil {
+		result.EndedAt = status.EndedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return result
 }
 
 // AutoBenchSuiteListResult contains a list of suites.

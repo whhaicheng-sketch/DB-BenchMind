@@ -33,6 +33,13 @@ export interface AutoBenchSuiteStatusResult {
   completed_items: number;
   items: AutoBenchItemStatusResult[];
   error?: string;
+  started_at?: string;
+  ended_at?: string;
+}
+
+export interface PhaseTimingDTO {
+  phase: string;
+  duration_ms: number;
 }
 
 export interface AutoBenchItemStatusResult {
@@ -46,6 +53,8 @@ export interface AutoBenchItemStatusResult {
   started_at?: string;
   ended_at?: string;
   error_message?: string;
+  phase_status?: string;
+  phase_timings?: PhaseTimingDTO[];
 }
 
 export interface AutoBenchExecutionPlanResult {

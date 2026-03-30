@@ -106,6 +106,7 @@ type SuiteManifestItem struct {
 	StartedAt    string      `json:"started_at,omitempty"`
 	EndedAt      string      `json:"ended_at,omitempty"`
 	ErrorMessage string      `json:"error_message,omitempty"`
+	PhaseTimings []PhaseTiming `json:"phase_timings,omitempty"`
 }
 
 // SuiteManifestStatistics contains aggregate statistics.
@@ -116,6 +117,12 @@ type SuiteManifestStatistics struct {
 	Success    int `json:"success"`
 	Failed     int `json:"failed"`
 	Skipped    int `json:"skipped"`
+}
+
+// PhaseTiming records the duration of a single execution phase for a suite item.
+type PhaseTiming struct {
+	Phase      string `json:"phase"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
 }
 
 type SuiteItem struct {
@@ -134,6 +141,7 @@ type SuiteItem struct {
 	ReportID       string                 `json:"report_id,omitempty"`
 	StartedAt      *time.Time             `json:"started_at,omitempty"`
 	EndedAt        *time.Time             `json:"ended_at,omitempty"`
+	PhaseTimings   []PhaseTiming          `json:"phase_timings,omitempty"`
 }
 
 type SuiteResult struct {
@@ -238,6 +246,7 @@ func (item SuiteItem) ToManifestItem() SuiteManifestItem {
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
 		ErrorMessage: item.ErrorSummary,
+		PhaseTimings: append([]PhaseTiming(nil), item.PhaseTimings...),
 	}
 }
 

@@ -153,15 +153,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useReportStore } from '../../stores/report'
 import ReportDetailPanel from '../report/ReportDetailPanel.vue'
 
 const reportStore = useReportStore()
 const selectedReportId = ref(null)
-const statusFilter = ref('')
+const statusFilter = ref(reportStore.filters.status || '')
 const checkedIds = ref([])
 const expandedGroups = ref({})
+
+// Keep statusFilter in sync with store on tab remount
+watch(() => reportStore.filters.status, (val) => {
+  if ((val || '') !== statusFilter.value) statusFilter.value = val || ''
+})
 
 // All report IDs for select-all
 const allReportIds = computed(() => reportStore.reports.map((r) => r.id))

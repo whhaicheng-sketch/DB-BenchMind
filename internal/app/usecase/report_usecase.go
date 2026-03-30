@@ -727,3 +727,84 @@ func (uc *ReportUsecase) GetExportFilePaths(ctx context.Context, id string) (met
 
 	return rpt.MetricsJSONPath, rpt.MonitoringJSONPath, rpt.RawJSONPath, rpt.ReportHTMLPath, nil
 }
+
+// InsertRunningReport inserts a report with "running" status before a benchmark completes.
+func (uc *ReportUsecase) InsertRunningReport(ctx context.Context, rpt *report.Report) error {
+	if uc.db == nil {
+		return nil
+	}
+
+	query := `
+		INSERT INTO reports (
+			id, suite_id, suite_item_id, source_type, connection_id, connection_name,
+			database_type, template_id, template_name, started_at, ended_at, duration_ms,
+			status, error_message, tpm, tps, qps, throughput, latency_avg_ms,
+			latency_p95_ms, latency_p99_ms, error_count, metrics_json_path,
+			monitoring_json_path, raw_json_path, report_html_path, summary_json_path,
+			created_at, updated_at, tags
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := uc.db.ExecContext(ctx, query,
+		rpt.ID, rpt.SuiteID, nilIfEmpty(rpt.SuiteItemID), string(rpt.SourceType),
+		rpt.ConnectionID, nilIfEmpty(rpt.ConnectionName), rpt.DatabaseType,
+		nilIfEmpty(rpt.TemplateID), nilIfEmpty(rpt.TemplateName),
+		rpt.StartedAt.Format(time.RFC3339), nil, rpt.DurationMs,
+		string(rpt.Status), nilIfEmpty(rpt.ErrorMessage),
+		rpt.TPM, rpt.TPS, rpt.QPS, rpt.Throughput,
+		rpt.LatencyAvgMs, rpt.LatencyP95Ms, rpt.LatencyP99Ms, rpt.ErrorCount,
+		nilIfEmpty(rpt.MetricsJSONPath), nilIfEmpty(rpt.MonitoringJSONPath),
+		nilIfEmpty(rpt.RawJSONPath), nilIfEmpty(rpt.ReportHTMLPath),
+		nilIfEmpty(rpt.SummaryJSONPath),
+		rpt.CreatedAt.Format(time.RFC3339), rpt.UpdatedAt.Format(time.RFC3339),
+		nilIfEmpty(rpt.Tags),
+	)
+	if err != nil {
+		return fmt.Errorf("insert running report: %w", err)
+	}
+	return nil
+}
+
+// UpdateReportByItemID updates an existing report identified by suite_item_id.
+func (uc *ReportUsecase) UpdateReportByItemID(ctx context.Context, suiteItemID string, rpt *report.Report) error {
+	if uc.db == nil {
+		return nil
+	}
+
+	var endedAt *string
+	if rpt.EndedAt != nil {
+		s := rpt.EndedAt.Format(time.RFC3339)
+		endedAt = &s
+	}
+
+	query := `
+		UPDATE reports SET
+			source_type = ?, connection_id = ?, connection_name = ?,
+			database_type = ?, template_id = ?, template_name = ?,
+			ended_at = ?, duration_ms = ?, status = ?, error_message = ?,
+			tpm = ?, tps = ?, qps = ?, throughput = ?,
+			latency_avg_ms = ?, latency_p95_ms = ?, latency_p99_ms = ?, error_count = ?,
+			metrics_json_path = ?, monitoring_json_path = ?, raw_json_path = ?,
+			report_html_path = ?, summary_json_path = ?,
+			updated_at = ?, tags = ?
+		WHERE suite_item_id = ?
+	`
+
+	_, err := uc.db.ExecContext(ctx, query,
+		string(rpt.SourceType),
+		rpt.ConnectionID, nilIfEmpty(rpt.ConnectionName), rpt.DatabaseType,
+		nilIfEmpty(rpt.TemplateID), nilIfEmpty(rpt.TemplateName),
+		endedAt, rpt.DurationMs, string(rpt.Status), nilIfEmpty(rpt.ErrorMessage),
+		rpt.TPM, rpt.TPS, rpt.QPS, rpt.Throughput,
+		rpt.LatencyAvgMs, rpt.LatencyP95Ms, rpt.LatencyP99Ms, rpt.ErrorCount,
+		nilIfEmpty(rpt.MetricsJSONPath), nilIfEmpty(rpt.MonitoringJSONPath),
+		nilIfEmpty(rpt.RawJSONPath), nilIfEmpty(rpt.ReportHTMLPath),
+		nilIfEmpty(rpt.SummaryJSONPath),
+		rpt.UpdatedAt.Format(time.RFC3339), nilIfEmpty(rpt.Tags),
+		suiteItemID,
+	)
+	if err != nil {
+		return fmt.Errorf("update report by suite_item_id: %w", err)
+	}
+	return nil
+}

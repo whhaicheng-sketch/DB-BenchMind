@@ -367,6 +367,37 @@ function getStatusClass(status) {
   if (['partial_success'].includes(status)) return 'status-warning'
   return ''
 }
+
+function formatDurationMs(ms) {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return `${m}m ${s % 60}s`
+}
+
+function formatSuiteDuration() {
+  if (!suiteStatus.value?.started_at) return '-'
+  const start = new Date(suiteStatus.value.started_at).getTime()
+  const end = suiteStatus.value.ended_at ? new Date(suiteStatus.value.ended_at).getTime() : Date.now()
+  return formatDurationMs(end - start)
+}
+
+function formatItemDuration(item) {
+  if (!item.started_at) return '-'
+  const start = new Date(item.started_at).getTime()
+  const end = item.ended_at ? new Date(item.ended_at).getTime() : Date.now()
+  return formatDurationMs(end - start)
+}
+
+function formatPhaseInfo(item) {
+  if (item.status === 'pending') return '-'
+  if (item.status === 'success' || item.status === 'failed' || item.status === 'skipped') {
+    if (!item.phase_timings?.length) return item.status
+    return item.phase_timings.map(p => `${p.phase}: ${formatDurationMs(p.duration_ms)}`).join(', ')
+  }
+  if (item.phase_status) return `Phase: ${item.phase_status}`
+  return item.status
+}
 </script>
 
 <template>
@@ -435,6 +466,10 @@ function getStatusClass(status) {
             <span class="metric-label">Completed</span>
             <span class="metric-value">{{ suiteStatus.completed_items }}</span>
           </div>
+          <div class="metric">
+            <span class="metric-label">Duration</span>
+            <span class="metric-value">{{ formatSuiteDuration() }}</span>
+          </div>
         </div>
 
         <div class="progress-bar-container">
@@ -447,12 +482,16 @@ function getStatusClass(status) {
             <span>Connection</span>
             <span>Type</span>
             <span>Status</span>
+            <span>Duration</span>
+            <span>Phase</span>
             <span>Report</span>
           </div>
           <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
             <span class="item-connection">{{ connNameMap[item.connection_id] || item.connection_id }}</span>
             <span class="item-type">{{ item.profile_type }}</span>
             <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
+            <span class="item-duration">{{ formatItemDuration(item) }}</span>
+            <span class="item-phase" :title="formatPhaseInfo(item)">{{ formatPhaseInfo(item) }}</span>
             <span class="item-report">
               <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
                 View Report
@@ -794,7 +833,7 @@ function getStatusClass(status) {
 
 .items-header {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 1fr;
   gap: 12px;
   padding: 8px 12px;
   background: var(--bg-secondary);
@@ -806,7 +845,7 @@ function getStatusClass(status) {
 
 .item-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 1fr;
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -826,6 +865,19 @@ function getStatusClass(status) {
 
 .item-status {
   text-transform: capitalize;
+}
+
+.item-duration {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.item-phase {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .link-button {

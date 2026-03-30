@@ -37,3 +37,7 @@ export function StopBenchmark(arg1, arg2) {
 export function IsAnyTaskRunning() {
   return window['go']['bindings']['BenchmarkBinding']['IsAnyTaskRunning']();
 }
+
+export function GetRunningTask() {
+  return window['go']['bindings']['BenchmarkBinding']['GetRunningTask']();
+}

@@ -101,6 +101,7 @@ func main() {
 		connUC,
 		templateUC,
 		usecase.WithManifestWriter(usecase.NewSuiteManifestWriter(dataDir)),
+		usecase.WithReportUsecase(reportUC),
 	)
 
 	// Create application with basic options

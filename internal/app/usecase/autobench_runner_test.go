@@ -323,3 +323,172 @@ func (s *stubAutoBenchTemplateProvider) ListTemplates(ctx context.Context) ([]*d
 	_ = ctx
 	return s.templates, nil
 }
+
+func TestAutoBenchSuiteRunner_RunSuiteSetsStartedAtOnRunningItems(t *testing.T) {
+	ctx := context.Background()
+	suiteUC := NewAutoBenchSuiteUseCase()
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "started-at-suite",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunner{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StateRunning, execution.StateCompleted},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error { return nil }
+
+	if err := runner.RunSuite(ctx, suite.ID); err != nil {
+		t.Fatalf("RunSuite() failed: %v", err)
+	}
+
+	status, statusErr := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if statusErr != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", statusErr)
+	}
+
+	for i, item := range status.Items {
+		if item.StartedAt == nil {
+			t.Fatalf("Items[%d].StartedAt is nil, want non-nil", i)
+		}
+	}
+}
+
+func TestAutoBenchSuiteRunner_RunSuiteSetsEndedAtOnCancelledItem(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	suiteUC := NewAutoBenchSuiteUseCase()
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "cancelled-ended-at",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunner{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StateRunning, execution.StateRunning},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error {
+		cancel()
+		return context.Canceled
+	}
+
+	err = runner.RunSuite(ctx, suite.ID)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunSuite() error = %v, want context.Canceled", err)
+	}
+
+	status, statusErr := suiteUC.GetSuiteStatus(context.Background(), suite.ID)
+	if statusErr != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", statusErr)
+	}
+
+	for i, item := range status.Items {
+		if item.Status == domainautobench.SuiteItemStatusRunning || item.PhaseStatus == "cancelled" {
+			if item.EndedAt == nil {
+				t.Fatalf("Items[%d].EndedAt is nil for cancelled item, want non-nil", i)
+			}
+		}
+	}
+}
+
+func TestAutoBenchSuiteRunner_RunSuiteRecordsPhaseTimings(t *testing.T) {
+	ctx := context.Background()
+	suiteUC := NewAutoBenchSuiteUseCase()
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "phase-timings-suite",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunner{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StatePreparing, execution.StateRunning, execution.StateCompleted},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error { return nil }
+
+	if err := runner.RunSuite(ctx, suite.ID); err != nil {
+		t.Fatalf("RunSuite() failed: %v", err)
+	}
+
+	status, statusErr := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if statusErr != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", statusErr)
+	}
+
+	for i, item := range status.Items {
+		if len(item.PhaseTimings) == 0 {
+			t.Fatalf("Items[%d].PhaseTimings is empty, want at least one entry", i)
+		}
+		recordedPhases := make(map[string]bool)
+		for _, pt := range item.PhaseTimings {
+			recordedPhases[pt.Phase] = true
+			if pt.DurationMs < 0 {
+				t.Errorf("PhaseTimings[%d].DurationMs = %d, want >= 0", i, pt.DurationMs)
+			}
+		}
+		if !recordedPhases["preparing"] {
+			t.Errorf("Items[%d] missing phase %q in PhaseTimings", i, "preparing")
+		}
+		if !recordedPhases["running"] {
+			t.Errorf("Items[%d] missing phase %q in PhaseTimings", i, "running")
+		}
+	}
+}

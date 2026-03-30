@@ -13,6 +13,7 @@ import (
 	domainautobench "github.com/whhaicheng/DB-BenchMind/internal/domain/autobench"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
 )
 
 var ErrAutoBenchTemplateNotFound = errors.New("autobench template not found")
@@ -39,6 +40,7 @@ type AutoBenchSuiteRunner struct {
 	connections     autoBenchConnectionProvider
 	templates       autoBenchTemplateProvider
 	manifestWriter  *SuiteManifestWriter
+	reportUsecase   *ReportUsecase
 	waitInterval    time.Duration
 	waitForNextPoll func(ctx context.Context, interval time.Duration) error
 }
@@ -50,6 +52,13 @@ type AutoBenchSuiteRunnerOption func(*AutoBenchSuiteRunner)
 func WithManifestWriter(w *SuiteManifestWriter) AutoBenchSuiteRunnerOption {
 	return func(r *AutoBenchSuiteRunner) {
 		r.manifestWriter = w
+	}
+}
+
+// WithReportUsecase sets the report use case for inserting running reports.
+func WithReportUsecase(uc *ReportUsecase) AutoBenchSuiteRunnerOption {
+	return func(r *AutoBenchSuiteRunner) {
+		r.reportUsecase = uc
 	}
 }
 
@@ -160,9 +169,28 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			target.TemplateID = tmpl.ID
 			target.Status = domainautobench.SuiteItemStatusRunning
 			target.PhaseStatus = execution.StatePending.String()
+			now := time.Now()
+			target.StartedAt = &now
 			return nil
 		}); err != nil {
 			return err
+		}
+
+		// Insert running report row (best-effort)
+		if r.reportUsecase != nil {
+			rpt := &report.Report{
+				ID:             uuid.New().String(),
+				SuiteID:        suiteID,
+				SuiteItemID:    item.ID,
+				SourceType:     report.SourceTypeAutoBench,
+				ConnectionID:   item.ConnectionID,
+				DatabaseType:   dbType,
+				Status:         report.StatusRunning,
+				StartedAt:      time.Now(),
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+			}
+			_ = r.reportUsecase.InsertRunningReport(ctx, rpt)
 		}
 
 		task := &execution.BenchmarkTask{
@@ -207,7 +235,7 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			return err
 		}
 
-		finalRun, err := r.waitForRunCompletion(ctx, run.ID)
+		finalRun, err := r.waitForRunCompletionWithPhaseTracking(ctx, run.ID, suiteID, item.ID)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
@@ -217,6 +245,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 						return findErr
 					}
 					target.PhaseStatus = "cancelled"
+					now := time.Now()
+					target.EndedAt = &now
 					return nil
 				})
 				return err
@@ -275,18 +305,62 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 }
 
 func (r *AutoBenchSuiteRunner) waitForRunCompletion(ctx context.Context, runID string) (*execution.Run, error) {
+	return r.waitForRunCompletionWithPhaseTracking(ctx, runID, "", "")
+}
+
+func (r *AutoBenchSuiteRunner) waitForRunCompletionWithPhaseTracking(ctx context.Context, runID string, suiteID string, itemID string) (*execution.Run, error) {
+	var lastPhase string
+	var phaseStart time.Time
+
 	for {
 		run, err := r.benchmark.GetBenchmarkStatus(ctx, runID)
 		if err != nil {
 			return nil, err
 		}
 		if run.IsCompleted() {
+			// Record final phase timing if tracking
+			if lastPhase != "" && suiteID != "" {
+				duration := time.Since(phaseStart).Milliseconds()
+				r.recordPhaseTiming(suiteID, itemID, lastPhase, duration)
+			}
 			return run, nil
+		}
+
+		currentPhase := run.State.String()
+		if currentPhase != lastPhase {
+			if lastPhase != "" && suiteID != "" {
+				duration := time.Since(phaseStart).Milliseconds()
+				r.recordPhaseTiming(suiteID, itemID, lastPhase, duration)
+			}
+			lastPhase = currentPhase
+			phaseStart = time.Now()
+			// Update PhaseStatus on item
+			if suiteID != "" {
+				_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+					target, _ := findSuiteItemByID(suite.Items, itemID)
+					if target != nil {
+						target.PhaseStatus = currentPhase
+					}
+					return nil
+				})
+			}
 		}
 		if err := r.waitForNextPoll(ctx, r.waitInterval); err != nil {
 			return nil, err
 		}
 	}
+}
+
+func (r *AutoBenchSuiteRunner) recordPhaseTiming(suiteID, itemID, phase string, durationMs int64) {
+	_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		target, _ := findSuiteItemByID(suite.Items, itemID)
+		if target != nil {
+			target.PhaseTimings = append(target.PhaseTimings, domainautobench.PhaseTiming{
+				Phase: phase, DurationMs: durationMs,
+			})
+		}
+		return nil
+	})
 }
 
 func waitForNextAutoBenchPoll(ctx context.Context, interval time.Duration) error {

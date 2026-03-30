@@ -8,6 +8,7 @@ import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import { useTemplateStore } from '../../stores/template'
 import { useBenchmarkStore } from '../../stores/benchmark'
+import { useAutoBenchStore } from '../../stores/autobench'
 import ConnectionList from '../connection/ConnectionList.vue'
 import ConnectionForm from '../connection/ConnectionForm.vue'
 import TemplateList from '../template/TemplateList.vue'
@@ -17,6 +18,7 @@ import LogPanel from '../benchmark/LogPanel.vue'
 const connectionStore = useConnectionStore()
 const templateStore = useTemplateStore()
 const benchmarkStore = useBenchmarkStore()
+const autobenchStore = useAutoBenchStore()
 
 // Local state
 const selectedConnectionId = ref('')
@@ -47,6 +49,25 @@ const templateParams = computed(() => templateStore.templateParams)
 const isRunning = computed(() => benchmarkStore.isRunning || benchmarkStore.isPreparing || benchmarkStore.isCleaning)
 const logLines = computed(() => benchmarkStore.logLines)
 const currentState = computed(() => benchmarkStore.currentState)
+
+// AutoBench awareness
+const isAutoBenchRunning = computed(() => {
+  return autobenchStore.suiteStatus?.status === 'running'
+})
+
+const anyTaskRunning = computed(() => isRunning.value || isAutoBenchRunning.value)
+
+const autoBenchTaskInfo = computed(() => {
+  if (!isAutoBenchRunning.value) return null
+  const s = autobenchStore.suiteStatus
+  const cur = s?.items?.find(i => i.status === 'running')
+  return {
+    name: s?.name || 'AutoBench Suite',
+    progress: `${s?.completed_items || 0}/${s?.total_items || 0}`,
+    phase: cur?.phase_status || '',
+    profile: cur?.profile_type || '',
+  }
+})
 
 // Handlers
 const handleConnectionSelected = (connection) => {
@@ -166,6 +187,15 @@ onUnmounted(() => {
 
 <template>
   <div class="sidebar">
+    <!-- AutoBench Running Indicator -->
+    <div v-if="isAutoBenchRunning" class="autobench-indicator">
+      <span class="autobench-badge">Managed by AutoBench</span>
+      <span v-if="autoBenchTaskInfo" class="autobench-detail">
+        {{ autoBenchTaskInfo.name }} — {{ autoBenchTaskInfo.progress }}
+        <span v-if="autoBenchTaskInfo.profile"> (Running: {{ autoBenchTaskInfo.profile }})</span>
+      </span>
+    </div>
+
     <!-- Connection Section -->
     <div class="sidebar-section">
       <div class="section-header">
@@ -174,13 +204,13 @@ onUnmounted(() => {
       </div>
       <ConnectionList
         v-model="selectedConnectionId"
-        :disabled="isRunning"
+        :disabled="anyTaskRunning"
         @connection-selected="handleConnectionSelected"
       />
       <div v-if="selectedConnection" class="connection-actions">
         <button class="btn btn-small" @click="handleTestConnection" :disabled="connectionStore.loading">Test</button>
-        <button class="btn btn-small" @click="openEditConnectionModal" :disabled="isRunning">Edit</button>
-        <button class="btn btn-small btn-danger" @click="handleDeleteConnection" :disabled="isRunning">Delete</button>
+        <button class="btn btn-small" @click="openEditConnectionModal" :disabled="anyTaskRunning">Edit</button>
+        <button class="btn btn-small btn-danger" @click="handleDeleteConnection" :disabled="anyTaskRunning">Delete</button>
       </div>
       <!-- Test result display -->
       <div v-if="connectionStore.testResult" class="test-result" :class="connectionStore.testResult.success ? 'success' : 'error'">
@@ -205,7 +235,7 @@ onUnmounted(() => {
       </div>
       <TemplateList
         v-model="selectedTemplateId"
-        :disabled="isRunning"
+        :disabled="anyTaskRunning"
         :db-type="selectedDbType"
         @template-selected="handleTemplateSelected"
       />
@@ -229,7 +259,7 @@ onUnmounted(() => {
             v-if="param.options && param.options.length > 0"
             v-model="paramValues[param.name]"
             class="select"
-            :disabled="isRunning"
+            :disabled="anyTaskRunning"
             @change="templateStore.setParamValue(param.name, paramValues[param.name])"
           >
             <option v-for="opt in param.options" :key="opt" :value="opt">{{ opt }}</option>
@@ -242,7 +272,7 @@ onUnmounted(() => {
             class="input"
             :min="param.min"
             :max="param.max"
-            :disabled="isRunning"
+            :disabled="anyTaskRunning"
             @change="templateStore.setParamValue(param.name, paramValues[param.name])"
           />
           <!-- Text input for others -->
@@ -251,7 +281,7 @@ onUnmounted(() => {
             v-model="paramValues[param.name]"
             type="text"
             class="input"
-            :disabled="isRunning"
+            :disabled="anyTaskRunning"
             @change="templateStore.setParamValue(param.name, paramValues[param.name])"
           />
         </div>
@@ -260,15 +290,15 @@ onUnmounted(() => {
       <template v-else>
         <div class="form-group">
           <label>Threads:</label>
-          <input v-model="threads" type="number" class="input" :disabled="isRunning" />
+          <input v-model="threads" type="number" class="input" :disabled="anyTaskRunning" />
         </div>
         <div class="form-group">
           <label>Duration (s):</label>
-          <input v-model="duration" type="number" class="input" :disabled="isRunning" />
+          <input v-model="duration" type="number" class="input" :disabled="anyTaskRunning" />
         </div>
         <div class="form-group">
           <label>Warmup (s):</label>
-          <input v-model="rampup" type="number" class="input" :disabled="isRunning" />
+          <input v-model="rampup" type="number" class="input" :disabled="anyTaskRunning" />
         </div>
       </template>
     </div>
@@ -279,10 +309,10 @@ onUnmounted(() => {
         <h3 class="section-title">Control</h3>
       </div>
       <div class="button-grid">
-        <button class="btn" @click="handlePrepare" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Prepare</button>
-        <button class="btn btn-success" @click="handleRun" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Run</button>
-        <button class="btn btn-danger" @click="handleStop" :disabled="!isRunning">Stop</button>
-        <button class="btn" @click="handleCleanup" :disabled="isRunning || !selectedConnectionId || !selectedTemplateId">Cleanup</button>
+        <button class="btn" @click="handlePrepare" :disabled="anyTaskRunning || !selectedConnectionId || !selectedTemplateId">Prepare</button>
+        <button class="btn btn-success" @click="handleRun" :disabled="anyTaskRunning || !selectedConnectionId || !selectedTemplateId">Run</button>
+        <button class="btn btn-danger" @click="handleStop" :disabled="!anyTaskRunning">Stop</button>
+        <button class="btn" @click="handleCleanup" :disabled="anyTaskRunning || !selectedConnectionId || !selectedTemplateId">Cleanup</button>
       </div>
     </div>
 
@@ -334,6 +364,22 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.autobench-indicator {
+  background: var(--bg-info, #eff6ff);
+  border: 1px solid var(--primary, #3b82f6);
+  border-radius: var(--radius-md, 8px);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: var(--font-size-sm, 12px);
+}
+.autobench-badge {
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+  margin-right: 8px;
+}
+.autobench-detail {
+  color: var(--text-secondary);
+}
 .sidebar {
   width: 280px;
   min-width: 280px;
