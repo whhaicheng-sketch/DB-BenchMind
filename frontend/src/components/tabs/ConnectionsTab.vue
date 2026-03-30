@@ -18,14 +18,7 @@
             <span v-if="filter.count > 0" class="filter-count">{{ filter.count }}</span>
           </button>
         </div>
-        <button class="btn btn-sm" @click="handleExport" title="Export connections (sanitized)">Export</button>
-        <button class="btn btn-sm" @click="handleImport" title="Import connections">Import</button>
-        <button v-if="!multiSelectMode" class="btn btn-sm" @click="multiSelectMode = true; selectedConnIds = []">Multi-Select</button>
-        <template v-else>
-          <button class="btn btn-sm btn-primary" @click="handleBatchTest" :disabled="selectedConnIds.length === 0">Test Selected ({{ selectedConnIds.length }})</button>
-          <button class="btn btn-sm" @click="handleTestAllFiltered">Test All Filtered</button>
-          <button class="btn btn-sm" @click="multiSelectMode = false; selectedConnIds = []">Cancel</button>
-        </template>
+        <button class="btn btn-sm" @click="handleTestAll">Test All</button>
         <button class="btn btn-primary" @click="showAddModal = true">
           + Add Connection
         </button>
@@ -54,7 +47,6 @@
           >
             <!-- Left: Name + Info + SSH/WinRM flags -->
             <div class="conn-main">
-              <input v-if="multiSelectMode" type="checkbox" class="conn-checkbox" :checked="selectedConnIds.includes(conn.id)" @click.stop="toggleConnSelect(conn.id)" />
               <div class="conn-name">{{ conn.name }}</div>
               <div class="conn-host">
                 {{ conn.host }}:{{ conn.port }}
@@ -169,8 +161,6 @@ const selectedConnection = ref(null)
 const activeFilter = ref('all')
 const moreMenuId = ref(null)
 const pendingType = ref('')
-const multiSelectMode = ref(false)
-const selectedConnIds = ref([])
 
 // Filter options
 const filters = computed(() => {
@@ -201,8 +191,6 @@ const hasNearbyGroups = (type) => {
 }
 
 const totalConnections = computed(() => connectionStore.connections.length)
-
-const selectedCount = computed(() => selectedConnIds.value.length)
 
 const connectionGroups = computed(() => {
   const groups = [
@@ -245,29 +233,6 @@ const testConnection = async (conn) => {
   selectedId.value = conn.id
   selectedConnection.value = conn
   await connectionStore.testConnectionById(conn.id)
-}
-
-const handleBatchTest = async () => {
-  if (selectedConnIds.value.length === 0) return
-  await connectionStore.batchTestConnections(selectedConnIds.value)
-}
-
-const handleTestAllFiltered = async () => {
-  const ids = filteredGroups.value
-    .flatMap(g => g.connections)
-    .map(c => c.id)
-  if (ids.length === 0) return
-  selectedConnIds.value = ids
-  await connectionStore.batchTestConnections(ids)
-}
-
-const toggleConnSelect = (connId) => {
-  const idx = selectedConnIds.value.indexOf(connId)
-  if (idx >= 0) {
-    selectedConnIds.value.splice(idx, 1)
-  } else {
-    selectedConnIds.value.push(connId)
-  }
 }
 
 const editConnection = (conn) => {
@@ -320,37 +285,10 @@ const handleSaved = () => {
   connectionStore.fetchConnections()
 }
 
-const handleExport = () => {
-  const data = connectionStore.exportConnectionsSanitized()
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `db-benchmind-connections-${new Date().toISOString().slice(0, 10)}.json`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-const handleImport = () => {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json'
-  input.onchange = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-      if (!confirm(`Import ${data.length} connection(s)? Duplicate names will be renamed.`)) return
-      const result = await connectionStore.importConnections(data, 'rename')
-      alert(`Imported: ${result.imported}, Skipped: ${result.skipped}, Errors: ${result.errors.length}`)
-    } catch (err) {
-      alert('Import failed: ' + err.message)
-    }
-  }
-  input.click()
+const handleTestAll = async () => {
+  const ids = connectionStore.connections.map(c => c.id)
+  if (ids.length === 0) return
+  await connectionStore.batchTestConnections(ids)
 }
 
 // Helper functions for test status display

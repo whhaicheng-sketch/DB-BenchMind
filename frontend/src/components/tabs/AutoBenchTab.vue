@@ -77,6 +77,18 @@ const connNameMap = computed(() => {
   return map
 })
 
+const connCapabilitiesMap = computed(() => {
+  const map = {}
+  for (const conn of connectionStore.connections) {
+    const caps = []
+    if (conn.remote_type === 'ssh') caps.push('SSH')
+    if (conn.remote_type === 'winrm') caps.push('WinRM')
+    if (conn.ai_assistants && conn.ai_assistants.length > 0) caps.push('AI')
+    map[conn.id] = caps
+  }
+  return map
+})
+
 const currentItem = computed(() => {
   if (!suiteStatus.value?.items) return null
   return suiteStatus.value.items.find(item => item.status === 'running') || null
@@ -484,6 +496,7 @@ function formatPhaseInfo(item) {
             <span>Status</span>
             <span>Duration</span>
             <span>Phase</span>
+            <span>Flags</span>
             <span>Report</span>
           </div>
           <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
@@ -492,6 +505,10 @@ function formatPhaseInfo(item) {
             <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
             <span class="item-duration">{{ formatItemDuration(item) }}</span>
             <span class="item-phase" :title="formatPhaseInfo(item)">{{ formatPhaseInfo(item) }}</span>
+            <span class="item-flags">
+              <span v-for="cap in (connCapabilitiesMap[item.connection_id] || [])" :key="cap" :class="['cap-badge', 'cap-' + cap.toLowerCase()]">{{ cap }}</span>
+              <span v-if="!(connCapabilitiesMap[item.connection_id] || []).length" class="muted">-</span>
+            </span>
             <span class="item-report">
               <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
                 View Report
@@ -833,7 +850,7 @@ function formatPhaseInfo(item) {
 
 .items-header {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr 1fr;
   gap: 12px;
   padding: 8px 12px;
   background: var(--bg-secondary);
@@ -845,7 +862,7 @@ function formatPhaseInfo(item) {
 
 .item-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr 1fr;
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -878,6 +895,38 @@ function formatPhaseInfo(item) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.item-flags {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.cap-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.cap-ssh {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #7dd3fc;
+}
+.cap-winrm {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.cap-ai {
+  background: #fce7f3;
+  color: #9d174d;
+  border: 1px solid #f9a8d4;
 }
 
 .link-button {

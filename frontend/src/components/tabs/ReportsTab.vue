@@ -26,12 +26,10 @@
         <!-- Filter Bar -->
         <div class="filter-bar">
           <select v-model="statusFilter" class="filter-select" @change="onFilterChange">
-            <option value="">All Status</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="running">Running</option>
-            <option value="pending">Pending</option>
+            <option value="">All</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+            <option value="cancelled">Stop</option>
           </select>
         </div>
 
@@ -236,13 +234,12 @@ const reportGroups = computed(() => {
 })
 
 function deriveGroupStatus(reports) {
-  if (reports.length === 0) return 'pending'
+  if (reports.length === 0) return 'success'
   const statuses = reports.map((r) => r.status)
-  if (statuses.every((s) => s === 'completed')) return 'completed'
-  if (statuses.some((s) => s === 'running')) return 'running'
-  if (statuses.some((s) => s === 'failed')) return 'partial_success'
-  if (statuses.every((s) => s === 'cancelled')) return 'cancelled'
-  return 'partial_success'
+  if (statuses.every((s) => s === 'success' || s === 'completed')) return 'success'
+  if (statuses.some((s) => s === 'failed')) return 'failed'
+  if (statuses.some((s) => s === 'cancelled' || s === 'stopped' || s === 'interrupted')) return 'cancelled'
+  return 'success'
 }
 
 onMounted(() => {
@@ -266,7 +263,14 @@ const closeDetail = () => {
 }
 
 const onFilterChange = async () => {
-  reportStore.setFilter('status', statusFilter.value)
+  // Map user-visible filter to backend status values
+  let backendFilter = statusFilter.value
+  if (statusFilter.value === 'success') {
+    backendFilter = 'completed'
+  } else if (statusFilter.value === 'cancelled') {
+    backendFilter = 'cancelled'
+  }
+  reportStore.setFilter('status', backendFilter)
   await refreshReports()
 }
 
@@ -299,26 +303,30 @@ const getStatusClass = (status) => {
     success: 'status-success',
     failed: 'status-error',
     cancelled: 'status-warning',
-    running: 'status-info',
-    pending: 'status-default',
-    partial_success: 'status-warning',
-    draft: 'status-default',
-    ready: 'status-info'
+    stopped: 'status-warning',
+    interrupted: 'status-warning',
+    running: 'status-success',
+    pending: 'status-success',
+    partial_success: 'status-success',
+    draft: 'status-success',
+    ready: 'status-success'
   }
   return classMap[status] || 'status-default'
 }
 
 const getStatusText = (status) => {
   const textMap = {
-    completed: 'Completed',
-    success: 'Success',
-    failed: 'Failed',
-    cancelled: 'Cancelled',
-    running: 'Running',
-    pending: 'Pending',
-    partial_success: 'Partial',
-    draft: 'Draft',
-    ready: 'Ready'
+    completed: '成功',
+    success: '成功',
+    failed: '失败',
+    cancelled: 'Stop',
+    stopped: 'Stop',
+    interrupted: 'Stop',
+    running: '成功',
+    pending: '成功',
+    partial_success: '成功',
+    draft: '成功',
+    ready: '成功'
   }
   return textMap[status] || status
 }
@@ -530,6 +538,8 @@ const handleClearAll = async () => {
   padding: 10px 12px;
   background-color: var(--bg-secondary);
   cursor: pointer;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .suite-row:hover {
@@ -549,6 +559,8 @@ const handleClearAll = async () => {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  overflow: hidden;
+  overflow: hidden;
 }
 
 .suite-name {

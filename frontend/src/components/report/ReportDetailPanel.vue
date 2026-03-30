@@ -461,6 +461,9 @@ const handleCopyJSON = async () => {
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: hidden;
 }
 
 .detail-title {
@@ -479,7 +482,8 @@ const handleCopyJSON = async () => {
 .header-actions {
   display: flex;
   gap: var(--spacing-sm);
-  margin-right: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 /* Buttons */
