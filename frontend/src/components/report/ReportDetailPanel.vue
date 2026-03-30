@@ -479,6 +479,7 @@ const handleCopyJSON = async () => {
 .header-actions {
   display: flex;
   gap: var(--spacing-sm);
+  margin-right: 8px;
 }
 
 /* Buttons */
