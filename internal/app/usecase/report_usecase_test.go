@@ -823,3 +823,106 @@ func TestReportUsecase_DeleteReport_CleansUpFiles(t *testing.T) {
 		t.Error("DeleteReport() should have removed HTML file")
 	}
 }
+
+// =============================================================================
+// GetReportBySuiteItemID Tests
+// =============================================================================
+
+func TestReportUsecase_GetReportBySuiteItemID_Found(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-suite-item",
+		SuiteID:      "suite-1",
+		SuiteItemID:  "item-1",
+		SourceType:   report.SourceTypeAutoBench,
+		ConnectionID: "conn-1",
+		DatabaseType: "mysql",
+		Status:       report.StatusCompleted,
+	})
+
+	tests := []struct {
+		name          string
+		suiteItemID   string
+		wantID        string
+		wantErr       bool
+	}{
+		{
+			name:        "found by suite_item_id",
+			suiteItemID: "item-1",
+			wantID:      "rpt-suite-item",
+			wantErr:     false,
+		},
+		{
+			name:        "not found for nonexistent suite_item_id",
+			suiteItemID: "item-nonexistent",
+			wantID:      "",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rpt, err := uc.GetReportBySuiteItemID(ctx, tt.suiteItemID)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("GetReportBySuiteItemID() expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetReportBySuiteItemID() error = %v", err)
+			}
+			if rpt.ID != tt.wantID {
+				t.Errorf("GetReportBySuiteItemID() ID = %q, want %q", rpt.ID, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestReportUsecase_GetReportBySuiteItemID_ReturnsCorrectFields(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-fields",
+		SuiteID:      "suite-1",
+		SuiteItemID:  "item-fields",
+		SourceType:   report.SourceTypeAutoBench,
+		ConnectionID: "conn-fields",
+		DatabaseType: "mysql",
+		TemplateID:   "tmpl-1",
+		TemplateName: "MySQL OLTP",
+		Status:       report.StatusCompleted,
+		TPM:          1234.56,
+		TPS:          789.01,
+	})
+
+	rpt, err := uc.GetReportBySuiteItemID(ctx, "item-fields")
+	if err != nil {
+		t.Fatalf("GetReportBySuiteItemID() error = %v", err)
+	}
+
+	if rpt.SuiteItemID != "item-fields" {
+		t.Errorf("SuiteItemID = %q, want %q", rpt.SuiteItemID, "item-fields")
+	}
+	if rpt.ConnectionID != "conn-fields" {
+		t.Errorf("ConnectionID = %q, want %q", rpt.ConnectionID, "conn-fields")
+	}
+	if rpt.DatabaseType != "mysql" {
+		t.Errorf("DatabaseType = %q, want %q", rpt.DatabaseType, "mysql")
+	}
+	if rpt.TPM != 1234.56 {
+		t.Errorf("TPM = %v, want 1234.56", rpt.TPM)
+	}
+	if rpt.TPS != 789.01 {
+		t.Errorf("TPS = %v, want 789.01", rpt.TPS)
+	}
+}

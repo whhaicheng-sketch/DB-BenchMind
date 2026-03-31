@@ -314,6 +314,21 @@ func (uc *AutoBenchSuiteUseCase) BuildSuiteReportHTML(ctx context.Context, suite
 	return []byte(builder.String()), nil
 }
 
+// PersistSuite writes the current in-memory suite state to the repository.
+// Errors are silently ignored (best-effort persistence).
+func (uc *AutoBenchSuiteUseCase) PersistSuite(ctx context.Context, suiteID string) {
+	if uc.repo == nil {
+		return
+	}
+	uc.mu.RLock()
+	suite, ok := uc.suites[strings.TrimSpace(suiteID)]
+	uc.mu.RUnlock()
+	if !ok {
+		return
+	}
+	_ = uc.repo.Save(ctx, cloneSuite(suite))
+}
+
 func (uc *AutoBenchSuiteUseCase) getSuite(suiteID string) (domainautobench.Suite, error) {
 	uc.mu.RLock()
 	defer uc.mu.RUnlock()

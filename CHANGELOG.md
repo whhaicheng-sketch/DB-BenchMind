@@ -2,6 +2,46 @@
 
 All notable changes to DB-BenchMind will be documented in this file.
 
+## [Unreleased] - 2026-03-31
+
+### Fixed - AutoBench Capability Flags
+- **Corrected SSH/WinRM/AI flag sources**: Capability flags now read from real connection configuration instead of a non-existent `remote_type` field on ConnectionDTO.
+  - SSH flag shows only when `ssh_enabled` is true on the connection.
+  - WinRM flag shows only when `winrm_enabled` is true on the connection.
+  - AI flag shows only when `ai_assistants` has entries with a configured `provider`.
+
+### Fixed - Benchmark AutoBench Observation Mode
+- **TasksMonitorTab observation mode**: When AutoBench is running, the Benchmark page's TasksMonitorTab enters observation mode.
+  - All Create Task form fields are populated with the current AutoBench sub-task's real configuration.
+  - All form controls are disabled during observation mode.
+  - Start and Stop buttons are disabled during observation mode.
+  - Monitor Overview shows real metrics from the running benchmark task.
+  - Help text changes to indicate AutoBench is managing the task.
+
+### Fixed - Reports Grouping by AutoBench Suite
+- **Suite-based report grouping**: Reports are now properly grouped by AutoBench suite.
+  - Suite state is persisted to the database during execution (start, after each item, final).
+  - Groups display the suite name and can be expanded/collapsed.
+  - Sub-items within a group show connection name, template type, and metrics.
+  - Standalone reports (non-AutoBench) display individually.
+  - AutoBench sub-items always remain within their group.
+
+### Fixed - Reports UI
+- **Select All separator lines**: Removed extra separator lines on the Select All row (removed `margin-bottom`, `gap` handles spacing).
+- **Status filter label mapping**: Fixed backend-to-frontend status value mapping so the filter label displays correctly after selection and persists across navigation/refresh.
+
+### Fixed - AutoBench Status/Report Consistency
+- **ReportID linking**: Suite items now have their `ReportID` set after successful benchmark completion.
+  - Runner looks up the report by `suite_item_id` and links it to the suite item.
+  - When Status shows "Success", Report column shows "View Report" instead of "-".
+  - Failed items also get their `ReportID` linked if a report row exists.
+- **New backend methods**: `GetReportBySuiteItemID` on ReportUsecase; `PersistSuite` on AutoBenchSuiteUseCase.
+
+### Fixed - Reports Status Model
+- **User-visible status filters**: All / 成功 / 失败 / Stop.
+- **Status mapping**: `completed`/`success` -> 成功, `failed` -> 失败, `cancelled`/`stopped`/`interrupted` -> Stop.
+- Internal statuses (`running`, `pending`, `draft`, `ready`) are not shown as filter options.
+
 ## [Unreleased] - 2026-02-28
 
 ### Added - Oracle Swingbench Support

@@ -44,6 +44,7 @@
 | M12 | AutoBench UI 激活 | ✅ 完成 |
 | M13 | 文档修正与最终验收 | ✅ 完成 |
 | M14 | AutoBench UI Overhaul + Report Delete | ✅ 完成 |
+| M15 | Reports Page AutoBench Grouping Fix | ✅ 完成 |
 
 ---
 
@@ -63,7 +64,17 @@
 - `TestSuiteRepository_Delete` ✅
 - `TestSuiteRepository_Delete_NotFound` ✅
 
-### 前端 AutoBench 测试 (26 个)
+### 前端 AutoBench 测试 (26 个 + M15 新增)
+
+M15 新增测试:
+- source_type=autobench 分组测试 ✅
+- autobench 报告永不显示为 standalone ✅
+- benchmark source_type standalone 分组 ✅
+- 3 completed + 1 running 状态聚合 = running ✅
+- orphan suite group 使用 deriveGroupStatus ✅
+- computeSuiteProgress 计数测试 ✅
+- canViewReport 完成项可查看、运行/失败/待定不可查看 ✅
+- pendingReportId 跨标签页导航 ✅
 - T12.2: Suite 状态面板展示 ✅
 - T12.2: Item 级别状态展示 ✅
 - T12.2: 进度条展示 ✅
@@ -196,6 +207,31 @@
 
 ---
 
-**创建日期**: 2026-03-25
-**最后更新**: 2026-03-29
-**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复 + UI Overhaul + Report Delete）
+### Phase M15 - Reports Page AutoBench Grouping Fix ✅ (2026-03-31)
+
+**修复 Reports 页面 AutoBench 套件报告分组显示问题**
+
+**发现并修复的问题**:
+- P5: `reportGroups` computed 仅按 `suite_id` 分组，未使用 `source_type` 区分 AutoBench 与 standalone 报告
+  → 重写分组逻辑：按 `source_type=autobench` 或非 `standalone` 的 `suite_id` 进行分区
+  → AutoBench 报告永不显示为 standalone 卡片（去重保障）
+
+- P6: 套件组状态使用存储的 `suites.status` 列，不反映子报告实时状态
+  → 使用 `deriveGroupStatus(group.reports)` 计算实时聚合状态
+  → 新增 `computeSuiteProgress()` 提供 completed/running/failed 计数器
+  → 套件行显示 "4 items · 3 completed · 1 running"
+
+- P7: `viewReport()` 忽略 `reportId` 参数，仅切换标签页
+  → 新增 `pendingReportId` 状态和跨标签页导航机制
+  → `AutoBenchTab.vue` 调用 `setPendingReportId`，`ReportsTab.vue` 在 `onMounted` 消费
+
+- P8: 运行中/失败/待定项显示 "View Report" 按钮但打开空白页
+  → 新增 `canViewReport()` 条件渲染：只有 completed/success 才显示查看按钮
+  → running/pending 显示 "Running" 文本，failed 显示 "Failed" 文本
+
+**测试验证**:
+- 353 前端测试全部通过（含 8 个 M15 新增测试）
+
+---
+**最后更新**: 2026-03-31
+**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复 + UI Overhaul + Report Delete + Reports Grouping Fix）

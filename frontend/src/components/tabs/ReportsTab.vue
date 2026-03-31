@@ -62,7 +62,7 @@
                 <div class="suite-info">
                   <span class="suite-name">{{ group.name }}</span>
                   <span class="suite-meta">
-                    {{ group.reports.length }} items · {{ formatDate(group.startedAt) }}
+                    {{ formatSuiteProgress(group.progress) }} · {{ formatDate(group.startedAt) }}
                   </span>
                 </div>
                 <span class="status-badge" :class="getStatusClass(group.status)">{{ getStatusText(group.status) }}</span>
@@ -88,6 +88,9 @@
                     <span v-if="report.latency_avg_ms">{{ formatLatency(report.latency_avg_ms) }}</span>
                   </div>
                   <span class="status-badge small" :class="getStatusClass(report.status)">{{ getStatusText(report.status) }}</span>
+                  <button v-if="canViewReport(report.status)" class="view-btn small" title="View report" @click.stop="selectReport(report.id)">View</button>
+                  <span v-else-if="report.status === 'running' || report.status === 'pending' || report.status === 'draft' || report.status === 'ready'" class="status-text">Running</span>
+                  <span v-else-if="report.status === 'failed'" class="status-text error-text" :title="report.error_message || ''">Failed</span>
                   <button class="delete-btn small" title="Delete report" @click.stop="handleDelete(report.id)">x</button>
                 </div>
               </div>
@@ -153,17 +156,23 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useReportStore } from '../../stores/report'
+import { useAppStore } from '../../stores/app'
 import ReportDetailPanel from '../report/ReportDetailPanel.vue'
 
 const reportStore = useReportStore()
+const appStore = useAppStore()
 const selectedReportId = ref(null)
 const statusFilter = ref(reportStore.filters.status || '')
 const checkedIds = ref([])
 const expandedGroups = ref({})
 
+// Map backend status values to frontend filter values
+const backendToFrontend = { completed: 'success', cancelled: 'cancelled', failed: 'failed' }
+
 // Keep statusFilter in sync with store on tab remount
 watch(() => reportStore.filters.status, (val) => {
-  if ((val || '') !== statusFilter.value) statusFilter.value = val || ''
+  const frontendVal = backendToFrontend[val] || val || ''
+  if (frontendVal !== statusFilter.value) statusFilter.value = frontendVal
 })
 
 // All report IDs for select-all
@@ -177,12 +186,24 @@ const reportGroups = computed(() => {
   const groups = []
   const bySuite = {}
 
+  // Partition reports into AutoBench (grouped) vs standalone
   for (const report of reportStore.reports) {
-    const sid = report.suite_id || 'standalone'
-    if (!bySuite[sid]) {
-      bySuite[sid] = []
+    const isAutoBench = report.source_type === 'autobench' ||
+      (report.suite_id && report.suite_id !== 'standalone')
+
+    if (isAutoBench) {
+      const sid = report.suite_id || 'unknown'
+      if (!bySuite[sid]) {
+        bySuite[sid] = []
+      }
+      bySuite[sid].push(report)
+    } else {
+      // Standalone: source_type is not "autobench" and no meaningful suite_id
+      if (!bySuite['standalone']) {
+        bySuite['standalone'] = []
+      }
+      bySuite['standalone'].push(report)
     }
-    bySuite[sid].push(report)
   }
 
   // Build suite groups from the suite data
@@ -191,17 +212,19 @@ const reportGroups = computed(() => {
     suiteMap[s.id] = s
   }
 
-  // Suites first (ordered by started_at desc)
+  // Suites first (ordered by suites array)
   for (const suite of reportStore.suites) {
     const reports = bySuite[suite.id] || []
     if (reports.length > 0) {
+      const { status: aggregatedStatus, progress } = analyzeGroupReports(reports)
       groups.push({
         key: suite.id,
         isSuite: true,
         name: suite.name || `AutoBench Suite ${formatDate(suite.started_at)}`,
-        status: suite.status,
+        status: aggregatedStatus,
         startedAt: suite.started_at,
-        reports
+        reports,
+        progress
       })
       delete bySuite[suite.id]
     }
@@ -216,11 +239,12 @@ const reportGroups = computed(() => {
       name: reports[0]?.template_name || `Suite ${sid.slice(0, 8)}`,
       status: deriveGroupStatus(reports),
       startedAt: reports[0]?.started_at,
-      reports
+      reports,
+      progress: computeSuiteProgress(reports)
     })
   }
 
-  // Standalone reports
+  // Standalone reports (only non-AutoBench reports)
   const standalone = bySuite['standalone'] || []
   for (const report of standalone) {
     groups.push({
@@ -233,17 +257,49 @@ const reportGroups = computed(() => {
   return groups
 })
 
-function deriveGroupStatus(reports) {
-  if (reports.length === 0) return 'success'
-  const statuses = reports.map((r) => r.status)
-  if (statuses.every((s) => s === 'success' || s === 'completed')) return 'success'
-  if (statuses.some((s) => s === 'failed')) return 'failed'
-  if (statuses.some((s) => s === 'cancelled' || s === 'stopped' || s === 'interrupted')) return 'cancelled'
-  return 'success'
+// analyzeGroupReports computes both aggregate status and progress in a single pass.
+function analyzeGroupReports(reports) {
+  const total = reports.length
+  let completed = 0
+  let running = 0
+  let failed = 0
+  let cancelled = 0
+  let partial = false
+
+  for (const r of reports) {
+    const s = r.status
+    if (s === 'success' || s === 'completed') completed++
+    else if (s === 'running' || s === 'pending' || s === 'draft' || s === 'ready') running++
+    else if (s === 'failed') failed++
+    else if (s === 'cancelled' || s === 'stopped' || s === 'interrupted') cancelled++
+    else if (s === 'partial_success') partial = true
+  }
+
+  let status = 'success'
+  if (running > 0) status = 'running'
+  else if (failed > 0) status = 'failed'
+  else if (cancelled > 0) status = 'cancelled'
+  else if (partial) status = 'partial_success'
+
+  return { status, progress: { total, completed, running, failed } }
 }
 
-onMounted(() => {
-  refreshReports()
+function canViewReport(status) {
+  return status === 'completed' || status === 'success'
+}
+
+function formatSuiteProgress(progress) {
+  const parts = [`${progress.total} items`]
+  if (progress.completed > 0) parts.push(`${progress.completed} completed`)
+  if (progress.running > 0) parts.push(`${progress.running} running`)
+  if (progress.failed > 0) parts.push(`${progress.failed} failed`)
+  return parts.join(' · ')
+}
+
+onMounted(async () => {
+  await refreshReports()
+  const pendingId = appStore.consumePendingReportId()
+  if (pendingId) selectedReportId.value = pendingId
 })
 
 const refreshReports = async () => {
@@ -305,11 +361,11 @@ const getStatusClass = (status) => {
     cancelled: 'status-warning',
     stopped: 'status-warning',
     interrupted: 'status-warning',
-    running: 'status-success',
-    pending: 'status-success',
-    partial_success: 'status-success',
-    draft: 'status-success',
-    ready: 'status-success'
+    running: 'status-info',
+    pending: 'status-default',
+    partial_success: 'status-warning',
+    draft: 'status-default',
+    ready: 'status-default'
   }
   return classMap[status] || 'status-default'
 }
@@ -322,11 +378,11 @@ const getStatusText = (status) => {
     cancelled: 'Stop',
     stopped: 'Stop',
     interrupted: 'Stop',
-    running: '成功',
-    pending: '成功',
-    partial_success: '成功',
-    draft: '成功',
-    ready: '成功'
+    running: '运行中',
+    pending: '等待中',
+    partial_success: '部分成功',
+    draft: '草稿',
+    ready: '就绪'
   }
   return textMap[status] || status
 }
@@ -742,6 +798,33 @@ const handleClearAll = async () => {
   font-size: 12px;
 }
 
+.view-btn.small {
+  padding: 2px 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.view-btn.small:hover {
+  background: var(--primary);
+  color: white;
+}
+
+.status-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.status-text.error-text {
+  color: var(--danger);
+}
+
 .btn-danger {
   padding: 8px 16px;
   border: 1px solid var(--danger);
@@ -779,7 +862,6 @@ const handleClearAll = async () => {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  margin-bottom: 4px;
   cursor: pointer;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);

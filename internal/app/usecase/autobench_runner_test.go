@@ -10,7 +10,9 @@ import (
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/connection"
 	domainautobench "github.com/whhaicheng/DB-BenchMind/internal/domain/autobench"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
+	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
+	_ "modernc.org/sqlite"
 )
 
 func TestAutoBenchSuiteRunner_RunSuiteExecutesItemsSequentiallyUsingExistingBenchmarkAbility(t *testing.T) {
@@ -492,3 +494,139 @@ func TestAutoBenchSuiteRunner_RunSuiteRecordsPhaseTimings(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// setReportIDOnSuiteItem Tests
+// =============================================================================
+
+func TestAutoBenchSuiteRunner_SetReportIDOnSuiteItem_SetsReportID(t *testing.T) {
+	ctx := context.Background()
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	suiteUC := NewAutoBenchSuiteUseCase()
+	reportUC := NewReportUsecase(db)
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "report-id-suite",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunner{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StateRunning, execution.StateCompleted},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+		WithReportUsecase(reportUC),
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error { return nil }
+
+	// Insert a running report that matches the suite_item_id
+	var itemID string
+	status, _ := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if len(status.Items) > 0 {
+		itemID = status.Items[0].ID
+	}
+	if itemID == "" {
+		t.Fatal("expected at least one suite item")
+	}
+
+	// Insert a report with the matching suite_item_id (simulating what InsertRunningReport does)
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-report-id-test",
+		SuiteID:      suite.ID,
+		SuiteItemID:  itemID,
+		SourceType:   report.SourceTypeAutoBench,
+		ConnectionID: "conn-mysql",
+		DatabaseType: "mysql",
+		Status:       report.StatusCompleted,
+	})
+
+	if err := runner.RunSuite(ctx, suite.ID); err != nil {
+		t.Fatalf("RunSuite() failed: %v", err)
+	}
+
+	finalStatus, statusErr := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if statusErr != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", statusErr)
+	}
+
+	for i, item := range finalStatus.Items {
+		if item.ReportID == "" {
+			t.Errorf("Items[%d].ReportID is empty, want non-empty", i)
+		}
+		if item.ReportID != "rpt-report-id-test" {
+			t.Errorf("Items[%d].ReportID = %q, want %q", i, item.ReportID, "rpt-report-id-test")
+		}
+	}
+}
+
+func TestAutoBenchSuiteRunner_SetReportIDOnSuiteItem_NoopWhenNoReportUsecase(t *testing.T) {
+	ctx := context.Background()
+	suiteUC := NewAutoBenchSuiteUseCase()
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "no-report-uc",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunner{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StateRunning, execution.StateCompleted},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+		// No WithReportUsecase option
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error { return nil }
+
+	// Should not panic even without reportUsecase
+	if err := runner.RunSuite(ctx, suite.ID); err != nil {
+		t.Fatalf("RunSuite() failed: %v", err)
+	}
+
+	finalStatus, statusErr := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if statusErr != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", statusErr)
+	}
+	// ReportID should be empty because there is no reportUsecase
+	for i, item := range finalStatus.Items {
+		if item.ReportID != "" {
+			t.Errorf("Items[%d].ReportID = %q, want empty when no reportUsecase", i, item.ReportID)
+		}
+	}
+}
+

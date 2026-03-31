@@ -227,18 +227,17 @@ func (uc *ReportUsecase) ListReports(ctx context.Context, opts ListReportsOption
 	return reports, total, nil
 }
 
-// GetReport retrieves a single report by ID.
-func (uc *ReportUsecase) GetReport(ctx context.Context, id string) (*report.Report, error) {
-	query := `
-		SELECT id, suite_id, suite_item_id, source_type, connection_id, connection_name,
-			database_type, template_id, template_name, started_at, ended_at, duration_ms,
-			status, error_message, tpm, tps, qps, throughput, latency_avg_ms,
-			latency_p95_ms, latency_p99_ms, error_count, metrics_json_path,
-			monitoring_json_path, raw_json_path, report_html_path, summary_json_path,
-			created_at, updated_at, tags
-		FROM reports WHERE id = ?
-	`
+// reportSelectColumns is the standard column list used for single-report queries.
+const reportSelectColumns = `
+	id, suite_id, suite_item_id, source_type, connection_id, connection_name,
+	database_type, template_id, template_name, started_at, ended_at, duration_ms,
+	status, error_message, tpm, tps, qps, throughput, latency_avg_ms,
+	latency_p95_ms, latency_p99_ms, error_count, metrics_json_path,
+	monitoring_json_path, raw_json_path, report_html_path, summary_json_path,
+	created_at, updated_at, tags`
 
+// scanReportRow scans a single report row into a Report struct.
+func scanReportRow(row *sql.Row) (*report.Report, error) {
 	r := &report.Report{}
 	var endedAt, startedAt, createdAt, updatedAt *string
 	var suiteItemID, connectionName, templateID, templateName, errorMessage *string
@@ -249,7 +248,7 @@ func (uc *ReportUsecase) GetReport(ctx context.Context, id string) (*report.Repo
 	var sourceType string
 	var status string
 
-	err := uc.db.QueryRowContext(ctx, query, id).Scan(
+	err := row.Scan(
 		&r.ID, &r.SuiteID, &suiteItemID, &sourceType, &r.ConnectionID, &connectionName,
 		&r.DatabaseType, &templateID, &templateName, &startedAt, &endedAt, &durationMs,
 		&status, &errorMessage, &tpm, &tps, &qps, &throughput, &latencyAvgMs,
@@ -257,11 +256,8 @@ func (uc *ReportUsecase) GetReport(ctx context.Context, id string) (*report.Repo
 		&monitoringJSONPath, &rawJSONPath, &reportHTMLPath, &summaryJSONPath,
 		&createdAt, &updatedAt, &tags,
 	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("report not found: %s", id)
-	}
 	if err != nil {
-		return nil, fmt.Errorf("get report: %w", err)
+		return nil, err
 	}
 
 	r.SourceType = report.SourceType(sourceType)
@@ -351,6 +347,19 @@ func (uc *ReportUsecase) GetReport(ctx context.Context, id string) (*report.Repo
 		r.Tags = *tags
 	}
 
+	return r, nil
+}
+
+// GetReport retrieves a single report by ID.
+func (uc *ReportUsecase) GetReport(ctx context.Context, id string) (*report.Report, error) {
+	row := uc.db.QueryRowContext(ctx, "SELECT "+reportSelectColumns+" FROM reports WHERE id = ?", id)
+	r, err := scanReportRow(row)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("report not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get report: %w", err)
+	}
 	return r, nil
 }
 
@@ -726,6 +735,32 @@ func (uc *ReportUsecase) GetExportFilePaths(ctx context.Context, id string) (met
 	}
 
 	return rpt.MetricsJSONPath, rpt.MonitoringJSONPath, rpt.RawJSONPath, rpt.ReportHTMLPath, nil
+}
+
+// GetReportBySuiteItemID retrieves a report by its suite_item_id.
+func (uc *ReportUsecase) GetReportBySuiteItemID(ctx context.Context, suiteItemID string) (*report.Report, error) {
+	row := uc.db.QueryRowContext(ctx, "SELECT "+reportSelectColumns+" FROM reports WHERE suite_item_id = ?", suiteItemID)
+	r, err := scanReportRow(row)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("report not found for suite_item_id: %s", suiteItemID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get report by suite_item_id: %w", err)
+	}
+	return r, nil
+}
+
+// GetReportIDBySuiteItemID retrieves only the report ID for a given suite_item_id.
+func (uc *ReportUsecase) GetReportIDBySuiteItemID(ctx context.Context, suiteItemID string) (string, error) {
+	var id string
+	err := uc.db.QueryRowContext(ctx, "SELECT id FROM reports WHERE suite_item_id = ?", suiteItemID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("report not found for suite_item_id: %s", suiteItemID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get report id by suite_item_id: %w", err)
+	}
+	return id, nil
 }
 
 // InsertRunningReport inserts a report with "running" status before a benchmark completes.

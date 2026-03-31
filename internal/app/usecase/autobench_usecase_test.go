@@ -448,3 +448,102 @@ func assertContains(t *testing.T, haystack, needle string) {
 		t.Fatalf("expected %q to contain %q", haystack, needle)
 	}
 }
+
+// =============================================================================
+// PersistSuite Tests
+// =============================================================================
+
+type stubSuiteRepo struct {
+	saved []domainautobench.Suite
+}
+
+func (s *stubSuiteRepo) Save(_ context.Context, suite domainautobench.Suite) error {
+	s.saved = append(s.saved, suite)
+	return nil
+}
+
+func (s *stubSuiteRepo) FindByID(_ context.Context, _ string) (domainautobench.Suite, error) {
+	return domainautobench.Suite{}, errors.New("not implemented")
+}
+
+func (s *stubSuiteRepo) FindAll(_ context.Context) ([]domainautobench.Suite, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubSuiteRepo) UpdateStatus(_ context.Context, _ string, _ domainautobench.SuiteStatus, _ string) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubSuiteRepo) Delete(_ context.Context, _ string) error {
+	return errors.New("not implemented")
+}
+
+func TestAutoBenchSuiteUseCase_PersistSuite_SavesToRepo(t *testing.T) {
+	ctx := context.Background()
+	repo := &stubSuiteRepo{}
+	uc := NewAutoBenchSuiteUseCase(WithSuiteRepository(repo))
+
+	suite, err := uc.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "persist-test",
+		ConnectionIDs: []string{"conn-a"},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+	// CreateSuite already calls repo.Save once
+	initialSaveCount := len(repo.saved)
+	if initialSaveCount != 1 {
+		t.Fatalf("expected 1 save from CreateSuite, got %d", initialSaveCount)
+	}
+
+	// Mutate suite to set a running status
+	if err := uc.mutateSuite(suite.ID, func(s *domainautobench.Suite) error {
+		s.Status = domainautobench.SuiteStatusRunning
+		return nil
+	}); err != nil {
+		t.Fatalf("mutateSuite() failed: %v", err)
+	}
+
+	uc.PersistSuite(ctx, suite.ID)
+
+	if len(repo.saved) != 2 {
+		t.Fatalf("len(repo.saved) = %d, want 2 (1 from CreateSuite + 1 from PersistSuite)", len(repo.saved))
+	}
+	// Last saved suite should have the running status
+	lastSaved := repo.saved[len(repo.saved)-1]
+	if lastSaved.ID != suite.ID {
+		t.Errorf("saved suite ID = %q, want %q", lastSaved.ID, suite.ID)
+	}
+	if lastSaved.Status != domainautobench.SuiteStatusRunning {
+		t.Errorf("saved suite Status = %q, want %q", lastSaved.Status, domainautobench.SuiteStatusRunning)
+	}
+}
+
+func TestAutoBenchSuiteUseCase_PersistSuite_NoopWithoutRepo(t *testing.T) {
+	ctx := context.Background()
+	uc := NewAutoBenchSuiteUseCase()
+
+	suite, err := uc.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "no-repo-persist",
+		ConnectionIDs: []string{"conn-a"},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	// Should not panic or error when repo is nil
+	uc.PersistSuite(ctx, suite.ID)
+}
+
+func TestAutoBenchSuiteUseCase_PersistSuite_NoopForNonexistentSuite(t *testing.T) {
+	ctx := context.Background()
+	repo := &stubSuiteRepo{}
+	uc := NewAutoBenchSuiteUseCase(WithSuiteRepository(repo))
+
+	// Should not save anything for nonexistent suite
+	uc.PersistSuite(ctx, "nonexistent-id")
+
+	if len(repo.saved) != 0 {
+		t.Fatalf("len(repo.saved) = %d, want 0", len(repo.saved))
+	}
+}

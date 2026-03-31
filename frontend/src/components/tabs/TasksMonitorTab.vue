@@ -80,7 +80,7 @@
 
           <label class="field">
             <span>Database Type</span>
-            <select v-model="draft.database_type" class="select-dark">
+            <select v-model="draft.database_type" class="select-dark" :disabled="isAutoBenchControlled">
               <option value="">Select database type</option>
               <option v-for="dbType in databaseTypeOptions" :key="dbType.value" :value="dbType.value">
                 {{ dbType.label }}
@@ -90,7 +90,7 @@
 
           <label class="field">
             <span>Connection</span>
-            <select v-model="draft.connection_id" class="select-dark" :disabled="!draft.database_type">
+            <select v-model="draft.connection_id" class="select-dark" :disabled="isAutoBenchControlled || !draft.database_type">
               <option value="">{{ draft.database_type ? 'Select one' : 'Select database type first' }}</option>
               <option v-for="connection in filteredConnections" :key="connection.id" :value="connection.id">
                 {{ connection.name }}
@@ -100,7 +100,7 @@
 
           <label class="field">
             <span>Template</span>
-            <select v-model="draft.template_id" class="select-dark" :disabled="!draft.database_type">
+            <select v-model="draft.template_id" class="select-dark" :disabled="isAutoBenchControlled || !draft.database_type">
               <option value="">{{ draft.database_type ? 'Select template' : 'Select database type first' }}</option>
               <option v-for="template in filteredTemplates" :key="template.id" :value="template.id">
                 {{ template.name }} · {{ template.tool }}
@@ -110,7 +110,7 @@
 
           <label class="field">
             <span>Action</span>
-            <select v-model="draft.action" class="select-dark" :disabled="!draft.template_id">
+            <select v-model="draft.action" class="select-dark" :disabled="isAutoBenchControlled || !draft.template_id">
               <option v-for="action in actionOptions" :key="action.value" :value="action.value" :disabled="action.disabled">
                 {{ action.label }}
               </option>
@@ -120,15 +120,18 @@
           <div class="override-grid">
             <label v-if="showThreads" class="field">
               <span>{{ concurrencyLabel }}</span>
-              <input v-model.number="draft.overrides[concurrencyKey]" type="number" min="1">
+              <input v-model.number="draft.overrides[concurrencyKey]" type="number" min="1" :disabled="isAutoBenchControlled">
             </label>
             <label class="field">
               <span>Run Duration (s)</span>
-              <input v-model.number="draft.overrides.duration" type="number" min="1">
+              <input v-model.number="draft.overrides.duration" type="number" min="1" :disabled="isAutoBenchControlled">
             </label>
           </div>
 
-          <p class="compact-help">Use the top Start button to preview and launch the task.</p>
+          <p class="compact-help" v-if="isAutoBenchControlled">
+            AutoBench is managing the current task. Configuration is locked to the running sub-task.
+          </p>
+          <p class="compact-help" v-else>Use the top Start button to preview and launch the task.</p>
         </section>
       </div>
 
@@ -397,6 +400,11 @@ const taskStore = useTaskStore()
 const autobenchStore = useAutoBenchStore()
 
 const isAutoBenchControlled = computed(() => autobenchStore.suiteStatus?.status === 'running')
+
+const autoBenchCurrentItem = computed(() => {
+  if (!isAutoBenchControlled.value || !autobenchStore.suiteStatus?.items) return null
+  return autobenchStore.suiteStatus.items.find(item => item.status === 'running') || null
+})
 
 const { templates } = storeToRefs(templateStore)
 const { connections } = storeToRefs(connectionStore)
@@ -693,6 +701,17 @@ onMounted(async () => {
     appStore.clearPendingTaskTemplate()
   }
   sanitizeDraftState()
+})
+
+// AutoBench observation: populate draft from current AutoBench item
+watch([isAutoBenchControlled, autoBenchCurrentItem], ([controlled, item]) => {
+  if (controlled && item) {
+    const conn = connectionStore.connections.find(c => c.id === item.connection_id)
+    if (item.database_type || conn?.type) draft.database_type = item.database_type || conn?.type || ''
+    if (item.connection_id) draft.connection_id = item.connection_id
+    if (item.template_id) draft.template_id = item.template_id
+    draft.action = 'full_pipeline'
+  }
 })
 
 onBeforeUnmount(() => {

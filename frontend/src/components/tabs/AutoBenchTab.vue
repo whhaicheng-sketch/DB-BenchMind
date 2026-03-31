@@ -81,9 +81,10 @@ const connCapabilitiesMap = computed(() => {
   const map = {}
   for (const conn of connectionStore.connections) {
     const caps = []
-    if (conn.remote_type === 'ssh') caps.push('SSH')
-    if (conn.remote_type === 'winrm') caps.push('WinRM')
-    if (conn.ai_assistants && conn.ai_assistants.length > 0) caps.push('AI')
+    if (conn.ssh_enabled) caps.push('SSH')
+    if (conn.winrm_enabled) caps.push('WinRM')
+    // Only show AI if there are assistants with a configured provider
+    if (conn.ai_assistants && conn.ai_assistants.some(a => a.provider)) caps.push('AI')
     map[conn.id] = caps
   }
   return map
@@ -289,6 +290,7 @@ async function pollSuiteStatus() {
 
 function viewReport(reportId) {
   if (!reportId) return
+  appStore.setPendingReportId(reportId)
   appStore.setActiveTab('reports')
 }
 

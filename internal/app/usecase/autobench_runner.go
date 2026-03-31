@@ -111,6 +111,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 
 	// Write initial manifest
 	r.writeManifestAsync(ctx, suiteID)
+	// Persist suite status=running to DB
+	r.suites.PersistSuite(ctx, suiteID)
 
 	for _, item := range suite.Items {
 		if err := ctx.Err(); err != nil {
@@ -275,8 +277,12 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			}); err != nil {
 				return err
 			}
+			// Look up the report by suite_item_id and set ReportID on the suite item
+			r.setReportIDOnSuiteItem(ctx, suiteID, item.ID)
 			// Write manifest after item completes
 			r.writeManifestAsync(ctx, suiteID)
+			// Persist suite state to DB after each item
+			r.suites.PersistSuite(ctx, suiteID)
 			continue
 		}
 
@@ -285,6 +291,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 		if failErr := r.markSuiteItemFailed(suiteID, item.ID, err.Error()); failErr != nil {
 			return failErr
 		}
+		// Look up the report (may have been created and updated to failed) and set ReportID
+		r.setReportIDOnSuiteItem(ctx, suiteID, item.ID)
 		if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
 			return err
 		}
@@ -301,6 +309,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 	}
 	// Final manifest write
 	r.writeManifestAsync(ctx, suiteID)
+	// Final persist to DB
+	r.suites.PersistSuite(ctx, suiteID)
 	return nil
 }
 
@@ -491,6 +501,27 @@ func (r *AutoBenchSuiteRunner) markSuiteItemFailed(suiteID, itemID, summary stri
 	// Write manifest after item failure
 	r.writeManifestAsync(context.Background(), suiteID)
 	return nil
+}
+
+// setReportIDOnSuiteItem looks up the report by suite_item_id and sets
+// the ReportID field on the corresponding suite item. Errors are silently
+// ignored since this is a best-effort enrichment.
+func (r *AutoBenchSuiteRunner) setReportIDOnSuiteItem(ctx context.Context, suiteID, itemID string) {
+	if r.reportUsecase == nil {
+		return
+	}
+	rptID, rptErr := r.reportUsecase.GetReportIDBySuiteItemID(ctx, itemID)
+	if rptErr != nil || rptID == "" {
+		return
+	}
+	_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		target, findErr := findSuiteItemByID(suite.Items, itemID)
+		if findErr != nil {
+			return findErr
+		}
+		target.ReportID = rptID
+		return nil
+	})
 }
 
 func (uc *AutoBenchSuiteUseCase) mutateSuite(suiteID string, mutator func(*domainautobench.Suite) error) error {

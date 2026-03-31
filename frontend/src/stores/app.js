@@ -4,7 +4,8 @@ import { clearPendingTaskTemplateState, queueTemplateForTaskState } from './appS
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeTab: 'connections',
-    pendingTaskTemplate: null
+    pendingTaskTemplate: null,
+    pendingReportId: ''
   }),
 
   actions: {
@@ -18,6 +19,16 @@ export const useAppStore = defineStore('app', {
 
     clearPendingTaskTemplate() {
       Object.assign(this, clearPendingTaskTemplateState(this.$state))
+    },
+
+    setPendingReportId(id) {
+      this.pendingReportId = id
+    },
+
+    consumePendingReportId() {
+      const id = this.pendingReportId
+      this.pendingReportId = ''
+      return id
     }
   }
 })

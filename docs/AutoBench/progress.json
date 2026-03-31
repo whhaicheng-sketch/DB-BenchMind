@@ -20,7 +20,8 @@
     "T11.1", "T11.2", "T11.3", "T11.4",
     "T12.1", "T12.2", "T12.3", "T12.4",
     "T13.1", "T13.2", "T13.3",
-    "T14.1", "T14.2", "T14.3", "T14.4"
+    "T14.1", "T14.2", "T14.3", "T14.4",
+    "T15.1", "T15.2", "T15.3", "T15.4", "T15.5", "T15.6", "T15.7", "T15.8"
   ],
   "pending_tasks": [],
   "blocked_tasks": [],
@@ -256,6 +257,7 @@
     "internal/transportwails/bindings/autobench.go",
     "internal/transportwails/bindings/autobench_test.go",
     "internal/app/usecase/autobench_usecase.go",
+    "frontend/src/stores/app.js",
     "frontend/src/components/tabs/AutoBenchTab.vue",
     "frontend/src/components/tabs/ReportsTab.vue",
     "frontend/src/components/report/ReportDetailPanel.vue",
@@ -264,6 +266,7 @@
     "frontend/wailsjs/go/bindings/ReportBinding.js",
     "frontend/wailsjs/go/bindings/AutoBenchBinding.js",
     "frontend/wailsjs/go/bindings/AutoBenchBinding.d.ts",
+    "frontend/tests/reports-grouping.test.mjs",
     "frontend/tests/reportStore.test.mjs",
     "frontend/tests/autoBenchTab.test.mjs",
     "cmd/e2e-test/main.go",
@@ -292,5 +295,33 @@
       "backend_binding": 2
     }
   },
-  "updated_at": "2026-03-29"
+  "m15_grouping_fix": {
+    "date": "2026-03-31",
+    "bugs_fixed": [
+      {
+        "id": "P5",
+        "description": "reportGroups computed only used suite_id for grouping, not source_type",
+        "fix": "Rewrote partition logic: autobench reports (source_type=autobench or non-standalone suite_id) are always grouped, never standalone"
+      },
+      {
+        "id": "P6",
+        "description": "Suite group status used stored suites.status, not real-time child report statuses",
+        "fix": "Use deriveGroupStatus(group.reports) for aggregate status; added computeSuiteProgress() for counters"
+      },
+      {
+        "id": "P7",
+        "description": "viewReport() in AutoBenchTab.vue ignored reportId parameter",
+        "fix": "Added pendingReportId state to app store; viewReport sets it, ReportsTab consumes it on mount"
+      },
+      {
+        "id": "P8",
+        "description": "Running/failed/pending items showed View Report button opening blank page",
+        "fix": "Added canViewReport() conditional: only completed/success show view button; others show status text"
+      }
+    ],
+    "tests_added": 8,
+    "tests_total": 353,
+    "tests_passed": 353
+  },
+  "updated_at": "2026-03-31"
 }
