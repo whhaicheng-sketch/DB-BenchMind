@@ -70,7 +70,7 @@ onUnmounted(async () => {
 <template>
   <div class="app-container">
     <!-- Global error modal -->
-    <div v-if="showError" class="error-overlay" @click.self="dismissError">
+    <div v-if="showError" class="error-overlay">
       <div class="error-modal">
         <div class="error-header">
           <span class="error-icon">⚠️</span>
@@ -105,13 +105,15 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <!-- Tab Content -->
+    <!-- Tab Content - KeepAlive preserves component state across tab switches -->
     <div class="tab-content">
-      <ConnectionsTab v-if="appStore.activeTab === 'connections'" />
-      <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
-      <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
-      <AutoBenchTab v-else-if="appStore.activeTab === 'autobench'" />
-      <ReportsTab v-else-if="appStore.activeTab === 'history'" />
+      <KeepAlive>
+        <ConnectionsTab v-if="appStore.activeTab === 'connections'" />
+        <TemplatesTab v-else-if="appStore.activeTab === 'templates'" />
+        <TasksMonitorTab v-else-if="appStore.activeTab === 'tasks'" />
+        <AutoBenchTab v-else-if="appStore.activeTab === 'autobench'" />
+        <ReportsTab v-else-if="appStore.activeTab === 'history'" />
+      </KeepAlive>
     </div>
   </div>
 </template>

@@ -693,7 +693,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 	uc.markAsCompleted(ctx, run.ID, duration)
 
 	// Collect and persist report (non-blocking)
-	uc.collectStandaloneReport(ctx, run, conn, tmpl)
+	uc.collectStandaloneReport(ctx, run, conn, tmpl, task)
 }
 
 func resolvePrepareThreads(ctx context.Context, conn connection.Connection) (int, error) {
@@ -2625,6 +2625,7 @@ func (uc *BenchmarkUseCase) collectStandaloneReport(
 	run *execution.Run,
 	conn connection.Connection,
 	tmpl *domaintemplate.Template,
+	task *execution.BenchmarkTask,
 ) {
 	if uc.reportCollector == nil {
 		return
@@ -2664,6 +2665,15 @@ func (uc *BenchmarkUseCase) collectStandaloneReport(
 		DatabaseType:   string(conn.GetType()),
 		TemplateID:     tmpl.ID,
 		TemplateName:   tmpl.Name,
+	}
+
+	// When AutoBench launched this task, use the suite context so the report
+	// collector finds and updates the existing "running" row (by suite_item_id)
+	// instead of inserting a new standalone row.
+	if task != nil && task.SuiteID != "" {
+		rptCtx.SuiteID = task.SuiteID
+		rptCtx.SuiteItemID = task.SuiteItemID
+		rptCtx.SourceType = report.SourceTypeAutoBench
 	}
 
 	// Use goroutine to not block response

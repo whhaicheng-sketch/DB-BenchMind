@@ -14,6 +14,7 @@ import (
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/execution"
 	domaintemplate "github.com/whhaicheng/DB-BenchMind/internal/domain/template"
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
+	"github.com/whhaicheng/DB-BenchMind/internal/transportwails/collector"
 )
 
 var ErrAutoBenchTemplateNotFound = errors.New("autobench template not found")
@@ -24,6 +25,7 @@ var ErrAutoBenchTemplateProviderRequired = errors.New("autobench template provid
 type autoBenchBenchmarkRunner interface {
 	StartBenchmark(ctx context.Context, task *execution.BenchmarkTask) (*execution.Run, error)
 	GetBenchmarkStatus(ctx context.Context, runID string) (*execution.Run, error)
+	GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error)
 }
 
 type autoBenchConnectionProvider interface {
@@ -162,6 +164,15 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			continue
 		}
 
+		// Create SSH metrics collector for system monitoring (best-effort)
+		var sshCollector *collector.SSHMetricsCollector
+		if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
+			sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
+			if startErr := sshCollector.Start(); startErr != nil {
+				sshCollector = nil
+			}
+		}
+
 		if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
 			target, findErr := findSuiteItemByID(suite.Items, item.ID)
 			if findErr != nil {
@@ -210,7 +221,9 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 				fmt.Sprintf("item:%s", item.ID),
 				fmt.Sprintf("profile:%s", item.ProfileType),
 			},
-			CreatedAt: time.Now(),
+			CreatedAt:    time.Now(),
+			SuiteID:     suiteID,
+			SuiteItemID: item.ID,
 		}
 
 		run, err := r.benchmark.StartBenchmark(ctx, task)
@@ -231,13 +244,20 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 				return findErr
 			}
 			target.LinkedTaskID = task.ID
+			target.RunID = run.ID
 			target.PhaseStatus = run.State.String()
 			return nil
 		}); err != nil {
 			return err
 		}
 
-		finalRun, err := r.waitForRunCompletionWithPhaseTracking(ctx, run.ID, suiteID, item.ID)
+		finalRun, err := r.waitForRunCompletionWithPhaseTracking(ctx, run.ID, suiteID, item.ID, sshCollector)
+
+		// Stop SSH collector after item completes (best-effort, no matter the outcome)
+		if sshCollector != nil {
+			sshCollector.Stop()
+		}
+
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
@@ -315,10 +335,10 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 }
 
 func (r *AutoBenchSuiteRunner) waitForRunCompletion(ctx context.Context, runID string) (*execution.Run, error) {
-	return r.waitForRunCompletionWithPhaseTracking(ctx, runID, "", "")
+	return r.waitForRunCompletionWithPhaseTracking(ctx, runID, "", "", nil)
 }
 
-func (r *AutoBenchSuiteRunner) waitForRunCompletionWithPhaseTracking(ctx context.Context, runID string, suiteID string, itemID string) (*execution.Run, error) {
+func (r *AutoBenchSuiteRunner) waitForRunCompletionWithPhaseTracking(ctx context.Context, runID string, suiteID string, itemID string, sshCollector *collector.SSHMetricsCollector) (*execution.Run, error) {
 	var lastPhase string
 	var phaseStart time.Time
 
@@ -355,6 +375,12 @@ func (r *AutoBenchSuiteRunner) waitForRunCompletionWithPhaseTracking(ctx context
 				})
 			}
 		}
+
+		// Collect metrics for the running item so the frontend can display live charts
+		if suiteID != "" {
+			r.collectItemMetrics(ctx, suiteID, itemID, runID, sshCollector)
+		}
+
 		if err := r.waitForNextPoll(ctx, r.waitInterval); err != nil {
 			return nil, err
 		}
@@ -386,6 +412,148 @@ func waitForNextAutoBenchPoll(ctx context.Context, interval time.Duration) error
 	case <-timer.C:
 		return nil
 	}
+}
+
+// collectItemMetrics fetches current benchmark metric samples for a running item
+// and stores them in the suite item's MetricsSummary so the frontend can render live charts.
+// If an SSH collector is provided, system metrics (CPU/Disk IO) are also collected.
+func (r *AutoBenchSuiteRunner) collectItemMetrics(ctx context.Context, suiteID, itemID, runID string, sshCollector *collector.SSHMetricsCollector) {
+	samples, err := r.benchmark.GetMetricSamples(ctx, runID)
+	if err != nil || len(samples) == 0 {
+		return
+	}
+
+	// Build metrics map matching UnifiedMetrics JSON shape for frontend compatibility
+	tpsSeries := make([]map[string]interface{}, 0, len(samples))
+	tpmSeries := make([]map[string]interface{}, 0, len(samples))
+	var tpsSum, tpmSum float64
+	var tpsMax, tpmMax float64
+	var tpsCurrent, tpmCurrent float64
+
+	for _, s := range samples {
+		tps := s.TPS
+		tpm := s.TPM
+		if tpm == 0 && tps > 0 {
+			tpm = tps * 60
+		}
+		ts := s.Timestamp.UnixMilli()
+		tpsSeries = append(tpsSeries, map[string]interface{}{"timestamp": ts, "value": tps})
+		tpmSeries = append(tpmSeries, map[string]interface{}{"timestamp": ts, "value": tpm})
+		tpsSum += tps
+		tpmSum += tpm
+		if tps > tpsMax {
+			tpsMax = tps
+		}
+		if tpm > tpmMax {
+			tpmMax = tpm
+		}
+		tpsCurrent = tps
+		tpmCurrent = tpm
+	}
+
+	// Truncate to last 300 points
+	if len(tpsSeries) > 300 {
+		tpsSeries = tpsSeries[len(tpsSeries)-300:]
+	}
+	if len(tpmSeries) > 300 {
+		tpmSeries = tpmSeries[len(tpmSeries)-300:]
+	}
+
+	tpsAvg := 0.0
+	tpmAvg := 0.0
+	if len(samples) > 0 {
+		tpsAvg = tpsSum / float64(len(samples))
+		tpmAvg = tpmSum / float64(len(samples))
+	}
+
+	metricsMap := map[string]interface{}{
+		"tps": map[string]interface{}{
+			"current": tpsCurrent,
+			"avg":     tpsAvg,
+			"max":     tpsMax,
+			"series":  tpsSeries,
+		},
+		"tpm": map[string]interface{}{
+			"current": tpmCurrent,
+			"avg":     tpmAvg,
+			"max":     tpmMax,
+			"series":  tpmSeries,
+		},
+		"system_enabled": false,
+		"system_message": "",
+	}
+
+	// Collect SSH metrics if collector is available
+	if sshCollector != nil {
+		sshPoints := sshCollector.Snapshot()
+		if len(sshPoints) > 0 {
+			metricsMap["system_enabled"] = true
+
+			// Build system metric series in the same format as TaskBinding.updateSystemMetrics
+			cpuUserSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			cpuSysSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			cpuIOWaitSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			cpuStealSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskReadBpsSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskWriteBpsSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskReadLatSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskWriteLatSeries := make([]map[string]interface{}, 0, len(sshPoints))
+
+			for _, p := range sshPoints {
+				ts := p.Timestamp
+				cpuUserSeries = append(cpuUserSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUUser})
+				cpuSysSeries = append(cpuSysSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUSys})
+				cpuIOWaitSeries = append(cpuIOWaitSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUIOWait})
+				cpuStealSeries = append(cpuStealSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUSteal})
+				diskReadBpsSeries = append(diskReadBpsSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskReadBps})
+				diskWriteBpsSeries = append(diskWriteBpsSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskWriteBps})
+				diskReadLatSeries = append(diskReadLatSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskReadLatencyMs})
+				diskWriteLatSeries = append(diskWriteLatSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskWriteLatencyMs})
+			}
+
+			last := sshPoints[len(sshPoints)-1]
+			metricsMap["cpu_user"] = map[string]interface{}{
+				"current": last.CPUUser,
+				"series":  cpuUserSeries,
+			}
+			metricsMap["cpu_sys"] = map[string]interface{}{
+				"current": last.CPUSys,
+				"series":  cpuSysSeries,
+			}
+			metricsMap["cpu_iowait"] = map[string]interface{}{
+				"current": last.CPUIOWait,
+				"series":  cpuIOWaitSeries,
+			}
+			metricsMap["cpu_steal"] = map[string]interface{}{
+				"current": last.CPUSteal,
+				"series":  cpuStealSeries,
+			}
+			metricsMap["disk_read_bps"] = map[string]interface{}{
+				"current": last.DiskReadBps,
+				"series":  diskReadBpsSeries,
+			}
+			metricsMap["disk_write_bps"] = map[string]interface{}{
+				"current": last.DiskWriteBps,
+				"series":  diskWriteBpsSeries,
+			}
+			metricsMap["disk_read_latency_ms"] = map[string]interface{}{
+				"current": last.DiskReadLatencyMs,
+				"series":  diskReadLatSeries,
+			}
+			metricsMap["disk_write_latency_ms"] = map[string]interface{}{
+				"current": last.DiskWriteLatencyMs,
+				"series":  diskWriteLatSeries,
+			}
+		}
+	}
+
+	_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		target, _ := findSuiteItemByID(suite.Items, itemID)
+		if target != nil {
+			target.MetricsSummary = metricsMap
+		}
+		return nil
+	})
 }
 
 func (r *AutoBenchSuiteRunner) selectTemplateForItem(ctx context.Context, dbType string, profile domainautobench.ProfileType) (*domaintemplate.Template, error) {
@@ -595,4 +763,20 @@ func (r *AutoBenchSuiteRunner) writeManifestAsync(ctx context.Context, suiteID s
 			return nil
 		})
 	}()
+}
+
+// sshConfigFromConnection extracts the SSH tunnel config from a connection object.
+func sshConfigFromConnection(conn connection.Connection) *connection.SSHTunnelConfig {
+	switch c := conn.(type) {
+	case *connection.MySQLConnection:
+		return c.SSH
+	case *connection.PostgreSQLConnection:
+		return c.SSH
+	case *connection.OracleConnection:
+		return c.SSH
+	case *connection.SQLServerConnection:
+		return c.SSH
+	default:
+		return nil
+	}
 }

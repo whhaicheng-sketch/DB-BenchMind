@@ -135,6 +135,7 @@ type SuiteItem struct {
 	Status         SuiteItemStatus        `json:"status"`
 	PhaseStatus    string                 `json:"phase_status,omitempty"`
 	LinkedTaskID   string                 `json:"linked_task_id,omitempty"`
+	RunID          string                 `json:"run_id,omitempty"`
 	MetricsSummary map[string]interface{} `json:"metrics_summary,omitempty"`
 	LogRefs        []string               `json:"log_refs,omitempty"`
 	ErrorSummary   string                 `json:"error_summary,omitempty"`

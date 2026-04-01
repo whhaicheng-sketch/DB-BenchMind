@@ -6,8 +6,7 @@
 export const TIME_WINDOWS = [
   { label: '30s', value: 30 },
   { label: '2m', value: 120 },
-  { label: '10m', value: 600 },
-  { label: 'All', value: 0 }
+  { label: '10m', value: 600 }
 ]
 
 export const DEFAULT_TIME_WINDOW = 120 // 2 minutes
@@ -16,7 +15,7 @@ export const DEFAULT_TIME_WINDOW = 120 // 2 minutes
  * Crop a series array to only include data points within the time window.
  * Points are assumed to be ordered oldest-first, sampled at 1s intervals.
  * @param {Array} series - Array of { value, ... } objects
- * @param {number} windowSeconds - Window size in seconds; 0 = show all
+ * @param {number} windowSeconds - Window size in seconds (must be > 0)
  * @returns {Array} Cropped series
  */
 export function cropSeriesToWindow(series, windowSeconds) {

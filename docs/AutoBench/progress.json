@@ -323,5 +323,190 @@
     "tests_total": 353,
     "tests_passed": 353
   },
-  "updated_at": "2026-03-31"
+  "m16_defect_convergence": {
+    "date": "2026-03-31",
+    "bugs_fixed": [
+      {
+        "id": "P9",
+        "severity": "medium",
+        "description": "Monitor 'All' button existed - no time window enforcement",
+        "fix": "Removed 'All' from TIME_WINDOWS, all charts use same sliding window"
+      },
+      {
+        "id": "P10",
+        "severity": "high",
+        "description": "Pause only froze TPS/TPM charts, CPU/Disk continued updating",
+        "fix": "Added displayedCpuChart/displayedDiskChart that respect monitorPaused"
+      },
+      {
+        "id": "P11",
+        "severity": "critical",
+        "description": "Reports page runtime error: Can't find variable deriveGroupStatus",
+        "fix": "Updated orphan branch to use analyzeGroupReports instead of old function names"
+      },
+      {
+        "id": "P12",
+        "severity": "low",
+        "description": "AutoBench flags displayed incorrectly for non-AI connections",
+        "fix": "Verified connCapabilitiesMap logic is correct - no fix needed"
+      },
+      {
+        "id": "P13",
+        "severity": "high",
+        "description": "AutoBench observation mode not fully linked - status badge/phase/tool didn't update",
+        "fix": "Added AutoBench-aware statusSummary, enhanced observation mode draft population"
+      },
+      {
+        "id": "P14",
+        "severity": "critical",
+        "description": "Suite success but Reports still shows 'running' - running report row never updated",
+        "fix": "Pass SuiteID/SuiteItemID through BenchmarkTask to collectStandaloneReport, which now uses suite context to find and update the existing running report row via DefaultReportCollector.persistToDB"
+      }
+    ],
+    "tests_added": 43,
+    "tests_total": 396,
+    "tests_passed": 396
+  },
+  "m17_defect_convergence": {
+    "date": "2026-03-31",
+    "bugs_fixed": [
+      {
+        "id": "P1",
+        "severity": "high",
+        "description": "Benchmark Start 后左侧 Create Task 表单未锁定",
+        "fix": "新增 isFormLocked computed = isAutoBenchControlled || !!activeTask，模板所有字段 disabled 条件统一使用 isFormLocked"
+      },
+      {
+        "id": "P2",
+        "severity": "high",
+        "description": "AutoBench suite 页面 flags 错误显示（空 AI assistant 导致全部显示 AI）",
+        "fix": "connCapabilitiesMap 的 AI 判断从 a.provider 加强为 a.provider && (a.api_key || a.model)，排除默认预填充但未实际配置的 AI assistant"
+      },
+      {
+        "id": "P3",
+        "severity": "high",
+        "description": "View Report 跳转后没有定位到对应 report（group 未展开、详情为空）",
+        "fix": "新增 autoSelectReport 函数：自动展开包含目标 report 的 group 并选中；新增 watch(appStore.pendingReportId) 处理已挂载 tab 的场景"
+      },
+      {
+        "id": "P4",
+        "severity": "critical",
+        "description": "AutoBench 运行期间 Benchmark monitor 图表没有实时联动",
+        "root_cause": "AutoBench runner 调用 BenchmarkUseCase.StartBenchmark 直接执行，完全绕过 TaskBinding。ListTasks() 只返回 TaskBinding.tasks map 中的任务，前端 taskStore 在 AutoBench 期间为空。",
+        "fix": "后端：runner 的 waitForRunCompletionWithPhaseTracking 中新增 collectItemMetrics 收集 TPS/TPM 指标存入 SuiteItem.MetricsSummary；前端：新增 monitorTask computed 统一数据源，AutoBench 模式从 autoBenchCurrentItem.metrics 构建 virtual task，手动模式使用 currentTask"
+      },
+      {
+        "id": "P5",
+        "severity": "medium",
+        "description": "Suite 终态后缺少 Re-run 按钮",
+        "fix": "AutoBenchTab header 新增 Re-run 按钮（isSuiteTerminal computed 控制），提取原 suite 配置创建新 suite 并自动启动"
+      }
+    ],
+    "ui_improvements": [
+      "所有弹窗禁止点击外部关闭（移除 9 处 @click.self handler）",
+      "App.vue 使用 KeepAlive 包裹 tab content，切换 tab 不再销毁重建组件"
+    ],
+    "tests_added": 35,
+    "tests_total": 431,
+    "tests_passed": 431
+  },
+  "m18_defect_convergence": {
+    "date": "2026-04-01",
+    "scope": "P10 (Re-run TypeError), P11 (Tab refresh), P12 (Phase timing sync), P7 root cause analysis",
+    "bugs_fixed": [
+      {
+        "id": "P10",
+        "severity": "high",
+        "status": "fixed",
+        "description": "AutoBench Re-run 按钮点击后 TypeError: cannot read property 'name' of null",
+        "root_cause": "resetSuite() 先将 suiteStatus.value 置为 null，随后代码读取 suiteStatus.value.name 导致 TypeError",
+        "fix": "在 resetSuite() 调用前保存 const suiteName = suiteStatus.value.name || 'Re-run Suite'，后续使用 suiteName 变量"
+      },
+      {
+        "id": "P11",
+        "severity": "high",
+        "status": "fixed",
+        "description": "标签页切换后数据不刷新：KeepAlive 阻止组件重新挂载，onMounted 不再触发",
+        "root_cause": "App.vue 使用 <KeepAlive> 包裹 tab content，组件切换时仅触发 onActivated 而非 onMounted，各 tab 组件缺少 onActivated 钩子",
+        "fix": "为 5 个 tab 组件（AutoBenchTab, TasksMonitorTab, ReportsTab, ConnectionsTab, TemplatesTab）添加 onActivated 生命周期钩子，刷新对应数据源"
+      },
+      {
+        "id": "P12",
+        "severity": "medium",
+        "status": "fixed",
+        "description": "AutoBench 观察模式下 statusStrip 的 Phase Timing 显示全为 00:00",
+        "root_cause": "monitorTask virtual task 缺少 timing 字段。后端 SuiteItem 提供 phase_timings 数组 [{phase, duration_ms}]，但前端 monitorTask computed 未映射为 statusStrip 期望的 {prepare_ms, run_ms, total_ms} 对象",
+        "fix": "在 monitorTask computed 中新增 phase_timings → timing 映射：遍历 phase_timings 数组，preparing 阶段映射到 prepare_ms，running 阶段映射到 run_ms，所有阶段累加为 total_ms"
+      },
+      {
+        "id": "P7",
+        "severity": "high",
+        "status": "deferred",
+        "description": "AutoBench 运行期间系统指标（CPU/Disk IO）始终不显示",
+        "root_cause": "autobench_runner.go 的 collectItemMetrics() 方法（约第 452-467 行）硬编码 system_enabled: false 和 system_message: 'System metrics not available in AutoBench mode'。AutoBench runner 通过 BenchmarkUseCase.StartBenchmark() 直接执行压测，完全绕过 TaskBinding，不持有 SSH 连接凭据，也无法创建 SSHMetricsCollector 实例。这是后端架构限制，非前端问题。",
+        "reason": "修复需要后端架构扩展：(1) runner 需要获取目标连接的 SSH 凭据，(2) runner 需要创建并管理 SSHMetricsCollector 实例，(3) collectItemMetrics 需要集成系统指标采集。属于 Phase 2 监控扩展范畴。",
+        "next_action": "后续迭代中扩展 AutoBenchRunner 的 SSH 指标收集能力。需要设计凭据传递路径和 collector 生命周期管理。"
+      }
+    ],
+    "tests_added": 9,
+    "tests_total_convergence": 49,
+    "tests_total_frontend": 220,
+    "tests_total_backend": 9,
+    "files_changed": [
+      "frontend/src/components/tabs/AutoBenchTab.vue",
+      "frontend/src/components/tabs/TasksMonitorTab.vue",
+      "frontend/src/components/tabs/ReportsTab.vue",
+      "frontend/src/components/tabs/ConnectionsTab.vue",
+      "frontend/src/components/tabs/TemplatesTab.vue",
+      "frontend/tests/defect-convergence-m17.test.mjs"
+    ]
+  },
+  "updated_at": "2026-04-01",
+  "m19_defect_convergence": {
+    "date": "2026-04-01",
+    "scope": "P13 (Visual hierarchy), P14 (System metrics in AutoBench), P15 (Dynamic timing), P16 (Delete View Report)",
+    "bugs_fixed": [
+      {
+        "id": "P13",
+        "severity": "low",
+        "status": "fixed",
+        "description": "AutoBench page lacks visual hierarchy - all sections use same background/border/spacing",
+        "fix": "CSS-only enhancement: active-run-section shadow/border-bottom on run-strip, metric cards with bg-secondary/border/uppercase labels, items-list border-top separator, items-header bold uppercase, item-row hover highlight, wizard columns with card shadow/border-radius, section-header-row h3 bold"
+      },
+      {
+        "id": "P14",
+        "severity": "high",
+        "status": "fixed",
+        "description": "AutoBench hosted tasks show no CPU/Disk IO system metrics - only TPS/TPM",
+        "root_cause": "collectItemMetrics() in autobench_runner.go hardcoded system_enabled: false. Runner had no SSH collector infrastructure.",
+        "fix": "Backend: added sshConfigFromConnection() to extract SSH config from connection objects; runner creates SSHMetricsCollector per item; collectItemMetrics() integrates SSH snapshot data (cpu_user/cpu_sys/cpu_iowait/cpu_steal/disk_read_bps/disk_write_bps/disk_read_latency_ms/disk_write_latency_ms); collector stopped on item completion"
+      },
+      {
+        "id": "P15",
+        "severity": "high",
+        "status": "fixed",
+        "description": "PREPARE/RUN/TOTAL always show 00:00 during AutoBench observation mode",
+        "root_cause": "phase_timings[].duration_ms only recorded on phase completion, not during in-progress phase. Frontend only accumulated completed timings.",
+        "fix": "Frontend monitorTask computed: added real-time elapsed calculation using nowTick - started_at for in-progress phase, with completed phases subtracted. Total = full elapsed time from task start."
+      },
+      {
+        "id": "P16",
+        "severity": "medium",
+        "status": "fixed",
+        "description": "View Report button in AutoBench item rows is unstable/broken",
+        "fix": "Removed Report column from items table (header + cell), removed viewReport() function, removed link-button CSS, kept View All Reports button"
+      }
+    ],
+    "tests_added": 16,
+    "tests_total_frontend": 458,
+    "tests_total_backend_usecase": 24,
+    "files_changed": [
+      "frontend/src/components/tabs/AutoBenchTab.vue",
+      "frontend/src/components/tabs/TasksMonitorTab.vue",
+      "internal/app/usecase/autobench_runner.go",
+      "internal/app/usecase/autobench_runner_test.go",
+      "frontend/tests/autoBenchTab.test.mjs",
+      "frontend/tests/defect-convergence-m17.test.mjs"
+    ]
+  }
 }

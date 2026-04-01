@@ -262,18 +262,19 @@ type PhaseTimingDTO struct {
 
 // AutoBenchItemStatusResult contains the status of a suite item.
 type AutoBenchItemStatusResult struct {
-	ID           string           `json:"id"`
-	ConnectionID string           `json:"connection_id"`
-	DatabaseType string           `json:"database_type,omitempty"`
-	ProfileType  string           `json:"profile_type"`
-	TemplateID   string           `json:"template_id,omitempty"`
-	Status       string           `json:"status"`
-	ReportID     string           `json:"report_id,omitempty"`
-	StartedAt    string           `json:"started_at,omitempty"`
-	EndedAt      string           `json:"ended_at,omitempty"`
-	ErrorMessage string           `json:"error_message,omitempty"`
-	PhaseStatus  string           `json:"phase_status,omitempty"`
-	PhaseTimings []PhaseTimingDTO `json:"phase_timings,omitempty"`
+	ID           string                 `json:"id"`
+	ConnectionID string                 `json:"connection_id"`
+	DatabaseType string                 `json:"database_type,omitempty"`
+	ProfileType  string                 `json:"profile_type"`
+	TemplateID   string                 `json:"template_id,omitempty"`
+	Status       string                 `json:"status"`
+	ReportID     string                 `json:"report_id,omitempty"`
+	StartedAt    string                 `json:"started_at,omitempty"`
+	EndedAt      string                 `json:"ended_at,omitempty"`
+	ErrorMessage string                 `json:"error_message,omitempty"`
+	PhaseStatus  string                 `json:"phase_status,omitempty"`
+	PhaseTimings []PhaseTimingDTO       `json:"phase_timings,omitempty"`
+	Metrics      map[string]interface{} `json:"metrics,omitempty"`
 }
 
 // GetSuiteStatus returns the current status of a suite.
@@ -300,6 +301,7 @@ func (b *AutoBenchBinding) GetSuiteStatus(suiteID string) AutoBenchSuiteStatusRe
 			ReportID:     item.ReportID,
 			ErrorMessage: item.ErrorSummary,
 			PhaseStatus:  item.PhaseStatus,
+			Metrics:      item.MetricsSummary,
 		}
 		if item.StartedAt != nil {
 			result.StartedAt = item.StartedAt.Format("2006-01-02T15:04:05Z07:00")

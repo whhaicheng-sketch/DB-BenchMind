@@ -22,15 +22,14 @@ test('T12.2: autobench renders active run section with status and metrics', () =
   assert.match(autoBenchSource, /item-status/)
 })
 
-test('T12.2: autobench displays item-level status with connection, type, and report', () => {
+test('T12.2: autobench displays item-level status with connection, type, and phase', () => {
   assert.match(autoBenchSource, /items-header/)
   assert.match(autoBenchSource, />Connection</)
   assert.match(autoBenchSource, />Type</)
   assert.match(autoBenchSource, />Status</)
-  assert.match(autoBenchSource, />Report</)
+  assert.match(autoBenchSource, />Phase</)
   assert.match(autoBenchSource, /item-connection/)
   assert.match(autoBenchSource, /item-type/)
-  assert.match(autoBenchSource, /item-report/)
 })
 
 test('T12.2: autobench has progress bar with percentage display', () => {
@@ -48,19 +47,15 @@ test('T12.2: autobench has status badge styling for success/error/running states
   assert.match(autoBenchSource, /status-warning/)
 })
 
-test('T12.3: autobench has viewReport function for navigation to report detail', () => {
-  assert.match(autoBenchSource, /function viewReport/)
-  assert.match(autoBenchSource, /appStore\.setActiveTab\('reports'\)/)
-})
-
 test('T12.3: autobench has goToReports function for navigation to reports tab', () => {
   assert.match(autoBenchSource, /function goToReports/)
 })
 
-test('T12.3: autobench renders View Report button when report_id exists', () => {
-  assert.match(autoBenchSource, /v-if="item\.report_id"/)
-  assert.match(autoBenchSource, /View Report/)
-  assert.match(autoBenchSource, /@click="viewReport\(item\.report_id\)"/)
+test('T12.3: autobench does NOT render View Report button in item rows (P16)', () => {
+  // View Report button was removed per P16 - no individual report column in items table
+  assert.doesNotMatch(autoBenchSource, /View Report/)
+  assert.doesNotMatch(autoBenchSource, /item-report/)
+  assert.doesNotMatch(autoBenchSource, /link-button/)
 })
 
 test('T12.3: autobench renders View All Reports button when suite completes', () => {

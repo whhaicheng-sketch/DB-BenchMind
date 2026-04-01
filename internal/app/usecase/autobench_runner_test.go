@@ -304,6 +304,12 @@ func (s *stubAutoBenchBenchmarkRunner) GetBenchmarkStatus(ctx context.Context, r
 	return &execution.Run{ID: runID, State: state}, nil
 }
 
+func (s *stubAutoBenchBenchmarkRunner) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
+	_ = ctx
+	_ = runID
+	return nil, nil
+}
+
 type stubAutoBenchConnectionProvider struct {
 	connections map[string]connection.Connection
 }
@@ -628,5 +634,170 @@ func TestAutoBenchSuiteRunner_SetReportIDOnSuiteItem_NoopWhenNoReportUsecase(t *
 			t.Errorf("Items[%d].ReportID = %q, want empty when no reportUsecase", i, item.ReportID)
 		}
 	}
+}
+
+func TestSSHConfigFromConnection(t *testing.T) {
+	tests := []struct {
+		name       string
+		conn       connection.Connection
+		wantNil    bool
+		wantEnable bool
+	}{
+		{
+			name:    "MySQL with SSH enabled",
+			conn:    &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "c1"}, SSH: &connection.SSHTunnelConfig{Enabled: true, Host: "10.0.0.1", Port: 22, Username: "root"}},
+			wantNil: false, wantEnable: true,
+		},
+		{
+			name:    "MySQL with SSH disabled",
+			conn:    &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "c2"}, SSH: &connection.SSHTunnelConfig{Enabled: false}},
+			wantNil: false, wantEnable: false,
+		},
+		{
+			name:    "MySQL without SSH config",
+			conn:    &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "c3"}},
+			wantNil: true,
+		},
+		{
+			name:    "PostgreSQL with SSH enabled",
+			conn:    &connection.PostgreSQLConnection{BaseConnection: connection.BaseConnection{ID: "c4"}, SSH: &connection.SSHTunnelConfig{Enabled: true, Host: "10.0.0.2", Port: 22, Username: "postgres"}},
+			wantNil: false, wantEnable: true,
+		},
+		{
+			name:    "Oracle with SSH enabled",
+			conn:    &connection.OracleConnection{BaseConnection: connection.BaseConnection{ID: "c5"}, SSH: &connection.SSHTunnelConfig{Enabled: true, Host: "10.0.0.3", Port: 22, Username: "oracle"}},
+			wantNil: false, wantEnable: true,
+		},
+		{
+			name:    "SQLServer with SSH enabled",
+			conn:    &connection.SQLServerConnection{BaseConnection: connection.BaseConnection{ID: "c6"}, SSH: &connection.SSHTunnelConfig{Enabled: true, Host: "10.0.0.4", Port: 22, Username: "sa"}},
+			wantNil: false, wantEnable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := sshConfigFromConnection(tt.conn)
+			if tt.wantNil {
+				if cfg != nil {
+					t.Errorf("sshConfigFromConnection() = %v, want nil", cfg)
+				}
+			} else {
+				if cfg == nil {
+					t.Fatalf("sshConfigFromConnection() = nil, want non-nil")
+				}
+				if cfg.Enabled != tt.wantEnable {
+					t.Errorf("sshConfigFromConnection().Enabled = %v, want %v", cfg.Enabled, tt.wantEnable)
+				}
+			}
+		})
+	}
+}
+
+func TestCollectItemMetricsWithSystemMetrics(t *testing.T) {
+	ctx := context.Background()
+	suiteUC := NewAutoBenchSuiteUseCase()
+
+	suite, err := suiteUC.CreateSuite(ctx, CreateSuiteInput{
+		Name:          "metrics-suite",
+		ConnectionIDs: []string{"conn-mysql"},
+		Profiles:      []domainautobench.ProfileType{domainautobench.ProfileTest},
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite() failed: %v", err)
+	}
+
+	runner := NewAutoBenchSuiteRunner(
+		suiteUC,
+		&stubAutoBenchBenchmarkRunnerWithSamples{
+			statusesByRunID: map[string][]execution.RunState{
+				"run-1": {execution.StateRunning, execution.StateRunning, execution.StateCompleted},
+			},
+		},
+		&stubAutoBenchConnectionProvider{
+			connections: map[string]connection.Connection{
+				"conn-mysql": &connection.MySQLConnection{BaseConnection: connection.BaseConnection{ID: "conn-mysql", Name: "MySQL"}, Host: "127.0.0.1", Port: 3306, Database: "bench", Username: "root"},
+			},
+		},
+		&stubAutoBenchTemplateProvider{
+			templates: []*domaintemplate.Template{
+				{ID: "mysql_test", Name: "MySQL Test", DBFamily: "mysql", ProfileType: "test", IsBuiltin: true},
+			},
+		},
+	)
+	runner.waitInterval = 0
+	runner.waitForNextPoll = func(context.Context, time.Duration) error { return nil }
+
+	if err := runner.RunSuite(ctx, suite.ID); err != nil {
+		t.Fatalf("RunSuite() failed: %v", err)
+	}
+
+	status, err := suiteUC.GetSuiteStatus(ctx, suite.ID)
+	if err != nil {
+		t.Fatalf("GetSuiteStatus() failed: %v", err)
+	}
+
+	if len(status.Items) == 0 {
+		t.Fatal("expected at least 1 item")
+	}
+
+	item := status.Items[0]
+	if item.MetricsSummary == nil {
+		t.Fatal("expected MetricsSummary to be populated")
+	}
+
+	// Verify system_enabled field exists
+	sysEnabled, ok := item.MetricsSummary["system_enabled"]
+	if !ok {
+		t.Error("expected system_enabled key in MetricsSummary")
+	}
+	// Without SSH configured, system_enabled should be false
+	if enabled, _ := sysEnabled.(bool); enabled {
+		t.Error("expected system_enabled=false when no SSH configured")
+	}
+}
+
+// stubAutoBenchBenchmarkRunnerWithSamples returns metric samples for testing.
+type stubAutoBenchBenchmarkRunnerWithSamples struct {
+	statusesByRunID map[string][]execution.RunState
+	runIndex        int
+	startedTasks    []*execution.BenchmarkTask
+}
+
+func (s *stubAutoBenchBenchmarkRunnerWithSamples) StartBenchmark(ctx context.Context, task *execution.BenchmarkTask) (*execution.Run, error) {
+	_ = ctx
+	s.runIndex++
+	runID := fmt.Sprintf("run-%d", s.runIndex)
+	s.startedTasks = append(s.startedTasks, task)
+	sequence, ok := s.statusesByRunID[runID]
+	if !ok {
+		return nil, fmt.Errorf("missing stub run state sequence for %s", runID)
+	}
+	state := sequence[0]
+	if len(sequence) > 1 {
+		s.statusesByRunID[runID] = sequence[1:]
+	}
+	return &execution.Run{ID: runID, State: state}, nil
+}
+
+func (s *stubAutoBenchBenchmarkRunnerWithSamples) GetBenchmarkStatus(ctx context.Context, runID string) (*execution.Run, error) {
+	_ = ctx
+	sequence := s.statusesByRunID[runID]
+	if len(sequence) == 0 {
+		return &execution.Run{ID: runID, State: execution.StateCompleted}, nil
+	}
+	state := sequence[0]
+	if len(sequence) > 1 {
+		s.statusesByRunID[runID] = sequence[1:]
+	}
+	return &execution.Run{ID: runID, State: state}, nil
+}
+
+func (s *stubAutoBenchBenchmarkRunnerWithSamples) GetMetricSamples(ctx context.Context, runID string) ([]execution.MetricSample, error) {
+	_ = ctx
+	_ = runID
+	return []execution.MetricSample{
+		{Timestamp: time.Now(), Phase: "run", TPS: 100, TPM: 6000, LatencyAvg: 10},
+	}, nil
 }
 

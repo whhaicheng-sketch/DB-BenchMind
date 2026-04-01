@@ -45,11 +45,10 @@ test('cropMetricsToWindow crops all metric series', () => {
 })
 
 test('TIME_WINDOWS has expected entries', () => {
-  assert.equal(TIME_WINDOWS.length, 4)
+  assert.equal(TIME_WINDOWS.length, 3)
   assert.equal(TIME_WINDOWS[0].label, '30s')
   assert.equal(TIME_WINDOWS[1].label, '2m')
   assert.equal(TIME_WINDOWS[2].label, '10m')
-  assert.equal(TIME_WINDOWS[3].label, 'All')
 })
 
 test('DEFAULT_TIME_WINDOW is 120 seconds (2 minutes)', () => {

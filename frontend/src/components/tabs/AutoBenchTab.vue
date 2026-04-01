@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, onMounted, onUnmounted, onActivated, watch } from 'vue'
 import {
   connectionFilterOptions,
   createAutoBenchWizardDraft,
@@ -14,6 +14,8 @@ import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding
 import { useConnectionStore } from '../../stores/connection'
 import { useAppStore } from '../../stores/app'
 import { useAutoBenchStore } from '../../stores/autobench'
+
+const TERMINAL_SUITE_STATUSES = ['success', 'partial_success', 'failed', 'cancelled']
 
 const connectionStore = useConnectionStore()
 const appStore = useAppStore()
@@ -69,6 +71,11 @@ const isSuiteRunning = computed(() => {
   return suiteStatus.value?.status === 'running'
 })
 
+const isSuiteTerminal = computed(() => {
+  if (!suiteStatus.value || !createdSuiteId.value) return false
+  return TERMINAL_SUITE_STATUSES.includes(suiteStatus.value.status)
+})
+
 const connNameMap = computed(() => {
   const map = {}
   for (const conn of connectionStore.connections) {
@@ -83,8 +90,8 @@ const connCapabilitiesMap = computed(() => {
     const caps = []
     if (conn.ssh_enabled) caps.push('SSH')
     if (conn.winrm_enabled) caps.push('WinRM')
-    // Only show AI if there are assistants with a configured provider
-    if (conn.ai_assistants && conn.ai_assistants.some(a => a.provider)) caps.push('AI')
+    // Only show AI if there are assistants with a configured provider AND valid api_key or model
+    if (conn.ai_assistants && conn.ai_assistants.some(a => a.provider && (a.api_key || a.model))) caps.push('AI')
     map[conn.id] = caps
   }
   return map
@@ -165,6 +172,22 @@ onMounted(async () => {
   }
 })
 
+// Refresh data when switching back to this tab (KeepAlive re-activation)
+onActivated(async () => {
+  await connectionStore.fetchConnections()
+  if (createdSuiteId.value) {
+    const ok = await fetchSuiteStatus()
+    if (ok && suiteStatus.value?.status === 'running') {
+      startPolling()
+      recoverElapsed()
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
+    }
+  }
+})
+
 onUnmounted(() => {
   if (pollTimeout) {
     clearTimeout(pollTimeout)
@@ -211,17 +234,19 @@ async function handleCreateSuite() {
 
 async function handleStartSuite() {
   if (!canStartSuite.value) return
+  await startSuiteAndPoll(createdSuiteId.value)
+}
 
+async function startSuiteAndPoll(suiteId) {
   isStarting.value = true
   startError.value = ''
 
   try {
-    const result = await AutoBenchBinding.StartSuite(createdSuiteId.value)
+    const result = await AutoBenchBinding.StartSuite(suiteId)
 
     if (result.error) {
       startError.value = result.error
     } else {
-      // Record start timestamp for elapsed recovery
       autobenchStore.setStartedAtTimestamp(Date.now())
       elapsedSeconds.value = 0
       startPolling()
@@ -288,14 +313,57 @@ async function pollSuiteStatus() {
   }
 }
 
-function viewReport(reportId) {
-  if (!reportId) return
-  appStore.setPendingReportId(reportId)
+function goToReports() {
   appStore.setActiveTab('reports')
 }
 
-function goToReports() {
-  appStore.setActiveTab('reports')
+async function handleReRunSuite() {
+  if (!suiteStatus.value) return
+
+  // Extract the original configuration from the completed suite
+  const originalConnections = []
+  const originalProfiles = new Set()
+  for (const item of suiteStatus.value.items || []) {
+    if (item.connection_id && !originalConnections.includes(item.connection_id)) {
+      originalConnections.push(item.connection_id)
+    }
+    if (item.profile_type) originalProfiles.add(item.profile_type)
+  }
+
+  if (originalConnections.length === 0 || originalProfiles.size === 0) return
+
+  // Save suite name before resetSuite() clears suiteStatus to null
+  const suiteName = suiteStatus.value.name || 'Re-run Suite'
+
+  // Reset state
+  resetSuite()
+
+  // Create new suite with the same configuration
+  isCreating.value = true
+  createError.value = ''
+
+  try {
+    const result = await AutoBenchBinding.CreateSuite({
+      name: suiteName,
+      connection_ids: originalConnections,
+      profile_types: [...originalProfiles],
+    })
+
+    if (result.error) {
+      createError.value = result.error
+      return
+    }
+
+    createdSuiteId.value = result.suite_id
+    autobenchStore.setSuiteId(result.suite_id)
+
+    // Immediately start the new suite (reuses handleStartSuite logic)
+    await startSuiteAndPoll(result.suite_id)
+  } catch (err) {
+    createError.value = String(err)
+  } finally {
+    isCreating.value = false
+  }
 }
 
 function resetSuite() {
@@ -439,6 +507,15 @@ function formatPhaseInfo(item) {
         <button v-if="createdSuiteId && !isSuiteRunning && !isSuitePaused" class="secondary-action" type="button" @click="resetSuite">
           New Suite
         </button>
+        <button
+          v-if="isSuiteTerminal"
+          class="primary-action start-action"
+          type="button"
+          :disabled="isCreating || isStarting"
+          @click="handleReRunSuite"
+        >
+          {{ isCreating || isStarting ? 'Re-running...' : 'Re-run' }}
+        </button>
       </div>
     </header>
 
@@ -499,7 +576,6 @@ function formatPhaseInfo(item) {
             <span>Duration</span>
             <span>Phase</span>
             <span>Flags</span>
-            <span>Report</span>
           </div>
           <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
             <span class="item-connection">{{ connNameMap[item.connection_id] || item.connection_id }}</span>
@@ -510,15 +586,6 @@ function formatPhaseInfo(item) {
             <span class="item-flags">
               <span v-for="cap in (connCapabilitiesMap[item.connection_id] || [])" :key="cap" :class="['cap-badge', 'cap-' + cap.toLowerCase()]">{{ cap }}</span>
               <span v-if="!(connCapabilitiesMap[item.connection_id] || []).length" class="muted">-</span>
-            </span>
-            <span class="item-report">
-              <button v-if="item.report_id" class="link-button" @click="viewReport(item.report_id)">
-                View Report
-              </button>
-              <span v-else-if="item.error_message" class="error-text" :title="item.error_message">
-                Error
-              </span>
-              <span v-else class="muted">-</span>
             </span>
           </div>
         </div>
@@ -721,6 +788,7 @@ function formatPhaseInfo(item) {
   border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
   background: var(--bg-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .run-strip {
@@ -729,10 +797,12 @@ function formatPhaseInfo(item) {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .run-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   font-size: 16px;
 }
@@ -794,8 +864,8 @@ function formatPhaseInfo(item) {
 
 .status-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -803,17 +873,24 @@ function formatPhaseInfo(item) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
 }
 
 .metric-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .metric-value {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 22px;
+  font-weight: 700;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .progress-bar-container {
@@ -843,6 +920,8 @@ function formatPhaseInfo(item) {
 
 .items-list {
   margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
 }
 
 .items-list h4 {
@@ -852,25 +931,33 @@ function formatPhaseInfo(item) {
 
 .items-header {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr;
   gap: 12px;
   padding: 8px 12px;
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 2px solid var(--border-color);
 }
 
 .item-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 0.8fr 1.2fr 0.7fr;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  margin-top: 8px;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  margin-top: 0;
   font-size: 13px;
+  transition: background 0.15s;
+}
+
+.item-row:hover {
+  background: var(--bg-hover);
 }
 
 .item-connection {
@@ -931,20 +1018,6 @@ function formatPhaseInfo(item) {
   border: 1px solid #f9a8d4;
 }
 
-.link-button {
-  background: none;
-  border: none;
-  color: var(--primary);
-  cursor: pointer;
-  padding: 0;
-  font-size: 13px;
-  text-decoration: underline;
-}
-
-.link-button:hover {
-  color: var(--primary-dark);
-}
-
 .error-text {
   color: var(--danger);
 }
@@ -957,6 +1030,8 @@ function formatPhaseInfo(item) {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 12px;
 }
 
 /* Two-column wizard layout */
@@ -977,6 +1052,11 @@ function formatPhaseInfo(item) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .section-header-row {
@@ -985,12 +1065,14 @@ function formatPhaseInfo(item) {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  margin-bottom: 4px;
 }
 
 .section-header-row h3 {
   font-size: 15px;
   color: var(--text-primary);
   margin: 0;
+  font-weight: 700;
 }
 
 .wizard-chip {
@@ -1161,5 +1243,9 @@ function formatPhaseInfo(item) {
   .item-row {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.error-banner {
+  border-left: 3px solid var(--danger);
 }
 </style>

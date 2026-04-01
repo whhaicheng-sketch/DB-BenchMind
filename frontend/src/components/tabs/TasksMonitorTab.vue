@@ -80,7 +80,7 @@
 
           <label class="field">
             <span>Database Type</span>
-            <select v-model="draft.database_type" class="select-dark" :disabled="isAutoBenchControlled">
+            <select v-model="draft.database_type" class="select-dark" :disabled="isFormLocked">
               <option value="">Select database type</option>
               <option v-for="dbType in databaseTypeOptions" :key="dbType.value" :value="dbType.value">
                 {{ dbType.label }}
@@ -90,7 +90,7 @@
 
           <label class="field">
             <span>Connection</span>
-            <select v-model="draft.connection_id" class="select-dark" :disabled="isAutoBenchControlled || !draft.database_type">
+            <select v-model="draft.connection_id" class="select-dark" :disabled="isFormLocked || !draft.database_type">
               <option value="">{{ draft.database_type ? 'Select one' : 'Select database type first' }}</option>
               <option v-for="connection in filteredConnections" :key="connection.id" :value="connection.id">
                 {{ connection.name }}
@@ -100,7 +100,7 @@
 
           <label class="field">
             <span>Template</span>
-            <select v-model="draft.template_id" class="select-dark" :disabled="isAutoBenchControlled || !draft.database_type">
+            <select v-model="draft.template_id" class="select-dark" :disabled="isFormLocked || !draft.database_type">
               <option value="">{{ draft.database_type ? 'Select template' : 'Select database type first' }}</option>
               <option v-for="template in filteredTemplates" :key="template.id" :value="template.id">
                 {{ template.name }} · {{ template.tool }}
@@ -110,7 +110,7 @@
 
           <label class="field">
             <span>Action</span>
-            <select v-model="draft.action" class="select-dark" :disabled="isAutoBenchControlled || !draft.template_id">
+            <select v-model="draft.action" class="select-dark" :disabled="isFormLocked || !draft.template_id">
               <option v-for="action in actionOptions" :key="action.value" :value="action.value" :disabled="action.disabled">
                 {{ action.label }}
               </option>
@@ -120,16 +120,16 @@
           <div class="override-grid">
             <label v-if="showThreads" class="field">
               <span>{{ concurrencyLabel }}</span>
-              <input v-model.number="draft.overrides[concurrencyKey]" type="number" min="1" :disabled="isAutoBenchControlled">
+              <input v-model.number="draft.overrides[concurrencyKey]" type="number" min="1" :disabled="isFormLocked">
             </label>
             <label class="field">
               <span>Run Duration (s)</span>
-              <input v-model.number="draft.overrides.duration" type="number" min="1" :disabled="isAutoBenchControlled">
+              <input v-model.number="draft.overrides.duration" type="number" min="1" :disabled="isFormLocked">
             </label>
           </div>
 
-          <p class="compact-help" v-if="isAutoBenchControlled">
-            AutoBench is managing the current task. Configuration is locked to the running sub-task.
+          <p class="compact-help" v-if="isFormLocked">
+            {{ isAutoBenchControlled ? 'AutoBench is managing the current task. Configuration is locked to the running sub-task.' : 'A benchmark task is currently running. Configuration is locked until it completes.' }}
           </p>
           <p class="compact-help" v-else>Use the top Start button to preview and launch the task.</p>
         </section>
@@ -204,15 +204,15 @@
               <div class="system-card" :class="{ disabled: !systemEnabled }" data-system-card="CPU">
                 <div class="system-card-head">
                   <div class="system-title-block">
-                    <span>{{ cpuChart.label }}</span>
+                    <span>{{ displayedCpuChart.label }}</span>
                     <strong class="system-summary-lines">
-                      <span v-for="(line, index) in cpuChart.summaryRows" :key="`cpu-summary-${index}`" class="summary-line">
+                      <span v-for="(line, index) in displayedCpuChart.summaryRows" :key="`cpu-summary-${index}`" class="summary-line">
                         <span v-for="item in line" :key="item" class="summary-chip">{{ item }}</span>
                       </span>
                     </strong>
                   </div>
                   <div class="chart-legend chart-legend-cpu">
-                    <span v-for="line in cpuChart.lines" :key="line.label" class="legend-item">
+                    <span v-for="line in displayedCpuChart.lines" :key="line.label" class="legend-item">
                       <i :style="{ background: line.color }"></i>
                       {{ line.label }}
                     </span>
@@ -221,13 +221,13 @@
                 <div class="system-chart-wrap" data-system-chart-wrap="CPU">
                   <div class="chart-shell system-chart-shell" data-system-chart-shell="CPU">
                     <div class="chart-axis chart-axis-left chart-axis-cpu">
-                      <span v-for="tick in cpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                      <span v-for="tick in displayedCpuChart.leftTicks" :key="`cpu-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
                       <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none" width="100%" role="img" aria-label="CPU usage chart">
-                        <line v-for="tick in cpuChart.leftTicks" :key="`cpu-grid-${tick.label}`" :x1="cpuChart.plotBounds.x1" :x2="cpuChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
+                        <line v-for="tick in displayedCpuChart.leftTicks" :key="`cpu-grid-${tick.label}`" :x1="displayedCpuChart.plotBounds.x1" :x2="displayedCpuChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline
-                          v-for="line in cpuChart.lines"
+                          v-for="line in displayedCpuChart.lines"
                           :key="line.label"
                           :points="line.points"
                           :stroke="line.color"
@@ -240,21 +240,21 @@
                     </div>
                   </div>
                 </div>
-                <p class="system-caption">{{ cpuChart.caption }}</p>
+                <p class="system-caption">{{ displayedCpuChart.caption }}</p>
               </div>
 
               <div class="system-card" :class="{ disabled: !systemEnabled }" data-system-card="Disk IO">
                 <div class="system-card-head">
                   <div class="system-title-block">
-                    <span>{{ diskChart.label }}</span>
+                    <span>{{ displayedDiskChart.label }}</span>
                     <strong class="system-summary-lines">
-                      <span v-for="(line, index) in diskChart.summaryRows" :key="`disk-summary-${index}`" class="summary-line">
+                      <span v-for="(line, index) in displayedDiskChart.summaryRows" :key="`disk-summary-${index}`" class="summary-line">
                         <span v-for="item in line" :key="item" class="summary-chip">{{ item }}</span>
                       </span>
                     </strong>
                   </div>
                   <div class="chart-legend chart-legend-single">
-                    <span v-for="line in diskChart.lines" :key="line.label" class="legend-item">
+                    <span v-for="line in displayedDiskChart.lines" :key="line.label" class="legend-item">
                       <i :style="{ background: line.color }"></i>
                       {{ line.label }}
                     </span>
@@ -263,13 +263,13 @@
                 <div class="system-chart-wrap disk-chart-combined" data-system-chart-wrap="Disk IO">
                   <div class="chart-shell system-chart-shell disk-chart-shell" data-system-chart-shell="Disk IO">
                     <div class="chart-axis chart-axis-left chart-axis-bandwidth">
-                      <span v-for="tick in diskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                      <span v-for="tick in displayedDiskChart.leftTicks" :key="`disk-left-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                     <div class="chart-canvas">
                       <svg class="system-chart" viewBox="0 0 320 140" preserveAspectRatio="none" width="100%" role="img" aria-label="Disk IO chart">
-                        <line v-for="tick in diskChart.leftTicks" :key="`disk-grid-${tick.label}`" :x1="diskChart.plotBounds.x1" :x2="diskChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
+                        <line v-for="tick in displayedDiskChart.leftTicks" :key="`disk-grid-${tick.label}`" :x1="displayedDiskChart.plotBounds.x1" :x2="displayedDiskChart.plotBounds.x2" :y1="tick.y" :y2="tick.y" class="chart-gridline" />
                         <polyline
-                          v-for="line in diskChart.lines"
+                          v-for="line in displayedDiskChart.lines"
                           :key="line.label"
                           :points="line.points"
                           :stroke="line.color"
@@ -282,11 +282,11 @@
                       </svg>
                     </div>
                     <div class="chart-axis chart-axis-right chart-axis-latency">
-                      <span v-for="tick in diskChart.rightTicks" :key="`disk-right-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
+                      <span v-for="tick in displayedDiskChart.rightTicks" :key="`disk-right-${tick.label}`" :style="{ top: `${tick.top}%` }">{{ tick.label }}</span>
                     </div>
                   </div>
                 </div>
-                <p class="system-caption">{{ diskChart.caption }}</p>
+                <p class="system-caption">{{ displayedDiskChart.caption }}</p>
               </div>
             </div>
 
@@ -295,7 +295,7 @@
       </div>
     </div>
 
-    <div v-if="previewOpen" class="modal-backdrop" @click.self="closePreview">
+    <div v-if="previewOpen" class="modal-backdrop">
       <div class="modal">
         <div class="card-head">
           <h3>Task Preview</h3>
@@ -334,7 +334,7 @@
       </div>
     </div>
 
-    <div v-if="logViewerOpen" class="modal-backdrop" @click.self="closeLogViewer">
+    <div v-if="logViewerOpen" class="modal-backdrop">
       <div class="modal modal-wide">
         <div class="card-head">
           <h3>Task Logs</h3>
@@ -368,7 +368,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onActivated, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '../../stores/app'
 import { useConnectionStore } from '../../stores/connection'
@@ -401,9 +401,74 @@ const autobenchStore = useAutoBenchStore()
 
 const isAutoBenchControlled = computed(() => autobenchStore.suiteStatus?.status === 'running')
 
+// Unified lock condition: form is locked when either AutoBench is controlling
+// or a manual benchmark task is actively running (starting/preparing/running/cleaning/stopping)
+const isFormLocked = computed(() => isAutoBenchControlled.value || !!activeTask.value)
+
 const autoBenchCurrentItem = computed(() => {
   if (!isAutoBenchControlled.value || !autobenchStore.suiteStatus?.items) return null
   return autobenchStore.suiteStatus.items.find(item => item.status === 'running') || null
+})
+
+// ── P4 Fix: Unified monitor data source ──
+// When AutoBench is controlling, build a virtual task from the autobench item's metrics.
+// When manual benchmark is running, use the normal currentTask from taskStore.
+// This ensures ALL charts (TPS/TPM/CPU/Disk) read from a single active source.
+const monitorTask = computed(() => {
+  if (isAutoBenchControlled.value && autoBenchCurrentItem.value) {
+    const item = autoBenchCurrentItem.value
+    const m = item.metrics || {}
+    // Map phase_timings array to timing object expected by phaseTiming computed
+    const timings = Array.isArray(item.phase_timings) ? item.phase_timings : []
+    const timingObj = { prepare_ms: 0, run_ms: 0, total_ms: 0 }
+
+    // First: accumulate completed phase timings
+    for (const pt of timings) {
+      if (pt.phase === 'preparing') timingObj.prepare_ms = pt.duration_ms
+      else if (pt.phase === 'running') timingObj.run_ms = pt.duration_ms
+      timingObj.total_ms += pt.duration_ms
+    }
+
+    // Second: compute live duration for the currently in-progress phase.
+    // The backend only records phase_timings on phase completion, so the
+    // current running phase has duration_ms=0 until it finishes.
+    // We compute it from started_at → nowTick.
+    const currentPhase = item.phase_status || ''
+    const taskStartedAt = item.started_at ? new Date(item.started_at).getTime() : 0
+    if (taskStartedAt > 0 && !['success', 'failed', 'skipped'].includes(item.status)) {
+      const liveMs = Math.max(0, nowTick.value - taskStartedAt)
+      // The live duration covers ALL elapsed time from task start to now.
+      // Subtract already-completed phase durations to get the current phase live duration.
+      let completedMs = 0
+      for (const pt of timings) {
+        completedMs += pt.duration_ms
+      }
+      const currentPhaseMs = Math.max(0, liveMs - completedMs)
+
+      if (currentPhase === 'preparing') {
+        timingObj.prepare_ms += currentPhaseMs
+      } else if (currentPhase === 'running') {
+        timingObj.run_ms += currentPhaseMs
+      }
+      // total_ms is the full elapsed time
+      timingObj.total_ms = liveMs
+    }
+
+    // Build a virtual task object with the same shape as ExecutionTask from ListTasks
+    return {
+      id: item.id,
+      status: item.phase_status || item.status,
+      current_phase: item.phase_status || 'run',
+      started_at: item.started_at || null,
+      completed_at: item.status === 'success' || item.status === 'failed' ? item.ended_at : null,
+      connection_snapshot: { name: connectionStore.connections.find(c => c.id === item.connection_id)?.name || item.connection_id, type: item.database_type || '' },
+      template_snapshot: { name: item.profile_type || '' },
+      metrics: m,
+      timing: timingObj,
+      log_tail: []
+    }
+  }
+  return currentTask.value
 })
 
 const { templates } = storeToRefs(templateStore)
@@ -514,16 +579,20 @@ const readinessItems = computed(() => [
 ])
 const draftBlockers = computed(() => readinessItems.value.filter((item) => !item.ok).map((item) => item.message))
 const latestWarningOrError = computed(() => {
-  const lines = currentTask.value?.log_tail || []
+  const lines = monitorTask.value?.log_tail || []
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index]
     if (/error|failed|fatal|warn/i.test(line.content || '')) {
       return line.content
     }
   }
-  return currentTask.value?.error_message || 'None'
+  return monitorTask.value?.error_message || 'None'
 })
 const statusSummary = computed(() => {
+  if (isAutoBenchControlled.value && autoBenchCurrentItem.value) {
+    const item = autoBenchCurrentItem.value
+    return { label: 'AutoBench', icon: 'A', stateClass: 'autobench', message: `AutoBench managing: ${item.database_type || ''} ${phaseLabel(item.phase_status || item.status, item.status)}` }
+  }
   if (activeTask.value) {
     if (activeTask.value.readiness?.ssh_available === false) {
       return { label: 'Warning', icon: '!', stateClass: 'warning', message: activeTask.value.readiness?.ssh_message || 'SSH unavailable, benchmark continues' }
@@ -572,30 +641,14 @@ const statusPopoverItems = computed(() => {
   ]
 })
 
-const businessMetrics = computed(() => {
-  const metrics = resolveDisplayedTaskMetrics(currentTask.value, retainedBusinessMetrics.value)
-  return [
-    metricCard(currentTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
-    metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
-  ]
-})
-
 const windowedBusinessMetrics = computed(() => {
-  const rawMetrics = resolveDisplayedTaskMetrics(currentTask.value, retainedBusinessMetrics.value)
+  const rawMetrics = resolveDisplayedTaskMetrics(monitorTask.value, retainedBusinessMetrics.value)
   const metrics = cropMetricsToWindow(rawMetrics, timeWindowSeconds.value)
   return [
-    metricCard(currentTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
-    metricCard(currentTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
+    metricCard(monitorTask.value, 'TPS', metrics.tps, '/sec', '#f4a261', 'rgba(244, 162, 97, 0.07)'),
+    metricCard(monitorTask.value, 'TPM', metrics.tpm, '/min', '#4dd0a8', 'rgba(77, 208, 168, 0.065)')
   ]
 })
-
-const displayedBusinessMetrics = computed(() => {
-  if (monitorPaused.value) return lastRenderedMetrics.value
-  lastRenderedMetrics.value = windowedBusinessMetrics.value
-  return windowedBusinessMetrics.value
-})
-
-const lastRenderedMetrics = ref([])
 
 function handleChartHover(index) {
   unifiedHoverIndex.value = index
@@ -605,10 +658,16 @@ function handleChartLeave() {
   unifiedHoverIndex.value = -1
 }
 
-const systemEnabled = computed(() => !!currentTask.value?.metrics?.system_enabled)
-const systemMessage = computed(() => currentTask.value?.metrics?.system_message || 'SSH unavailable, benchmark continues without system metrics')
+const systemEnabled = computed(() => !!monitorTask.value?.metrics?.system_enabled)
+const systemMessage = computed(() => monitorTask.value?.metrics?.system_message || 'SSH unavailable, benchmark continues without system metrics')
+
+// Apply sliding window to system metrics (CPU/Disk) same as business metrics
+const windowedSystemMetrics = computed(() => {
+  return cropMetricsToWindow(monitorTask.value?.metrics || {}, timeWindowSeconds.value)
+})
+
 const cpuChart = computed(() => {
-  const metrics = currentTask.value?.metrics || {}
+  const metrics = windowedSystemMetrics.value
   return multiMetricChart('CPU', [
     { label: 'USER', metric: metrics.cpu_user, color: '#34d399', formatter: formatPercent },
     { label: 'SYS', metric: metrics.cpu_sys, color: '#f87171', formatter: formatPercent },
@@ -617,23 +676,38 @@ const cpuChart = computed(() => {
   ], 'Recent CPU composition across user, sys, iowait, and steal time.')
 })
 
-const diskChart = computed(() => diskMetricChart(currentTask.value?.metrics || {}))
+const diskChart = computed(() => diskMetricChart(windowedSystemMetrics.value))
 
-const elapsedLabel = computed(() => formatElapsed(currentTask.value?.started_at, currentTask.value?.completed_at, nowTick.value))
+// Freeze a reactive value when monitor is paused, returning the last-seen snapshot
+function freezeWhenPaused(sourceComputed) {
+  const cache = ref(undefined)
+  return computed(() => {
+    const fresh = sourceComputed.value
+    if (monitorPaused.value) return cache.value ?? fresh
+    cache.value = fresh
+    return fresh
+  })
+}
+
+const displayedBusinessMetrics = freezeWhenPaused(windowedBusinessMetrics)
+const displayedCpuChart = freezeWhenPaused(cpuChart)
+const displayedDiskChart = freezeWhenPaused(diskChart)
+
+const elapsedLabel = computed(() => formatElapsed(monitorTask.value?.started_at, monitorTask.value?.completed_at, nowTick.value))
 const phaseTiming = computed(() => ({
-  prepare: formatDurationMs(currentTask.value?.timing?.prepare_ms || 0),
-  run: formatDurationMs(currentTask.value?.timing?.run_ms || 0),
-  total: formatDurationMs(currentTask.value?.timing?.total_ms || 0)
+  prepare: formatDurationMs(monitorTask.value?.timing?.prepare_ms || 0),
+  run: formatDurationMs(monitorTask.value?.timing?.run_ms || 0),
+  total: formatDurationMs(monitorTask.value?.timing?.total_ms || 0)
 }))
-const requestedRunDurationLabel = computed(() => formatDurationMs(currentTask.value?.timing?.run_duration_input_ms || 0))
+const requestedRunDurationLabel = computed(() => formatDurationMs(monitorTask.value?.timing?.run_duration_input_ms || 0))
 const logPathSummary = computed(() => {
-  const paths = Object.entries(currentTask.value?.run_log_paths || {})
+  const paths = Object.entries(monitorTask.value?.run_log_paths || {})
     .filter(([, path]) => !!path)
     .map(([phase, path]) => `${phase}: ${path}`)
   return paths.length ? paths.join(' | ') : 'pending'
 })
 const statusStrip = computed(() => {
-  return buildStatusStripModel(currentTask.value, phaseTiming.value, requestedRunDurationLabel.value, {
+  return buildStatusStripModel(monitorTask.value, phaseTiming.value, requestedRunDurationLabel.value, {
     statusLabel,
     phaseLabel,
     isActive
@@ -656,8 +730,8 @@ watch(
 )
 
 watch([logQuery, logPhase], async () => {
-  if (!logViewerOpen.value || !currentTask.value) return
-  await taskStore.fetchLogs({ taskId: currentTask.value.id, query: logQuery.value, phase: logPhase.value })
+  if (!logViewerOpen.value || !monitorTask.value) return
+  await taskStore.fetchLogs({ taskId: monitorTask.value.id, query: logQuery.value, phase: logPhase.value })
   if (autoScroll.value) scrollLogsToBottom()
 })
 
@@ -701,6 +775,15 @@ onMounted(async () => {
     appStore.clearPendingTaskTemplate()
   }
   sanitizeDraftState()
+})
+
+// Refresh data when switching back to this tab (KeepAlive re-activation)
+onActivated(async () => {
+  await Promise.all([
+    templateStore.loadTemplates?.() || templateStore.fetchTemplates?.() || Promise.resolve(),
+    connectionStore.fetchConnections(),
+    taskStore.fetchTasks()
+  ])
 })
 
 // AutoBench observation: populate draft from current AutoBench item
@@ -1567,6 +1650,7 @@ function closeLogViewer() {
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .status-strip.active {

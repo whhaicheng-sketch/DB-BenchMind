@@ -2,7 +2,6 @@
   <div
     v-if="templateStore.isEditorOpen && activeTemplate"
     class="modal-overlay"
-    @click.self="templateStore.closeEditor()"
   >
     <section class="editor-dialog">
       <header class="dialog-header">

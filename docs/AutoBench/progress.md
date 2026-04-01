@@ -232,6 +232,94 @@ M15 新增测试:
 **测试验证**:
 - 353 前端测试全部通过（含 8 个 M15 新增测试）
 
+### Phase M16 - 缺陷收敛：监控、观察态、状态链路修复 ✅ (2026-03-31)
+
+**一次性修复 6 类联动问题，完成完整缺陷收敛**
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| P9: Monitor "All" 按钮 | TIME_WINDOWS 含 value:0 的 "All" 条目 | 移除 "All" 条目，所有图表统一使用滑动窗口 |
+| P10: Pause 只冻结 TPS/TPM | monitorPaused 仅影响 displayedBusinessMetrics | 新增 displayedCpuChart/displayedDiskChart 全局冻结 |
+| P11: Reports deriveGroupStatus 运行时错误 | analyzeGroupReports 重命名时孤立分支未更新 | 修复孤立分支调用 |
+| P12: AutoBench flags | connCapabilitiesMap 逻辑已正确 | 确认无需修复 |
+| P13: AutoBench 观察态不联动 | statusSummary 未感知 AutoBench 状态 | 添加 AutoBench 状态摘要和观察态增强 |
+| P14: Suite success 但 Reports 仍显示 running | collectStandaloneReport 硬编码 StandaloneSuiteID，runner 不传 suite context | 传递 SuiteID/SuiteItemID 到 BenchmarkTask，collectStandaloneReport 使用 suite context 更新现有 running 报告 |
+
+**测试验证**:
+- 396 前端测试全部通过（含 M16 新增 43 个测试）
+- 后端 usecase 测试全部通过
+
 ---
-**最后更新**: 2026-03-31
-**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复 + UI Overhaul + Report Delete + Reports Grouping Fix）
+### Phase M18 - 二次缺陷收敛：Re-run 修复、标签刷新、Phase Timing 同步 ✅ (2026-04-01)
+
+**修复 3 个联动问题，分析 1 个后端架构限制**
+
+本轮处理范围: P10 (Re-run TypeError), P11 (标签页切换后数据不刷新), P12 (Phase Timing 不同步), P7 root cause analysis (AutoBench 系统指标缺失)
+
+| 问题 | 严重度 | 状态 | 根因 | 修复 |
+|------|--------|------|------|------|
+| P10: Re-run 点击后 TypeError | high | ✅ 已修复 | `resetSuite()` 先将 `suiteStatus` 置 null，随后读取 `suiteStatus.value.name` 抛出 TypeError | 在 `resetSuite()` 调用前保存 `suiteName = suiteStatus.value.name \|\| 'Re-run Suite'` |
+| P11: 标签页切换后数据不刷新 | high | ✅ 已修复 | `<KeepAlive>` 阻止组件重新挂载，`onMounted` 不再触发，数据过时 | 为 5 个 tab 组件 (AutoBench/Reports/TasksMonitor/Connections/Templates) 添加 `onActivated` 钩子，刷新对应数据 |
+| P12: AutoBench 观察 Phase Timing 不同步 | medium | ✅ 已修复 | `monitorTask` virtual task 缺少 `timing` 字段；后端提供 `phase_timings` 数组但前端未映射为 `{prepare_ms, run_ms, total_ms}` | 在 `monitorTask` computed 中新增 `phase_timings → timing` 映射逻辑 |
+| P7: AutoBench 系统指标缺失 | high | ⏸ 已分析，延期 | `autobench_runner.go:collectItemMetrics()` 硬编码 `system_enabled: false`；runner 缺少 SSH 指标收集器基础设施（无 SSH 连接凭据传递路径） | 延期至后续迭代（需后端架构扩展：runner 需 SSH 连接信息 + SystemMetricsCollector 实例） |
+
+**P7 延期说明**:
+
+根因已确认：`autobench_runner.go` 的 `collectItemMetrics()` 方法（约第 452-467 行）硬编码了 `system_enabled: false` 和 `system_message: "System metrics not available in AutoBench mode"`。AutoBench runner 通过 `BenchmarkUseCase.StartBenchmark()` 直接执行压测，完全绕过 `TaskBinding`，因此无法访问 `SSHMetricsCollector`。
+
+修复需要后端架构变更：
+1. Runner 需要获取目标连接的 SSH 凭据
+2. Runner 需要创建并管理 `SSHMetricsCollector` 实例
+3. `collectItemMetrics()` 需要集成系统指标采集
+
+这是 Phase 2 监控扩展的工作范畴，不在当前缺陷收敛范围内。
+
+**测试验证**:
+- 9 个新增测试（P10: 4 个, P12: 5 个）
+- 49 个收敛测试全部通过
+- 220 个前端测试全部通过
+- 9 个后端 usecase 测试全部通过
+
+**修改文件**:
+- `frontend/src/components/tabs/AutoBenchTab.vue` — P10 (suiteName 保存), P11 (onActivated)
+- `frontend/src/components/tabs/TasksMonitorTab.vue` — P12 (phase_timings 映射), P11 (onActivated)
+- `frontend/src/components/tabs/ReportsTab.vue` — P11 (onActivated)
+- `frontend/src/components/tabs/ConnectionsTab.vue` — P11 (onActivated)
+- `frontend/src/components/tabs/TemplatesTab.vue` — P11 (onActivated)
+- `frontend/tests/defect-convergence-m17.test.mjs` — 新增 9 个测试
+
+---
+**最后更新**: 2026-04-01
+**状态**: ✅ 完成（含端到端真实验证 + 参数归一化修复 + UI Overhaul + Report Delete + Reports Grouping Fix + 缺陷收敛 M16 + M17 + M18 + M19）
+
+### Phase M19 - 缺陷收敛 P13-P16: 视觉层次、系统指标、动态计时、删除 View Report ✅ (2026-04-01)
+
+**修复 4 个问题，新增完整后端 SSH 指标采集链路**
+
+| 问题 | 严重度 | 状态 | 根因 | 修复 |
+|------|--------|------|------|------|
+| P13: 界面层次感不够 | low | ✅ 已修复 | 所有区块使用相同背景/边框/间距，缺少视觉分层 | AutoBenchTab 增强卡片阴影/边框/背景/标题权重/表头样式；TasksMonitorTab 状态条添加阴影 |
+| P14: AutoBench 托管期间无系统资源监控 | high | ✅ 已修复 | `collectItemMetrics()` 硬编码 `system_enabled: false`；runner 无 SSH 指标收集器 | 后端：runner 新增 `sshConfigFromConnection()` + SSH 收集器生命周期管理 + CPU/Disk 序列填充；前端：复用现有 system metric 图表逻辑 |
+| P15: PREPARE/RUN/TOTAL 不动态变化 | high | ✅ 已修复 | `phase_timings` 仅在阶段完成时记录 duration_ms，进行中阶段 duration 为 0 | 前端 `monitorTask` 新增实时计时计算：`nowTick - started_at - completedPhases = currentPhaseMs` |
+| P16: View Report 按钮不稳定 | medium | ✅ 已修复 | View Report 跳转逻辑不稳定 | 删除 Report 列、viewReport 函数、link-button 样式；保留 View All Reports 按钮 |
+
+**P14 后端变更详情**:
+- `autobench_runner.go`: 新增 `sshConfigFromConnection()` 从连接提取 SSH 配置；每个 item 开始时创建 `SSHMetricsCollector`；`collectItemMetrics()` 集成 SSH snapshot，填充 cpu_user/cpu_sys/cpu_iowait/cpu_steal/disk_read_bps/disk_write_bps/disk_read_latency_ms/disk_write_latency_ms 序列；item 完成后停止收集器
+- 新增 `collector` 包依赖
+
+**P15 前端变更详情**:
+- `TasksMonitorTab.vue` `monitorTask` computed: 从仅累积已完成 `phase_timings` 扩展为同时计算进行中阶段的实时 duration
+- 使用 `nowTick`（每秒刷新）驱动实时更新
+
+**测试验证**:
+- 458 前端测试全部通过（含 M19 新增 14 个测试：P14: 7 个, P15: 7 个）
+- 24 个后端 usecase 测试全部通过（含 2 个新测试：`TestSSHConfigFromConnection` 6 子测试 + `TestCollectItemMetricsWithSystemMetrics`）
+- 预有 `TestAITestConnection` 和 `TestIntegration_ConnectionValidation` 失败（非本次变更引入）
+
+**修改文件**:
+- `frontend/src/components/tabs/AutoBenchTab.vue` — P13 (视觉层次), P16 (删除 Report 列)
+- `frontend/src/components/tabs/TasksMonitorTab.vue` — P13 (状态条阴影), P15 (实时计时)
+- `internal/app/usecase/autobench_runner.go` — P14 (SSH 收集器 + 系统指标)
+- `internal/app/usecase/autobench_runner_test.go` — P14 新增 2 个测试
+- `frontend/tests/autoBenchTab.test.mjs` — P16 更新 3 个测试
+- `frontend/tests/defect-convergence-m17.test.mjs` — P14/P15 新增 14 个测试

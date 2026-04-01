@@ -82,7 +82,7 @@ const handleSend = async () => {
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="ai-test-dialog__overlay" @click.self="handleClose">
+    <div v-if="visible" class="ai-test-dialog__overlay">
       <div class="ai-test-dialog" role="dialog" aria-modal="true" aria-label="模型测试">
         <div class="ai-test-dialog__header">
           <div>

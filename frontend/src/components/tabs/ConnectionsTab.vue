@@ -131,7 +131,7 @@
     </div>
 
     <!-- Add/Edit Modal -->
-    <div v-if="showAddModal || showEditModal" class="modal-overlay" @click.self="closeModal">
+    <div v-if="showAddModal || showEditModal" class="modal-overlay">
       <div class="modal-content">
         <ConnectionForm
           :mode="showEditModal ? 'edit' : 'create'"
@@ -146,7 +146,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue'
 import { useConnectionStore } from '../../stores/connection'
 import ConnectionForm from '../connection/ConnectionForm.vue'
 import { getAiBadgeTooltip, hasConfiguredAiAssistants } from './connectionCardBadges'
@@ -218,6 +218,11 @@ const handleDocumentClick = () => {
 onMounted(async () => {
   await connectionStore.fetchConnections()
   document.addEventListener('click', handleDocumentClick)
+})
+
+// Refresh connections when switching back to this tab
+onActivated(async () => {
+  await connectionStore.fetchConnections()
 })
 
 onUnmounted(() => {

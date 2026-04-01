@@ -154,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, computed, watch } from 'vue'
 import { useReportStore } from '../../stores/report'
 import { useAppStore } from '../../stores/app'
 import ReportDetailPanel from '../report/ReportDetailPanel.vue'
@@ -233,14 +233,15 @@ const reportGroups = computed(() => {
   // Remaining suite groups (suites not in store but reports have suite_id)
   for (const [sid, reports] of Object.entries(bySuite)) {
     if (sid === 'standalone') continue
+    const { status: orphanStatus, progress: orphanProgress } = analyzeGroupReports(reports)
     groups.push({
       key: sid,
       isSuite: true,
       name: reports[0]?.template_name || `Suite ${sid.slice(0, 8)}`,
-      status: deriveGroupStatus(reports),
+      status: orphanStatus,
       startedAt: reports[0]?.started_at,
       reports,
-      progress: computeSuiteProgress(reports)
+      progress: orphanProgress
     })
   }
 
@@ -299,8 +300,37 @@ function formatSuiteProgress(progress) {
 onMounted(async () => {
   await refreshReports()
   const pendingId = appStore.consumePendingReportId()
-  if (pendingId) selectedReportId.value = pendingId
+  if (pendingId) autoSelectReport(pendingId)
 })
+
+// Refresh data when switching back to this tab (KeepAlive re-activation)
+onActivated(async () => {
+  await refreshReports()
+  const pendingId = appStore.consumePendingReportId()
+  if (pendingId) autoSelectReport(pendingId)
+})
+
+// Also watch for pending report IDs set while this tab is already mounted
+// (e.g., user clicks View Report on AutoBench tab while Reports tab is already mounted)
+watch(() => appStore.pendingReportId, (newId) => {
+  if (newId) {
+    const id = appStore.consumePendingReportId()
+    if (id) autoSelectReport(id)
+  }
+})
+
+// Auto-select a report and expand its parent group
+function autoSelectReport(reportId) {
+  if (!reportId) return
+  selectedReportId.value = reportId
+  // Find which group contains this report and expand it
+  for (const group of reportGroups.value) {
+    if (group.reports.some(r => r.id === reportId)) {
+      expandedGroups.value[group.key] = true
+      break
+    }
+  }
+}
 
 const refreshReports = async () => {
   await Promise.all([

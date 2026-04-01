@@ -162,14 +162,16 @@ func (e *InvalidStateTransitionError) Error() string {
 
 // BenchmarkTask represents a benchmark task configuration.
 type BenchmarkTask struct {
-	ID           string                 `json:"id"`            // UUID
-	Name         string                 `json:"name"`          // Task name
-	ConnectionID string                 `json:"connection_id"` // Connection ID
-	TemplateID   string                 `json:"template_id"`   // Template ID
-	Parameters   map[string]interface{} `json:"parameters"`    // Parameter overrides
-	Options      TaskOptions            `json:"options"`       // Execution options
-	Tags         []string               `json:"tags"`          // Tags
+	ID           string                 `json:"id"`             // UUID
+	Name         string                 `json:"name"`           // Task name
+	ConnectionID string                 `json:"connection_id"`  // Connection ID
+	TemplateID   string                 `json:"template_id"`    // Template ID
+	Parameters   map[string]interface{} `json:"parameters"`     // Parameter overrides
+	Options      TaskOptions            `json:"options"`        // Execution options
+	Tags         []string               `json:"tags"`           // Tags
 	CreatedAt    time.Time              `json:"created_at"`
+	SuiteID      string                 `json:"suite_id,omitempty"`       // AutoBench suite ID (empty for standalone)
+	SuiteItemID  string                 `json:"suite_item_id,omitempty"`  // AutoBench suite item ID (empty for standalone)
 }
 
 // Validate validates the task configuration.

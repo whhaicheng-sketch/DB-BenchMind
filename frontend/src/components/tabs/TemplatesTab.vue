@@ -28,7 +28,7 @@
       @reset-filters="templateStore.resetFilters()"
     />
 
-    <div v-if="templateStore.deleteCandidate" class="confirm-overlay" @click.self="templateStore.cancelDeleteTemplate()">
+    <div v-if="templateStore.deleteCandidate" class="confirm-overlay">
       <div class="confirm-modal">
         <div class="confirm-title">Delete Template</div>
         <p class="confirm-body">
@@ -46,7 +46,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, onActivated } from 'vue'
 import { DB_OPTIONS, TOOL_OPTIONS } from '../../constants/templateCapabilities'
 import TemplateEditorDialog from '../template/TemplateEditorDialog.vue'
 import TemplateFilterBar from '../template/TemplateFilterBar.vue'
@@ -68,6 +68,11 @@ const handleCreate = () => {
 }
 
 onMounted(async () => {
+  await templateStore.initializeTemplates()
+})
+
+// Refresh templates when switching back to this tab
+onActivated(async () => {
   await templateStore.initializeTemplates()
 })
 </script>

@@ -259,7 +259,7 @@ const handleMainAreaClick = () => {
   </div>
 
   <Teleport to="body">
-    <div v-if="showModelSelector" class="ai-config__model-selector-overlay" @click.self="closeModelSelector">
+    <div v-if="showModelSelector" class="ai-config__model-selector-overlay">
       <div class="ai-config__model-selector-dialog" role="dialog" aria-modal="true" aria-label="选择模型">
         <div class="ai-config__model-selector-header">
           <span>选择模型</span>
