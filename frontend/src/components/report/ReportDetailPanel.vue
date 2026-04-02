@@ -394,12 +394,12 @@ const fetchReportDetail = async () => {
   error.value = null
 
   try {
-    // Fetch report details
-    await reportStore.fetchReport(props.reportId)
+    // Fetch report details and metrics in parallel
+    await Promise.all([
+      reportStore.fetchReport(props.reportId),
+      reportStore.fetchReportMetrics(props.reportId)
+    ])
     report.value = reportStore.selectedReport
-
-    // Fetch metrics
-    await reportStore.fetchReportMetrics(props.reportId)
     metrics.value = reportStore.selectedReportMetrics
   } catch (err) {
     error.value = err.message || '加载报告详情失败'

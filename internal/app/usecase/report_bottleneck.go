@@ -4,12 +4,10 @@ package usecase
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
 )
-
-// Suppress math import - used by Min function
-var _ = math.Pi
 
 // BottleneckRulesEngine evaluates benchmark data to identify bottlenecks.
 type BottleneckRulesEngine struct{}
@@ -391,10 +389,10 @@ func GenerateRecommendations(bj report.BottleneckJudgment) string {
 		return "No specific recommendations. Benchmark results look normal."
 	}
 
-	result := ""
+	var b strings.Builder
 	for i, r := range bj.Recommendations {
-		result += fmt.Sprintf("%d. %s\n", i+1, r)
+		fmt.Fprintf(&b, "%d. %s\n", i+1, r)
 	}
-	return result
+	return b.String()
 }
 

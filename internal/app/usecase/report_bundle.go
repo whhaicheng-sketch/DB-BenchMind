@@ -748,7 +748,6 @@ func computeWindowSummary(samples []execution.MetricSample) report.BundleWindowS
 
 	tpsVals := make([]float64, 0, len(samples))
 	latVals := make([]float64, 0, len(samples))
-	cpuVals := make([]float64, 0, len(samples))
 
 	for _, s := range samples {
 		tpsVals = append(tpsVals, s.TPS)
@@ -759,12 +758,10 @@ func computeWindowSummary(samples []execution.MetricSample) report.BundleWindowS
 
 	tpsAvg, tpsMax, tpsMin := minMaxAvg(tpsVals)
 	latAvg, latMax, latMin := minMaxAvg(latVals)
-	cpuAvg, cpuMax, cpuMin := minMaxAvg(cpuVals)
 
 	return report.BundleWindowSummary{
 		TPS:        report.WindowStat{Avg: tpsAvg, Min: tpsMin, Max: tpsMax},
 		Latency:    report.WindowStat{Avg: latAvg, Min: latMin, Max: latMax},
-		CPU:        report.WindowStat{Avg: cpuAvg, Min: cpuMin, Max: cpuMax},
 		SampleCount: len(samples),
 	}
 }
@@ -783,7 +780,7 @@ func resourceVerdict(value, normalThreshold, elevatedThreshold, highThreshold fl
 }
 
 // BuildPreviewFromBundle creates a DetailedDataPreview from an already-generated bundle.
-func (g *BundleGenerator) BuildPreviewFromBundle(bundle *report.Bundle, compressed []byte, reportID string) *report.DetailedDataPreview {
+func BuildPreviewFromBundle(bundle *report.Bundle, compressed []byte, reportID string) *report.DetailedDataPreview {
 	windows := make([]report.WindowPreview, 0, len(bundle.RetainedWindows))
 	for _, w := range bundle.RetainedWindows {
 		windows = append(windows, report.WindowPreview{

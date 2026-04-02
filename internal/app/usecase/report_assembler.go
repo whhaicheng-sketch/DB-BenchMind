@@ -96,7 +96,7 @@ func (a *ReportAssembler) AssembleAndPersist(
 	}
 
 	// Build detailed data preview from bundle
-	detailedPreview := a.buildDetailedDataPreview(bundle, compressedBundle, rpt.ID)
+	detailedPreview := BuildPreviewFromBundle(bundle, compressedBundle, rpt.ID)
 
 	// Assemble human report data
 	humanData := &report.HumanReportData{
@@ -203,35 +203,6 @@ func (a *ReportAssembler) buildResourceBottleneck(monitoring *report.MonitoringD
 
 	return report.ResourceBottleneckSection{
 		CPU: cpu, Memory: memory, Disk: disk, Network: network,
-	}
-}
-
-func (a *ReportAssembler) buildDetailedDataPreview(bundle *report.Bundle, compressed []byte, reportID string) *report.DetailedDataPreview {
-	windows := make([]report.WindowPreview, 0, len(bundle.RetainedWindows))
-	for _, w := range bundle.RetainedWindows {
-		windows = append(windows, report.WindowPreview{
-			Name:        w.Name,
-			SampleCount: w.Summary.SampleCount,
-		})
-	}
-
-	anomalies := make([]report.AnomalyPreview, 0, len(bundle.AnomalyWindows))
-	for _, a := range bundle.AnomalyWindows {
-		anomalies = append(anomalies, report.AnomalyPreview{
-			Type:     a.Type,
-			Severity: a.Severity,
-			Summary:  a.Summary,
-			Value:    a.Value,
-		})
-	}
-
-	return &report.DetailedDataPreview{
-		BundleFilename: fmt.Sprintf("report_bundle_%s.json.gz", reportID),
-		CompressedSize: int64(len(compressed)),
-		SamplingPolicy: bundle.AIMeta.SamplingPolicy,
-		RetainedWindows: windows,
-		AnomalyWindows:  anomalies,
-		RawSampleCount:  len(bundle.RawSamples),
 	}
 }
 

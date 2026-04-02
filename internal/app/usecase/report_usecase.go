@@ -974,8 +974,7 @@ func (uc *ReportUsecase) GetDetailedData(ctx context.Context, id string) (*Detai
 	if err == nil && len(compressed) > 0 {
 		bundle, decompressErr := DecompressBundle(compressed)
 		if decompressErr == nil {
-			gen := NewBundleGenerator()
-			result.Preview = gen.BuildPreviewFromBundle(bundle, compressed, id)
+			result.Preview = BuildPreviewFromBundle(bundle, compressed, id)
 		}
 	}
 
