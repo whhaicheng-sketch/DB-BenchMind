@@ -4,6 +4,27 @@ export function isOracleSwingbenchTask(task) {
   return task?.benchmark_tool === 'swingbench' && task?.connection_snapshot?.type === 'oracle'
 }
 
+// getMetricOverlayState returns an overlay descriptor for any task type.
+// For Oracle Swingbench tasks, it delegates to the full Oracle-specific logic.
+// For other adapters, it shows a simple prepare-phase overlay when applicable.
+export function getMetricOverlayState(task, metricLabel = 'TPS') {
+  // Oracle Swingbench gets the full specialized treatment
+  if (isOracleSwingbenchTask(task)) {
+    return getOracleSwingbenchMetricOverlayState(task, metricLabel)
+  }
+
+  // Generic prepare phase overlay for any adapter
+  if (task?.current_phase === 'preparing' || task?.status === 'preparing') {
+    return {
+      kind: 'prepare',
+      title: 'Prepare phase',
+      body: 'TPS/TPM will appear after Run starts. Current 0 is expected here.'
+    }
+  }
+
+  return { kind: 'none', title: '', body: '' }
+}
+
 export function getOracleSwingbenchMetricOverlayState(task, metricLabel = 'TPS') {
   if (!isOracleSwingbenchTask(task)) {
     return { kind: 'none', title: '', body: '' }

@@ -420,6 +420,8 @@ func waitForNextAutoBenchPoll(ctx context.Context, interval time.Duration) error
 func (r *AutoBenchSuiteRunner) collectItemMetrics(ctx context.Context, suiteID, itemID, runID string, sshCollector *collector.SSHMetricsCollector) {
 	samples, err := r.benchmark.GetMetricSamples(ctx, runID)
 	if err != nil || len(samples) == 0 {
+		// Even without benchmark samples, continue to collect SSH system metrics
+		r.collectSystemMetricsOnly(suiteID, itemID, sshCollector)
 		return
 	}
 
@@ -544,6 +546,71 @@ func (r *AutoBenchSuiteRunner) collectItemMetrics(ctx context.Context, suiteID, 
 				"current": last.DiskWriteLatencyMs,
 				"series":  diskWriteLatSeries,
 			}
+		}
+	}
+
+	_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		target, _ := findSuiteItemByID(suite.Items, itemID)
+		if target != nil {
+			target.MetricsSummary = metricsMap
+		}
+		return nil
+	})
+}
+
+// collectSystemMetricsOnly builds a metrics map with only SSH system metrics
+// (no benchmark samples). Used during prepare phase when no benchmark TPS/TPM
+// samples are available yet but system metrics can still be collected.
+func (r *AutoBenchSuiteRunner) collectSystemMetricsOnly(suiteID, itemID string, sshCollector *collector.SSHMetricsCollector) {
+	metricsMap := map[string]interface{}{
+		"tps": map[string]interface{}{
+			"current": 0,
+			"avg":     0,
+			"max":     0,
+			"series":  []map[string]interface{}{},
+		},
+		"tpm": map[string]interface{}{
+			"current": 0,
+			"avg":     0,
+			"max":     0,
+			"series":  []map[string]interface{}{},
+		},
+		"system_enabled": false,
+		"system_message": "",
+	}
+
+	if sshCollector != nil {
+		sshPoints := sshCollector.Snapshot()
+		if len(sshPoints) > 0 {
+			metricsMap["system_enabled"] = true
+
+			cpuUserSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			cpuSysSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			cpuIOWaitSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskReadBpsSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskWriteBpsSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskReadLatSeries := make([]map[string]interface{}, 0, len(sshPoints))
+			diskWriteLatSeries := make([]map[string]interface{}, 0, len(sshPoints))
+
+			for _, p := range sshPoints {
+				ts := p.Timestamp
+				cpuUserSeries = append(cpuUserSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUUser})
+				cpuSysSeries = append(cpuSysSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUSys})
+				cpuIOWaitSeries = append(cpuIOWaitSeries, map[string]interface{}{"timestamp": ts, "value": p.CPUIOWait})
+				diskReadBpsSeries = append(diskReadBpsSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskReadBps})
+				diskWriteBpsSeries = append(diskWriteBpsSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskWriteBps})
+				diskReadLatSeries = append(diskReadLatSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskReadLatencyMs})
+				diskWriteLatSeries = append(diskWriteLatSeries, map[string]interface{}{"timestamp": ts, "value": p.DiskWriteLatencyMs})
+			}
+
+			last := sshPoints[len(sshPoints)-1]
+			metricsMap["cpu_user"] = map[string]interface{}{"current": last.CPUUser, "series": cpuUserSeries}
+			metricsMap["cpu_sys"] = map[string]interface{}{"current": last.CPUSys, "series": cpuSysSeries}
+			metricsMap["cpu_iowait"] = map[string]interface{}{"current": last.CPUIOWait, "series": cpuIOWaitSeries}
+			metricsMap["disk_read_bps"] = map[string]interface{}{"current": last.DiskReadBps, "series": diskReadBpsSeries}
+			metricsMap["disk_write_bps"] = map[string]interface{}{"current": last.DiskWriteBps, "series": diskWriteBpsSeries}
+			metricsMap["disk_read_latency_ms"] = map[string]interface{}{"current": last.DiskReadLatencyMs, "series": diskReadLatSeries}
+			metricsMap["disk_write_latency_ms"] = map[string]interface{}{"current": last.DiskWriteLatencyMs, "series": diskWriteLatSeries}
 		}
 	}
 

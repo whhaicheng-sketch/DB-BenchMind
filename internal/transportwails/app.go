@@ -91,6 +91,12 @@ func (a *App) Shutdown(ctx context.Context) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), benchmarkCleanupTimeout)
 	defer cancel()
 
+	// Step 1: Kill all running benchmark processes and their database sessions
+	if a.holder.benchmarkBinding != nil {
+		a.holder.benchmarkBinding.CleanupOnShutdown(cleanupCtx)
+	}
+
+	// Step 2: Kill any remaining OS processes from benchmark tools
 	if err := runBenchmarkCleanup(cleanupCtx, benchmarkCleanupCommand()); err != nil {
 		slog.Warn("Wails App: benchmark cleanup failed during shutdown", "error", err)
 	}

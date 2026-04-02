@@ -12,6 +12,7 @@
       <span class="stat">平均值: {{ formatNumber(stats.avg) }}</span>
       <span class="stat">最大值: {{ formatNumber(stats.max) }}</span>
       <span class="stat">最小值: {{ formatNumber(stats.min) }}</span>
+      <span v-if="stats.isSinglePoint" class="stat stat-note">单点数据</span>
     </div>
 
     <!-- Bar Chart -->
@@ -79,7 +80,8 @@ const stats = computed(() => {
     return {
       avg: props.currentValue || 0,
       max: props.currentValue || 0,
-      min: props.currentValue || 0
+      min: props.currentValue || 0,
+      isSinglePoint: props.currentValue !== null && props.currentValue !== undefined
     }
   }
 
@@ -91,14 +93,16 @@ const stats = computed(() => {
     return {
       avg: props.currentValue || 0,
       max: props.currentValue || 0,
-      min: props.currentValue || 0
+      min: props.currentValue || 0,
+      isSinglePoint: props.currentValue !== null && props.currentValue !== undefined
     }
   }
 
   return {
     avg: values.reduce((a, b) => a + b, 0) / values.length,
     max: Math.max(...values),
-    min: Math.min(...values)
+    min: Math.min(...values),
+    isSinglePoint: false
   }
 })
 
@@ -264,6 +268,11 @@ onUnmounted(() => {
   padding: 4px 8px;
   background-color: var(--bg-secondary);
   border-radius: var(--radius-xs);
+}
+
+.stat-note {
+  font-style: italic;
+  opacity: 0.7;
 }
 
 /* Bar Chart */

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,7 +24,30 @@ type ReportCollector interface {
 		ctx context.Context,
 		runFn func() (*execution.Run, error),
 		rptCtx report.ReportContext,
+		opts ...ReportOption,
 	) (*report.ReportResult, error)
+}
+
+// ReportOption configures report collection.
+type ReportOption func(*reportOptions)
+
+type reportOptions struct {
+	samples    []execution.MetricSample
+	adapterType string
+}
+
+// WithSamples provides metric samples for real statistics computation.
+func WithSamples(samples []execution.MetricSample) ReportOption {
+	return func(o *reportOptions) {
+		o.samples = samples
+	}
+}
+
+// WithAdapterType provides the adapter type for the report.
+func WithAdapterType(adapterType string) ReportOption {
+	return func(o *reportOptions) {
+		o.adapterType = adapterType
+	}
 }
 
 // DefaultReportCollector is the default implementation.
@@ -64,7 +89,14 @@ func (c *DefaultReportCollector) CollectAndPersist(
 	ctx context.Context,
 	runFn func() (*execution.Run, error),
 	rptCtx report.ReportContext,
+	opts ...ReportOption,
 ) (*report.ReportResult, error) {
+	// Apply options
+	o := &reportOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	reportID := uuid.New().String()
 	startTime := time.Now()
 
@@ -123,7 +155,7 @@ func (c *DefaultReportCollector) CollectAndPersist(
 	}
 
 	// Persist files
-	paths, err := c.persistFiles(reportDir, reportID, rpt, run)
+	paths, err := c.persistFiles(reportDir, reportID, rpt, run, o.samples, o.adapterType)
 	if err != nil {
 		return nil, fmt.Errorf("persist files: %w", err)
 	}
@@ -163,6 +195,8 @@ func (c *DefaultReportCollector) persistFiles(
 	rptID string,
 	rpt *report.Report,
 	run *execution.Run,
+	samples []execution.MetricSample,
+	adapterType string,
 ) (report.ReportPaths, error) {
 	paths := report.ReportPaths{
 		MetricsJSON:    filepath.Join(dir, "metrics.json"),
@@ -173,7 +207,7 @@ func (c *DefaultReportCollector) persistFiles(
 	}
 
 	// Write metrics.json
-	metrics := c.buildMetricsJSON(rpt, run)
+	metrics := c.buildMetricsJSON(rpt, run, samples)
 	if err := writeJSON(paths.MetricsJSON, metrics); err != nil {
 		return paths, fmt.Errorf("write metrics.json: %w", err)
 	}
@@ -185,7 +219,7 @@ func (c *DefaultReportCollector) persistFiles(
 	}
 
 	// Write raw.json
-	raw := c.buildRawJSON(rptID, run)
+	raw := c.buildRawJSON(rptID, run, adapterType)
 	if err := writeJSON(paths.RawJSON, raw); err != nil {
 		return paths, fmt.Errorf("write raw.json: %w", err)
 	}
@@ -326,7 +360,7 @@ func writeJSON(path string, data interface{}) error {
 }
 
 // buildMetricsJSON creates the metrics.json structure.
-func (c *DefaultReportCollector) buildMetricsJSON(rpt *report.Report, run *execution.Run) map[string]interface{} {
+func (c *DefaultReportCollector) buildMetricsJSON(rpt *report.Report, run *execution.Run, samples []execution.MetricSample) map[string]interface{} {
 	metrics := map[string]interface{}{
 		"schema_version": "v1",
 		"report_id":      rpt.ID,
@@ -355,13 +389,39 @@ func (c *DefaultReportCollector) buildMetricsJSON(rpt *report.Report, run *execu
 		},
 	}
 
+	// Compute real percentiles from samples when available
+	stats := computeStatsFromSamples(samples)
 	if run.Result != nil {
-		metrics["percentiles"] = map[string]interface{}{
-			"p50": run.Result.LatencyAvg, // Approximation
-			"p90": run.Result.LatencyP95,
-			"p95": run.Result.LatencyP95,
-			"p99": run.Result.LatencyP99,
+		p50 := run.Result.LatencyAvg
+		p90 := run.Result.LatencyP95 // Fallback
+		p95 := run.Result.LatencyP95
+		p99 := run.Result.LatencyP99
+		if stats.Valid && len(samples) > 1 {
+			p50 = stats.LatP50
+			p90 = stats.LatP90
+			p95 = stats.LatP95
+			p99 = stats.LatP99
 		}
+		metrics["percentiles"] = map[string]interface{}{
+			"p50": p50,
+			"p90": p90,
+			"p95": p95,
+			"p99": p99,
+		}
+	}
+
+	// Build time_series array from samples
+	if len(samples) > 0 {
+		ts := make([]map[string]interface{}, 0, len(samples))
+		for _, s := range samples {
+			ts = append(ts, map[string]interface{}{
+				"timestamp":    s.Timestamp.Unix(),
+				"tps":          s.TPS,
+				"tpm":          s.TPM,
+				"latency_avg":  s.LatencyAvg,
+			})
+		}
+		metrics["time_series"] = ts
 	}
 
 	return metrics
@@ -415,12 +475,15 @@ func (c *DefaultReportCollector) buildMonitoringJSON(reportID string, run *execu
 }
 
 // buildRawJSON creates the raw.json structure.
-func (c *DefaultReportCollector) buildRawJSON(reportID string, run *execution.Run) map[string]interface{} {
+func (c *DefaultReportCollector) buildRawJSON(reportID string, run *execution.Run, adapterType string) map[string]interface{} {
+	if adapterType == "" {
+		adapterType = "sysbench" // Default fallback
+	}
 	raw := map[string]interface{}{
 		"schema_version": "v1",
 		"report_id":      reportID,
 		"generated_at":   time.Now().Format(time.RFC3339),
-		"adapter_type":   "sysbench", // Default
+		"adapter_type":   adapterType,
 		"stdout":         "",
 		"stderr":         "",
 		"exit_code":      0,
@@ -504,4 +567,92 @@ func (c *DefaultReportCollector) buildReportHTML(rpt *report.Report) string {
     <div class="metric"><span class="label">Latency P95:</span> <span class="value">%.2f ms</span></div>
 </body>
 </html>`, rpt.ID, rpt.Status, rpt.TPM, rpt.TPS, rpt.LatencyAvgMs, rpt.LatencyP95Ms)
+}
+
+// sampleStats holds computed statistics from metric samples.
+type sampleStats struct {
+	TPSAvg, TPSMax, TPSMin       float64
+	TPMAvg, TPMMax, TPMMin       float64
+	LatAvg, LatMax, LatMin       float64
+	LatP50, LatP90, LatP95, LatP99 float64
+	Valid                        bool
+}
+
+// computeStatsFromSamples computes real statistics from metric samples.
+// Returns a sampleStats with Valid=true when there are enough samples (>0).
+func computeStatsFromSamples(samples []execution.MetricSample) sampleStats {
+	if len(samples) == 0 {
+		return sampleStats{}
+	}
+
+	tpsVals := make([]float64, 0, len(samples))
+	tpmVals := make([]float64, 0, len(samples))
+	latVals := make([]float64, 0, len(samples))
+
+	for _, s := range samples {
+		tpsVals = append(tpsVals, s.TPS)
+		tpm := s.TPM
+		if tpm == 0 && s.TPS > 0 {
+			tpm = s.TPS * 60
+		}
+		tpmVals = append(tpmVals, tpm)
+		if s.LatencyAvg > 0 {
+			latVals = append(latVals, s.LatencyAvg)
+		}
+	}
+
+	stats := sampleStats{Valid: true}
+	stats.TPSAvg, stats.TPSMax, stats.TPSMin = minMaxAvg(tpsVals)
+	stats.TPMAvg, stats.TPMMax, stats.TPMMin = minMaxAvg(tpmVals)
+
+	if len(latVals) > 0 {
+		stats.LatAvg, stats.LatMax, stats.LatMin = minMaxAvg(latVals)
+		sorted := make([]float64, len(latVals))
+		copy(sorted, latVals)
+		sort.Float64s(sorted)
+		stats.LatP50 = percentile(sorted, 50)
+		stats.LatP90 = percentile(sorted, 90)
+		stats.LatP95 = percentile(sorted, 95)
+		stats.LatP99 = percentile(sorted, 99)
+	}
+
+	return stats
+}
+
+// percentile computes the p-th percentile from a sorted slice of float64.
+func percentile(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	if len(sorted) == 1 {
+		return sorted[0]
+	}
+	idx := p / 100.0 * float64(len(sorted)-1)
+	lower := int(math.Floor(idx))
+	upper := lower + 1
+	if upper >= len(sorted) {
+		return sorted[len(sorted)-1]
+	}
+	frac := idx - float64(lower)
+	return sorted[lower]*(1-frac) + sorted[upper]*frac
+}
+
+// minMaxAvg computes average, max, and min from a slice of float64.
+func minMaxAvg(vals []float64) (avg, max, min float64) {
+	if len(vals) == 0 {
+		return 0, 0, 0
+	}
+	min = vals[0]
+	max = vals[0]
+	sum := 0.0
+	for _, v := range vals {
+		sum += v
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+	}
+	return sum / float64(len(vals)), max, min
 }

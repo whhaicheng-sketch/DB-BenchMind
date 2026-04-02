@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -463,5 +464,211 @@ func TestReportCollectorWithoutDB(t *testing.T) {
 	}
 	if result.PersistError != nil {
 		t.Errorf("expected no PersistError without DB, got: %v", result.PersistError)
+	}
+}
+
+func TestComputeStatsFromSamples(t *testing.T) {
+	tests := []struct {
+		name                string
+		samples             []execution.MetricSample
+		wantValid           bool
+		wantTPSAvg          float64
+		wantTPSMax          float64
+		wantTPSMin          float64
+		wantLatP50LessP90   bool
+		wantLatP90LessP95   bool
+		wantLatP95LessP99   bool
+	}{
+		{
+			name:      "empty samples returns invalid",
+			samples:   []execution.MetricSample{},
+			wantValid: false,
+		},
+		{
+			name: "single sample",
+			samples: []execution.MetricSample{
+				{TPS: 100, LatencyAvg: 10},
+			},
+			wantValid:  true,
+			wantTPSAvg: 100,
+			wantTPSMax: 100,
+			wantTPSMin: 100,
+		},
+		{
+			name: "multi-sample with distinct values",
+			samples: []execution.MetricSample{
+				{TPS: 100, TPM: 6000, LatencyAvg: 5.0},
+				{TPS: 200, TPM: 12000, LatencyAvg: 10.0},
+				{TPS: 300, TPM: 18000, LatencyAvg: 15.0},
+				{TPS: 400, TPM: 24000, LatencyAvg: 20.0},
+				{TPS: 500, TPM: 30000, LatencyAvg: 25.0},
+			},
+			wantValid:         true,
+			wantTPSAvg:        300,
+			wantTPSMax:        500,
+			wantTPSMin:        100,
+			wantLatP50LessP90: true,
+			wantLatP90LessP95: true,
+			wantLatP95LessP99: true,
+		},
+		{
+			name: "samples with zero latency are filtered from latency stats",
+			samples: []execution.MetricSample{
+				{TPS: 100, LatencyAvg: 0},
+				{TPS: 200, LatencyAvg: 10.0},
+				{TPS: 300, LatencyAvg: 20.0},
+			},
+			wantValid:  true,
+			wantTPSAvg: 200,
+			wantTPSMax: 300,
+			wantTPSMin: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := computeStatsFromSamples(tt.samples)
+			if stats.Valid != tt.wantValid {
+				t.Errorf("Valid = %v, want %v", stats.Valid, tt.wantValid)
+			}
+			if !stats.Valid {
+				return
+			}
+			if stats.TPSAvg != tt.wantTPSAvg {
+				t.Errorf("TPSAvg = %v, want %v", stats.TPSAvg, tt.wantTPSAvg)
+			}
+			if stats.TPSMax != tt.wantTPSMax {
+				t.Errorf("TPSMax = %v, want %v", stats.TPSMax, tt.wantTPSMax)
+			}
+			if stats.TPSMin != tt.wantTPSMin {
+				t.Errorf("TPSMin = %v, want %v", stats.TPSMin, tt.wantTPSMin)
+			}
+			if tt.wantLatP50LessP90 && !(stats.LatP50 <= stats.LatP90) {
+				t.Errorf("P50 (%v) should be <= P90 (%v)", stats.LatP50, stats.LatP90)
+			}
+			if tt.wantLatP90LessP95 && !(stats.LatP90 <= stats.LatP95) {
+				t.Errorf("P90 (%v) should be <= P95 (%v)", stats.LatP90, stats.LatP95)
+			}
+			if tt.wantLatP95LessP99 && !(stats.LatP95 <= stats.LatP99) {
+				t.Errorf("P95 (%v) should be <= P99 (%v)", stats.LatP95, stats.LatP99)
+			}
+		})
+	}
+}
+
+func TestPercentile(t *testing.T) {
+	tests := []struct {
+		name   string
+		sorted []float64
+		p      float64
+		want   float64
+	}{
+		{"empty", []float64{}, 50, 0},
+		{"single element", []float64{10}, 50, 10},
+		{"two elements p50", []float64{10, 20}, 50, 15},
+		{"two elements p0", []float64{10, 20}, 0, 10},
+		{"two elements p100", []float64{10, 20}, 100, 20},
+		{"five elements p50", []float64{1, 2, 3, 4, 5}, 50, 3},
+		{"five elements p90", []float64{1, 2, 3, 4, 5}, 90, 4.6},
+		{"five elements p99", []float64{1, 2, 3, 4, 5}, 99, 4.96},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := percentile(tt.sorted, tt.p)
+			if math.Abs(got-tt.want) > 0.001 {
+				t.Errorf("percentile(%v, %v) = %v, want %v", tt.sorted, tt.p, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReportCollectorWithSamples(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	collector := NewDefaultReportCollector(WithReportsDir(tmpDir))
+
+	samples := []execution.MetricSample{
+		{Timestamp: time.Now().Add(-5 * time.Second), TPS: 100, LatencyAvg: 5.0},
+		{Timestamp: time.Now().Add(-4 * time.Second), TPS: 200, LatencyAvg: 10.0},
+		{Timestamp: time.Now().Add(-3 * time.Second), TPS: 300, LatencyAvg: 15.0},
+		{Timestamp: time.Now().Add(-2 * time.Second), TPS: 250, LatencyAvg: 12.5},
+		{Timestamp: time.Now().Add(-1 * time.Second), TPS: 280, LatencyAvg: 13.0},
+	}
+
+	rptCtx := report.ReportContext{
+		SuiteID:        "standalone",
+		SourceType:     report.SourceTypeBenchmark,
+		ConnectionID:   "conn-1",
+		ConnectionName: "Test",
+		DatabaseType:   "mysql",
+	}
+
+	runFn := func() (*execution.Run, error) {
+		return &execution.Run{
+			ID:    "run-samples-1",
+			State: execution.StateCompleted,
+			Result: &execution.BenchmarkResult{
+				TPSCalculated: 280,
+				TPMCalculated: 16800,
+				LatencyAvg:    13.0,
+				LatencyP95:    15.0,
+				LatencyP99:    15.0,
+			},
+		}, nil
+	}
+
+	result, err := collector.CollectAndPersist(ctx, runFn, rptCtx,
+		WithSamples(samples),
+		WithAdapterType("sysbench"),
+	)
+	if err != nil {
+		t.Fatalf("CollectAndPersist failed: %v", err)
+	}
+
+	// Verify metrics.json has time_series
+	reportDir := filepath.Join(tmpDir, "standalone", result.ReportID)
+	metricsData, err := os.ReadFile(filepath.Join(reportDir, "metrics.json"))
+	if err != nil {
+		t.Fatalf("read metrics.json: %v", err)
+	}
+	var metrics map[string]interface{}
+	if err := json.Unmarshal(metricsData, &metrics); err != nil {
+		t.Fatalf("parse metrics.json: %v", err)
+	}
+
+	// Check time_series exists
+	ts, ok := metrics["time_series"].([]interface{})
+	if !ok {
+		t.Fatal("expected time_series to be an array")
+	}
+	if len(ts) != 5 {
+		t.Errorf("expected 5 time series points, got %d", len(ts))
+	}
+
+	// Check percentiles are real (not fake approximations)
+	percentiles, ok := metrics["percentiles"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected percentiles to be a map")
+	}
+	// With 5 latency samples (5, 10, 15, 12.5, 13.0), sorted: [5, 10, 12.5, 13, 15]
+	// P50 should be ~12.5, not 13 (the LatencyAvg from tool)
+	p50, _ := percentiles["p50"].(float64)
+	if p50 == 13.0 {
+		t.Errorf("p50 should be computed from samples, not equal to LatencyAvg (13.0), got %v", p50)
+	}
+
+	// Check raw.json has correct adapter_type
+	rawData, err := os.ReadFile(filepath.Join(reportDir, "raw.json"))
+	if err != nil {
+		t.Fatalf("read raw.json: %v", err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(rawData, &raw); err != nil {
+		t.Fatalf("parse raw.json: %v", err)
+	}
+	if raw["adapter_type"] != "sysbench" {
+		t.Errorf("expected adapter_type sysbench, got %v", raw["adapter_type"])
 	}
 }

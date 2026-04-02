@@ -376,7 +376,7 @@ import { useTaskStore } from '../../stores/task'
 import { useTemplateStore } from '../../stores/template'
 import { useAutoBenchStore } from '../../stores/autobench'
 import { getPreferredConnectionId } from './tasksMonitorConnectionDefaults.mjs'
-import { getOracleSwingbenchMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
+import { getMetricOverlayState } from './tasksMonitorOracleSwingbenchState.mjs'
 import {
   createEmptyRetainedBusinessMetricsState,
   resolveDisplayedTaskMetrics,
@@ -939,7 +939,7 @@ function metricCard(task, label, metric = {}, unit, stroke, fill) {
   const plotBounds = METRIC_PLOT_BOUNDS
   const trend = buildTrendData(series, 320, 140, null, plotBounds)
   const ticks = buildAxisTicks(trend.min, trend.max, formatCompactNumber, 140, plotBounds)
-  const overlay = getOracleSwingbenchMetricOverlayState(task, label)
+  const overlay = getMetricOverlayState(task, label)
   const showOverlay = overlay.kind !== 'none'
   const overlayLabel = overlay.kind === 'prepare'
     ? 'Prepare'

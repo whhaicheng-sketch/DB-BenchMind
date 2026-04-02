@@ -378,6 +378,12 @@ func (b *BenchmarkBinding) StopBenchmark(runID string, force bool) map[string]in
 	}
 }
 
+// CleanupOnShutdown terminates all running benchmark processes and kills
+// their database sessions. Called by App.Shutdown during application exit.
+func (b *BenchmarkBinding) CleanupOnShutdown(ctx context.Context) {
+	b.uc.CleanupAllRunningBenchmarks(ctx)
+}
+
 // GetBenchmarkStatus returns the status of a benchmark run.
 func (b *BenchmarkBinding) GetBenchmarkStatus(runID string) BenchmarkStatusResult {
 	ctx := context.Background()

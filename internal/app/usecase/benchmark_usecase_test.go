@@ -1807,6 +1807,7 @@ func (m *mockReportCollector) CollectAndPersist(
 	ctx context.Context,
 	runFn func() (*execution.Run, error),
 	rptCtx report.ReportContext,
+	opts ...ReportOption,
 ) (*report.ReportResult, error) {
 	m.collectCalled = true
 	m.capturedCtx = rptCtx
@@ -1847,7 +1848,7 @@ func TestCollectStandaloneReport_SkipsWhenNoCollector(t *testing.T) {
 	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
 
 	// Execute - should not panic or call collector
-	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil)
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil, nil)
 }
 
 func TestCollectStandaloneReport_SkipsWhenNoResult(t *testing.T) {
@@ -1876,7 +1877,7 @@ func TestCollectStandaloneReport_SkipsWhenNoResult(t *testing.T) {
 	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
 
 	// Execute
-	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil)
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil, nil)
 
 	// Wait for goroutine to complete
 	time.Sleep(100 * time.Millisecond)
@@ -1913,7 +1914,7 @@ func TestCollectStandaloneReport_SkipsWhenNotTerminal(t *testing.T) {
 	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
 
 	// Execute
-	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil)
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil, nil)
 
 	// Wait for goroutine to complete
 	time.Sleep(100 * time.Millisecond)
@@ -1950,7 +1951,7 @@ func TestCollectStandaloneReport_CollectsForCompletedRunWithResult(t *testing.T)
 	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
 
 	// Execute
-	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil)
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil, nil)
 
 	// Wait for goroutine to complete
 	time.Sleep(100 * time.Millisecond)
@@ -2016,7 +2017,7 @@ func TestCollectStandaloneReport_CollectsForFailedRunWithResult(t *testing.T) {
 	tmpl := &domaintemplate.Template{ID: "tmpl-1", Name: "Test Template"}
 
 	// Execute
-	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil)
+	uc.collectStandaloneReport(context.Background(), run, conn, tmpl, nil, nil)
 
 	// Wait for goroutine to complete
 	time.Sleep(100 * time.Millisecond)

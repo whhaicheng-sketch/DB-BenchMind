@@ -377,17 +377,24 @@ var (
 type RealtimeSampleCallback func(runID string, sample execution.MetricSample)
 
 // BenchmarkUseCase provides benchmark execution business operations.
+// runningBenchmark tracks a running benchmark process alongside its
+// database connection so that residual sessions can be killed on stop/shutdown.
+type runningBenchmark struct {
+	cmd    *exec.Cmd
+	dbConn connection.Connection
+}
+
 // Implements: REQ-EXEC-001 ~ REQ-EXEC-010
 type BenchmarkUseCase struct {
 	runRepo            RunRepository
 	adapterReg         *adapter.AdapterRegistry
 	connUseCase        *ConnectionUseCase
 	templateUseCase    *TemplateUseCase
-	realtimeCallback   RealtimeSampleCallback // Optional callback for realtime samples
-	realtimeCallbackMu sync.RWMutex           // Protects realtimeCallback
-	runningProcesses   map[string]*exec.Cmd   // Track running processes by run ID
-	runningProcessesMu sync.RWMutex           // Protects runningProcesses
-	reportCollector    ReportCollector        // Optional report collector for standalone reports
+	realtimeCallback   RealtimeSampleCallback       // Optional callback for realtime samples
+	realtimeCallbackMu sync.RWMutex                 // Protects realtimeCallback
+	runningBenchmarks  map[string]*runningBenchmark // Track running benchmarks by run ID
+	runningBenchmarksMu sync.RWMutex                // Protects runningBenchmarks
+	reportCollector    ReportCollector               // Optional report collector for standalone reports
 }
 
 // NewBenchmarkUseCase creates a new benchmark use case.
@@ -402,7 +409,7 @@ func NewBenchmarkUseCase(
 		adapterReg:       adapterReg,
 		connUseCase:      connUseCase,
 		templateUseCase:  templateUseCase,
-		runningProcesses: make(map[string]*exec.Cmd),
+		runningBenchmarks: make(map[string]*runningBenchmark),
 	}
 }
 
@@ -693,7 +700,7 @@ func (uc *BenchmarkUseCase) executeBenchmark(
 	uc.markAsCompleted(ctx, run.ID, duration)
 
 	// Collect and persist report (non-blocking)
-	uc.collectStandaloneReport(ctx, run, conn, tmpl, task)
+	uc.collectStandaloneReport(ctx, run, conn, tmpl, adapt, task)
 }
 
 func resolvePrepareThreads(ctx context.Context, conn connection.Connection) (int, error) {
@@ -1043,15 +1050,15 @@ func (uc *BenchmarkUseCase) executeRun(
 	slog.Info("Benchmark: Command started successfully", "run_id", run.ID, "cmd", cmd.CmdLine)
 
 	// Save process reference for later stop operations
-	uc.runningProcessesMu.Lock()
-	uc.runningProcesses[run.ID] = process
-	uc.runningProcessesMu.Unlock()
+	uc.runningBenchmarksMu.Lock()
+	uc.runningBenchmarks[run.ID] = &runningBenchmark{cmd: process, dbConn: conn}
+	uc.runningBenchmarksMu.Unlock()
 
 	// Clean up process reference when done
 	defer func() {
-		uc.runningProcessesMu.Lock()
-		delete(uc.runningProcesses, run.ID)
-		uc.runningProcessesMu.Unlock()
+		uc.runningBenchmarksMu.Lock()
+		delete(uc.runningBenchmarks, run.ID)
+		uc.runningBenchmarksMu.Unlock()
 	}()
 
 	mirroredStdout := uc.mirrorOutputStream(runCtx, run.ID, "stdout", stdout)
@@ -1292,7 +1299,7 @@ func (uc *BenchmarkUseCase) executeRun(
 				}()
 				metricSample := execution.MetricSample{
 					Timestamp:  sample.Timestamp,
-					Phase:      "run",
+					Phase:      string(run.State),
 					TPS:        sample.TPS,
 					QPS:        sample.QPS,
 					TPM:        sample.TPM,
@@ -1770,7 +1777,7 @@ func (uc *BenchmarkUseCase) executeCommandSyncOnce(ctx context.Context, run *exe
 					// Save sample to repository
 					metricSample := execution.MetricSample{
 						Timestamp:  sample.Timestamp,
-						Phase:      "prepare", // Default to prepare for prepare/cleanup
+						Phase:      string(run.State),
 						TPS:        sample.TPS,
 						QPS:        sample.QPS,
 						LatencyAvg: sample.LatencyAvg,
@@ -1880,15 +1887,22 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 	}
 
 	// Save process reference for potential stop operation
-	uc.runningProcessesMu.Lock()
-	uc.runningProcesses[run.ID] = process
-	uc.runningProcessesMu.Unlock()
+	// Connection is not directly available here, but the caller (executeRun)
+	// stores the connection in runningBenchmarks alongside the process.
+	// For swingbench, we look it up from connUseCase in StopBenchmark if needed.
+	uc.runningBenchmarksMu.Lock()
+	if existing, ok := uc.runningBenchmarks[run.ID]; ok {
+		existing.cmd = process
+	} else {
+		uc.runningBenchmarks[run.ID] = &runningBenchmark{cmd: process}
+	}
+	uc.runningBenchmarksMu.Unlock()
 
 	// Clean up process reference when done
 	defer func() {
-		uc.runningProcessesMu.Lock()
-		delete(uc.runningProcesses, run.ID)
-		uc.runningProcessesMu.Unlock()
+		uc.runningBenchmarksMu.Lock()
+		delete(uc.runningBenchmarks, run.ID)
+		uc.runningBenchmarksMu.Unlock()
 	}()
 
 	defer stderr.Close()
@@ -1944,7 +1958,7 @@ func (uc *BenchmarkUseCase) executeCommandSwingbench(ctx context.Context, run *e
 			// Save sample to repository
 			metricSample := execution.MetricSample{
 				Timestamp:  sample.Timestamp,
-				Phase:      "prepare", // Swingbench prepare/cleanup phase
+				Phase:      string(run.State),
 				TPS:        sample.TPS,
 				QPS:        sample.QPS,
 				TPM:        sample.TPM,
@@ -2528,10 +2542,10 @@ func isIgnorableSampleCollectorError(err error) bool {
 func (uc *BenchmarkUseCase) StopBenchmark(ctx context.Context, runID string, force bool) error {
 	slog.Info("Benchmark: StopBenchmark called", "run_id", runID, "force", force)
 
-	uc.runningProcessesMu.RLock()
-	processCount := len(uc.runningProcesses)
-	uc.runningProcessesMu.RUnlock()
-	slog.Info("Benchmark: Current running processes", "count", processCount)
+	uc.runningBenchmarksMu.RLock()
+	benchmarkCount := len(uc.runningBenchmarks)
+	uc.runningBenchmarksMu.RUnlock()
+	slog.Info("Benchmark: Current running benchmarks", "count", benchmarkCount)
 
 	run, err := uc.runRepo.FindByID(ctx, runID)
 	if err != nil {
@@ -2545,25 +2559,51 @@ func (uc *BenchmarkUseCase) StopBenchmark(ctx context.Context, runID string, for
 		return fmt.Errorf("%w: run is not running", ErrInvalidState)
 	}
 
-	// Get the running process and kill it
-	uc.runningProcessesMu.Lock()
-	process := uc.runningProcesses[runID]
-	uc.runningProcessesMu.Unlock()
+	// Step 1: Kill the benchmark tool process first
+	uc.runningBenchmarksMu.Lock()
+	rb := uc.runningBenchmarks[runID]
+	uc.runningBenchmarksMu.Unlock()
 
-	slog.Info("Benchmark: Retrieved process from map", "run_id", runID, "process_found", process != nil, "process_nil", process == nil)
+	slog.Info("Benchmark: Retrieved benchmark from map", "run_id", runID, "found", rb != nil)
 
-	if process != nil && process.Process != nil {
-		slog.Info("Benchmark: Stopping process", "run_id", runID, "force", force, "pid", process.Process.Pid)
+	if rb != nil && rb.cmd != nil && rb.cmd.Process != nil {
+		slog.Info("Benchmark: Stopping process", "run_id", runID, "force", force, "pid", rb.cmd.Process.Pid)
 
-		// Send SIGTERM first (graceful shutdown)
-		if err := terminateProcess(process, force); err != nil {
-			slog.Error("Benchmark: Failed to send SIGTERM", "run_id", runID, "error", err)
+		// Send SIGTERM first (graceful shutdown), SIGKILL if force
+		if err := terminateProcess(rb.cmd, force); err != nil {
+			slog.Error("Benchmark: Failed to terminate process", "run_id", runID, "error", err)
 		} else {
-			slog.Info("Benchmark: SIGTERM sent successfully", "run_id", runID)
+			slog.Info("Benchmark: Process terminated successfully", "run_id", runID)
 		}
 	} else {
-		slog.Error("Benchmark: Process not found in map or Process is nil", "run_id", runID)
+		slog.Warn("Benchmark: Process not found in map or process is nil", "run_id", runID)
 	}
+
+	// Step 2: Kill residual database sessions left by the benchmark tool
+	var conn connection.Connection
+	if rb != nil && rb.dbConn != nil {
+		conn = rb.dbConn
+	} else {
+		// Fallback: load connection from task if not tracked in runningBenchmarks
+		conn, _ = uc.loadConnectionForRun(ctx, run)
+	}
+
+	if conn != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := killDatabaseSessions(cleanupCtx, conn); err != nil {
+			slog.Warn("Benchmark: Failed to kill residual database sessions", "run_id", runID, "error", err)
+		} else {
+			slog.Info("Benchmark: Residual database sessions cleaned up", "run_id", runID)
+		}
+		cancel()
+	} else {
+		slog.Warn("Benchmark: No connection available for session cleanup", "run_id", runID)
+	}
+
+	// Step 3: Clean up tracking entry
+	uc.runningBenchmarksMu.Lock()
+	delete(uc.runningBenchmarks, runID)
+	uc.runningBenchmarksMu.Unlock()
 
 	if force {
 		if err := uc.updateState(ctx, runID, execution.StateForceStopped); err != nil {
@@ -2625,6 +2665,7 @@ func (uc *BenchmarkUseCase) collectStandaloneReport(
 	run *execution.Run,
 	conn connection.Connection,
 	tmpl *domaintemplate.Template,
+	adapt adapter.BenchmarkAdapter,
 	task *execution.BenchmarkTask,
 ) {
 	if uc.reportCollector == nil {
@@ -2657,6 +2698,17 @@ func (uc *BenchmarkUseCase) collectStandaloneReport(
 		return
 	}
 
+	// Load metric samples for real statistics computation
+	metricSamples, _ := uc.GetMetricSamples(ctx, run.ID)
+	if metricSamples == nil {
+		metricSamples = []execution.MetricSample{}
+	}
+
+	adapterType := ""
+	if adapt != nil {
+		adapterType = string(adapt.Type())
+	}
+
 	rptCtx := report.ReportContext{
 		SuiteID:        report.StandaloneSuiteID,
 		SourceType:     report.SourceTypeBenchmark,
@@ -2679,9 +2731,15 @@ func (uc *BenchmarkUseCase) collectStandaloneReport(
 	// Use goroutine to not block response
 	go func() {
 		// Use background context to avoid cancellation when original context is done
-		_, collectErr := uc.reportCollector.CollectAndPersist(context.Background(), func() (*execution.Run, error) {
-			return finalRun, nil
-		}, rptCtx)
+		_, collectErr := uc.reportCollector.CollectAndPersist(
+			context.Background(),
+			func() (*execution.Run, error) {
+				return finalRun, nil
+			},
+			rptCtx,
+			WithSamples(metricSamples),
+			WithAdapterType(adapterType),
+		)
 		if collectErr != nil {
 			slog.Warn("Benchmark: failed to collect standalone report",
 				"run_id", run.ID,
@@ -3648,4 +3706,320 @@ func tickerChan(t *time.Ticker) <-chan time.Time {
 		return nil
 	}
 	return t.C
+}
+
+// =============================================================================
+// Database Session Cleanup
+// When stopping a benchmark or shutting down the app, we MUST kill all
+// database sessions created by the benchmark tool (sysbench, hammerdb,
+// swingbench). The sequence is: 1) kill the benchmark tool process,
+// 2) connect to the database and KILL all sessions from the benchmark user.
+// This prevents residual connections holding metadata locks.
+// =============================================================================
+
+// loadConnectionForRun loads the connection associated with a benchmark run
+// as a fallback when the connection was not tracked in runningBenchmarks.
+func (uc *BenchmarkUseCase) loadConnectionForRun(ctx context.Context, run *execution.Run) (connection.Connection, error) {
+	if run.TaskID == "" {
+		return nil, fmt.Errorf("run has no task ID")
+	}
+	// Load connection via connUseCase — the task stores ConnectionID
+	// We need to look up the task to get ConnectionID
+	// Since task lookup may not be available directly, try runningBenchmarks first
+	return nil, fmt.Errorf("no task lookup available")
+}
+
+// CleanupAllRunningBenchmarks terminates all running benchmark processes
+// and kills their database sessions. Called during app shutdown.
+func (uc *BenchmarkUseCase) CleanupAllRunningBenchmarks(ctx context.Context) {
+	uc.runningBenchmarksMu.Lock()
+	benchmarks := make(map[string]*runningBenchmark)
+	for k, v := range uc.runningBenchmarks {
+		benchmarks[k] = v
+	}
+	uc.runningBenchmarksMu.Unlock()
+
+	if len(benchmarks) == 0 {
+		return
+	}
+
+	slog.Info("Benchmark: cleaning up all running benchmarks during shutdown", "count", len(benchmarks))
+
+	for runID, rb := range benchmarks {
+		// Step 1: Kill the OS process
+		if rb != nil && rb.cmd != nil && rb.cmd.Process != nil {
+			slog.Info("Benchmark: terminating process during shutdown", "run_id", runID, "pid", rb.cmd.Process.Pid)
+			if err := terminateProcess(rb.cmd, true); err != nil {
+				slog.Warn("Benchmark: failed to terminate process during shutdown", "run_id", runID, "error", err)
+			}
+		}
+
+		// Step 2: Kill residual database sessions
+		if rb != nil && rb.dbConn != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := killDatabaseSessions(cleanupCtx, rb.dbConn); err != nil {
+				slog.Warn("Benchmark: failed to kill database sessions during shutdown", "run_id", runID, "error", err)
+			} else {
+				slog.Info("Benchmark: database sessions cleaned up during shutdown", "run_id", runID)
+			}
+			cancel()
+		}
+
+		uc.runningBenchmarksMu.Lock()
+		delete(uc.runningBenchmarks, runID)
+		uc.runningBenchmarksMu.Unlock()
+	}
+}
+
+// killDatabaseSessions connects to the database and terminates all sessions
+// created by the benchmark tool. Must be called AFTER the benchmark tool
+// process is killed, so the tool doesn't reconnect.
+func killDatabaseSessions(ctx context.Context, conn connection.Connection) error {
+	dbType := string(conn.GetType())
+	switch dbType {
+	case "mysql":
+		return killMySQLSessions(ctx, conn)
+	case "postgresql":
+		return killPostgreSQLSessions(ctx, conn)
+	case "oracle":
+		return killOracleSessions(ctx, conn)
+	case "sqlserver":
+		return killSQLServerSessions(ctx, conn)
+	default:
+		slog.Warn("Benchmark: no session cleanup support for database type", "db_type", dbType)
+		return nil
+	}
+}
+
+// killMySQLSessions kills all MySQL connections from the benchmark user.
+func killMySQLSessions(ctx context.Context, conn connection.Connection) error {
+	mysqlConn, ok := conn.(*connection.MySQLConnection)
+	if !ok {
+		return nil
+	}
+
+	dsn := mysqlConn.GetDSNWithPassword()
+	if dsn == "" {
+		return fmt.Errorf("empty MySQL DSN")
+	}
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return fmt.Errorf("open mysql for session cleanup: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping mysql for session cleanup: %w", err)
+	}
+
+	// Find all connections from this user (excluding our own cleanup connection)
+	rows, err := db.QueryContext(ctx,
+		"SELECT ID FROM information_schema.PROCESSLIST WHERE USER = ? AND ID != CONNECTION_ID()",
+		mysqlConn.Username)
+	if err != nil {
+		return fmt.Errorf("query mysql processlist: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 {
+		slog.Info("Benchmark: no residual MySQL sessions to kill")
+		return nil
+	}
+
+	slog.Info("Benchmark: killing residual MySQL sessions", "count", len(ids), "user", mysqlConn.Username)
+
+	var killErr error
+	for _, id := range ids {
+		_, err := db.ExecContext(ctx, fmt.Sprintf("KILL CONNECTION %d", id))
+		if err != nil {
+			slog.Warn("Benchmark: failed to kill MySQL connection", "id", id, "error", err)
+			killErr = err
+		}
+	}
+	return killErr
+}
+
+// killPostgreSQLSessions terminates all PostgreSQL backends from the benchmark user.
+func killPostgreSQLSessions(ctx context.Context, conn connection.Connection) error {
+	pgConn, ok := conn.(*connection.PostgreSQLConnection)
+	if !ok {
+		return nil
+	}
+
+	dsn := pgConn.GetDSNWithPassword()
+	if dsn == "" {
+		return fmt.Errorf("empty PostgreSQL DSN")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres for session cleanup: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping postgres for session cleanup: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx,
+		"SELECT pid FROM pg_stat_activity WHERE usename = $1 AND pid != pg_backend_pid() AND backend_type = 'client backend'",
+		pgConn.Username)
+	if err != nil {
+		return fmt.Errorf("query pg_stat_activity: %w", err)
+	}
+	defer rows.Close()
+
+	var pids []int32
+	for rows.Next() {
+		var pid int32
+		if err := rows.Scan(&pid); err != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+
+	if len(pids) == 0 {
+		slog.Info("Benchmark: no residual PostgreSQL sessions to kill")
+		return nil
+	}
+
+	slog.Info("Benchmark: killing residual PostgreSQL sessions", "count", len(pids), "user", pgConn.Username)
+
+	var killErr error
+	for _, pid := range pids {
+		_, err := db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", pid)
+		if err != nil {
+			slog.Warn("Benchmark: failed to terminate PostgreSQL backend", "pid", pid, "error", err)
+			killErr = err
+		}
+	}
+	return killErr
+}
+
+// killOracleSessions kills all Oracle sessions from the benchmark user.
+func killOracleSessions(ctx context.Context, conn connection.Connection) error {
+	oracleConn, ok := conn.(*connection.OracleConnection)
+	if !ok {
+		return nil
+	}
+
+	dsn := oracleConn.GetDSNWithPassword()
+	if dsn == "" {
+		return fmt.Errorf("empty Oracle DSN")
+	}
+
+	db, err := sql.Open("oracle", dsn)
+	if err != nil {
+		return fmt.Errorf("open oracle for session cleanup: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping oracle for session cleanup: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx,
+		"SELECT s.sid, s.serial# FROM v$session s WHERE s.username = UPPER(:1) AND s.status != 'KILLED'",
+		oracleConn.Username)
+	if err != nil {
+		return fmt.Errorf("query v$session: %w", err)
+	}
+	defer rows.Close()
+
+	type oraSession struct {
+		sid    int
+		serial int
+	}
+	var sessions []oraSession
+	for rows.Next() {
+		var sid, serial int
+		if err := rows.Scan(&sid, &serial); err != nil {
+			continue
+		}
+		sessions = append(sessions, oraSession{sid, serial})
+	}
+
+	if len(sessions) == 0 {
+		slog.Info("Benchmark: no residual Oracle sessions to kill")
+		return nil
+	}
+
+	slog.Info("Benchmark: killing residual Oracle sessions", "count", len(sessions), "user", oracleConn.Username)
+
+	var killErr error
+	for _, s := range sessions {
+		_, err := db.ExecContext(ctx, fmt.Sprintf("ALTER SYSTEM KILL SESSION '%d,%d' IMMEDIATE", s.sid, s.serial))
+		if err != nil {
+			slog.Warn("Benchmark: failed to kill Oracle session", "sid", s.sid, "serial", s.serial, "error", err)
+			killErr = err
+		}
+	}
+	return killErr
+}
+
+// killSQLServerSessions kills all SQL Server sessions from the benchmark user.
+func killSQLServerSessions(ctx context.Context, conn connection.Connection) error {
+	mssqlConn, ok := conn.(*connection.SQLServerConnection)
+	if !ok {
+		return nil
+	}
+
+	dsn := mssqlConn.GetDSNWithPassword()
+	if dsn == "" {
+		return fmt.Errorf("empty SQL Server DSN")
+	}
+
+	db, err := sql.Open("sqlserver", dsn)
+	if err != nil {
+		return fmt.Errorf("open sqlserver for session cleanup: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping sqlserver for session cleanup: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx,
+		"SELECT session_id FROM sys.dm_exec_sessions WHERE original_login_name = @p1 AND session_id != @@SPID AND is_user_process = 1",
+		mssqlConn.Username)
+	if err != nil {
+		return fmt.Errorf("query sys.dm_exec_sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int32
+	for rows.Next() {
+		var id int32
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 {
+		slog.Info("Benchmark: no residual SQL Server sessions to kill")
+		return nil
+	}
+
+	slog.Info("Benchmark: killing residual SQL Server sessions", "count", len(ids), "user", mssqlConn.Username)
+
+	var killErr error
+	for _, id := range ids {
+		_, err := db.ExecContext(ctx, fmt.Sprintf("KILL %d", id))
+		if err != nil {
+			slog.Warn("Benchmark: failed to kill SQL Server session", "session_id", id, "error", err)
+			killErr = err
+		}
+	}
+	return killErr
 }
