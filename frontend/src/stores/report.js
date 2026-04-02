@@ -9,7 +9,8 @@ import {
   ExportReportHTML as ExportReportHTMLApi,
   GetExportFilePaths as GetExportFilePathsApi,
   DeleteReport as DeleteReportApi,
-  DeleteAllReports as DeleteAllReportsApi
+  DeleteAllReports as DeleteAllReportsApi,
+  GetDetailedData as GetDetailedDataApi
 } from '../../wailsjs/go/bindings/ReportBinding'
 
 const ENABLE_REPORT_BACKEND = typeof window !== 'undefined' && !!window.go?.bindings?.ReportBinding
@@ -477,6 +478,23 @@ export const useReportStore = defineStore('report', {
 
     clearNotice() {
       this.notice = null
+    },
+
+    async getDetailedData(id) {
+      try {
+        if (ENABLE_REPORT_BACKEND) {
+          const result = await GetDetailedDataApi(id)
+          if (result.error) {
+            throw new Error(result.error)
+          }
+          return result
+        }
+        return null
+      } catch (err) {
+        this.error = err.message || '加载详细数据失败'
+        this.showNotice(this.error, 'warning')
+        return null
+      }
     },
 
     showNotice(message, tone = 'info') {

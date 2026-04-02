@@ -260,6 +260,60 @@
         </div>
       </section>
 
+      <!-- Detailed Data Section (Collapsed by default) -->
+      <section class="detail-section">
+        <div class="collapsible-header" @click="toggleDetailedData">
+          <h3 class="section-title">详细数据 (AI Bundle)</h3>
+          <span class="collapse-icon">{{ showDetailedData ? '▼' : '▶' }}</span>
+        </div>
+        <div class="detailed-data-content" v-if="showDetailedData">
+          <div v-if="loadingDetailedData" class="loading-state">
+            <div class="spinner"></div>
+            <span>加载详细数据...</span>
+          </div>
+          <div v-else-if="detailedData" class="detailed-data-grid">
+            <div class="info-item">
+              <span class="info-label">Bundle 文件</span>
+              <span class="info-value mono">{{ detailedData.bundle_filename || 'N/A' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">压缩大小</span>
+              <span class="info-value">{{ formatBytes(detailedData.compressed_size_bytes) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">采样策略</span>
+              <span class="info-value">{{ detailedData.sampling_policy || 'N/A' }}</span>
+            </div>
+
+            <div class="detailed-subsection" v-if="detailedData.retained_windows?.length">
+              <h4 class="subsection-title">保留窗口</h4>
+              <div class="window-chips">
+                <span v-for="w in detailedData.retained_windows" :key="w.name" class="window-chip">
+                  {{ w.name }} ({{ w.sample_count }} samples)
+                </span>
+              </div>
+            </div>
+
+            <div class="detailed-subsection" v-if="detailedData.anomaly_windows?.length">
+              <h4 class="subsection-title">异常窗口</h4>
+              <div v-for="a in detailedData.anomaly_windows" :key="a.type + a.summary" class="anomaly-item">
+                <span class="anomaly-severity" :class="'severity-' + a.severity">{{ a.severity }}</span>
+                <span class="anomaly-type">{{ a.type }}</span>
+                <span class="anomaly-summary">{{ a.summary }}</span>
+              </div>
+            </div>
+
+            <div class="info-item">
+              <span class="info-label">原始样本数</span>
+              <span class="info-value">{{ detailedData.raw_sample_count }}</span>
+            </div>
+          </div>
+          <div v-else class="no-data-hint">
+            暂无详细数据。报告可能正在生成中。
+          </div>
+        </div>
+      </section>
+
       <!-- Raw Metrics JSON (Collapsible) -->
       <section class="detail-section" v-if="metrics">
         <div class="collapsible-header" @click="toggleRawMetrics">
@@ -294,6 +348,10 @@ const metrics = ref(null)
 const loading = ref(true)
 const error = ref(null)
 const showRawMetrics = ref(false)
+const showDetailedData = ref(false)
+const detailedData = ref(null)
+const reportMarkdown = ref('')
+const loadingDetailedData = ref(false)
 
 // Computed properties for chart data
 const hasPerformanceData = computed(() => {
@@ -364,6 +422,24 @@ onMounted(() => {
 
 const toggleRawMetrics = () => {
   showRawMetrics.value = !showRawMetrics.value
+}
+
+const toggleDetailedData = async () => {
+  showDetailedData.value = !showDetailedData.value
+  if (showDetailedData.value && !detailedData.value && report.value) {
+    loadingDetailedData.value = true
+    try {
+      const result = await reportStore.getDetailedData(report.value.id)
+      if (result) {
+        detailedData.value = result.preview
+        reportMarkdown.value = result.markdown || ''
+      }
+    } catch (err) {
+      console.error('Failed to load detailed data:', err)
+    } finally {
+      loadingDetailedData.value = false
+    }
+  }
 }
 
 const formatSourceType = (source) => {
@@ -441,6 +517,13 @@ const handleExportHTML = async () => {
 const handleCopyJSON = async () => {
   if (!report.value) return
   await reportStore.copyJSONToClipboard(report.value.id)
+}
+
+const formatBytes = (bytes) => {
+  if (!bytes || bytes <= 0) return 'N/A'
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return bytes + ' B'
 }
 </script>
 
@@ -793,6 +876,81 @@ const handleCopyJSON = async () => {
   font-family: var(--font-family-mono);
   font-weight: 500;
   color: var(--text-primary);
+}
+
+/* Detailed Data Section */
+.detailed-data-content {
+  margin-top: var(--spacing-sm);
+}
+
+.detailed-data-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.detailed-subsection {
+  margin-top: var(--spacing-sm);
+}
+
+.subsection-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.window-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.window-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.anomaly-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: var(--font-size-sm);
+}
+
+.anomaly-severity {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-low { background-color: #e8f5e9; color: #2e7d32; }
+.severity-medium { background-color: #fff3e0; color: #ef6c00; }
+.severity-high { background-color: #ffebee; color: #c62828; }
+.severity-critical { background-color: #b71c1c; color: white; }
+
+.anomaly-type {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.anomaly-summary {
+  color: var(--text-muted);
+}
+
+.no-data-hint {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: var(--spacing-md) 0;
 }
 
 /* Metrics Detail */

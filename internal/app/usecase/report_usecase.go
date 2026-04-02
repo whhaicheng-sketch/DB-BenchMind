@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/whhaicheng/DB-BenchMind/internal/domain/report"
@@ -737,6 +738,108 @@ func (uc *ReportUsecase) GetExportFilePaths(ctx context.Context, id string) (met
 	return rpt.MetricsJSONPath, rpt.MonitoringJSONPath, rpt.RawJSONPath, rpt.ReportHTMLPath, nil
 }
 
+// GetPreviousReportForComparison finds the most recent completed report for the same
+// connection and template (excluding the given report ID).
+func (uc *ReportUsecase) GetPreviousReportForComparison(ctx context.Context, currentID string) (*report.Report, error) {
+	current, err := uc.GetReport(ctx, currentID)
+	if err != nil {
+		return nil, fmt.Errorf("get current report: %w", err)
+	}
+
+	row := uc.db.QueryRowContext(ctx, `
+		SELECT `+reportSelectColumns+`
+		FROM reports
+		WHERE id != ?
+		  AND connection_id = ?
+		  AND template_id = ?
+		  AND status = 'completed'
+		ORDER BY started_at DESC
+		LIMIT 1`,
+		currentID, current.ConnectionID, current.TemplateID,
+	)
+
+	prev, err := scanReportRow(row)
+	if err == sql.ErrNoRows {
+		return nil, nil // No previous report
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query previous report: %w", err)
+	}
+	return prev, nil
+}
+
+// CompareReports generates a comparison between two reports.
+func CompareReports(current, previous *report.Report) *report.ComparisonResult {
+	if previous == nil {
+		return nil
+	}
+
+	result := &report.ComparisonResult{
+		PreviousReportID: previous.ID,
+		Deltas:           make([]report.ComparisonDelta, 0),
+	}
+
+	comparisons := []struct {
+		metric  string
+		current float64
+		other   float64
+	}{
+		{"TPS", current.TPS, previous.TPS},
+		{"TPM", current.TPM, previous.TPM},
+		{"P95 Latency (ms)", current.LatencyP95Ms, previous.LatencyP95Ms},
+		{"P99 Latency (ms)", current.LatencyP99Ms, previous.LatencyP99Ms},
+	}
+
+	for _, c := range comparisons {
+		if c.current == 0 && c.other == 0 {
+			continue
+		}
+		delta := c.current - c.other
+		pctChange := float64(0)
+		if c.other != 0 {
+			pctChange = (delta / c.other) * 100
+		}
+		result.Deltas = append(result.Deltas, report.ComparisonDelta{
+			Metric:    c.metric,
+			Current:   c.current,
+			Previous:  c.other,
+			Delta:     delta,
+			PctChange: pctChange,
+		})
+	}
+
+	// Determine trend direction using percentage-based thresholds (5%)
+	improved := 0
+	degraded := 0
+	for _, d := range result.Deltas {
+		if d.Metric == "P95 Latency (ms)" || d.Metric == "P99 Latency (ms)" {
+			// For latency, decrease is improvement
+			if d.PctChange < -5 {
+				improved++
+			} else if d.PctChange > 5 {
+				degraded++
+			}
+		} else {
+			// For throughput, increase is improvement
+			if d.PctChange > 5 {
+				improved++
+			} else if d.PctChange < -5 {
+				degraded++
+			}
+		}
+	}
+
+	if improved > degraded {
+		result.TrendDirection = "improved"
+	} else if degraded > improved {
+		result.TrendDirection = "degraded"
+	} else {
+		result.TrendDirection = "stable"
+	}
+
+	return result
+}
+
 // GetReportBySuiteItemID retrieves a report by its suite_item_id.
 func (uc *ReportUsecase) GetReportBySuiteItemID(ctx context.Context, suiteItemID string) (*report.Report, error) {
 	row := uc.db.QueryRowContext(ctx, "SELECT "+reportSelectColumns+" FROM reports WHERE suite_item_id = ?", suiteItemID)
@@ -842,4 +945,45 @@ func (uc *ReportUsecase) UpdateReportByItemID(ctx context.Context, suiteItemID s
 		return fmt.Errorf("update report by suite_item_id: %w", err)
 	}
 	return nil
+}
+
+// DetailedDataResult contains the preview and markdown for a report's detailed data.
+type DetailedDataResult struct {
+	Preview  *report.DetailedDataPreview `json:"preview"`
+	Markdown string                      `json:"markdown"`
+}
+
+// GetDetailedData reads the persisted bundle and markdown for a report.
+func (uc *ReportUsecase) GetDetailedData(ctx context.Context, id string) (*DetailedDataResult, error) {
+	rpt, err := uc.GetReport(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get report: %w", err)
+	}
+
+	if rpt.MetricsJSONPath == "" {
+		return &DetailedDataResult{}, nil
+	}
+
+	reportDir := filepath.Dir(rpt.MetricsJSONPath)
+
+	// Read bundle
+	bundlePath := filepath.Join(reportDir, "report_bundle.json.gz")
+	result := &DetailedDataResult{}
+
+	compressed, err := os.ReadFile(bundlePath)
+	if err == nil && len(compressed) > 0 {
+		bundle, decompressErr := DecompressBundle(compressed)
+		if decompressErr == nil {
+			gen := NewBundleGenerator()
+			result.Preview = gen.BuildPreviewFromBundle(bundle, compressed, id)
+		}
+	}
+
+	// Read markdown
+	mdPath := filepath.Join(reportDir, "report.md")
+	if mdData, err := os.ReadFile(mdPath); err == nil {
+		result.Markdown = string(mdData)
+	}
+
+	return result, nil
 }

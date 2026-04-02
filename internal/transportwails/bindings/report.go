@@ -360,3 +360,24 @@ func (b *ReportBinding) GetExportFilePaths(id string) ExportFilePathsResult {
 		HTML:       html,
 	}
 }
+
+// DetailedDataResult is the result of GetDetailedData.
+type DetailedDataResult struct {
+	Preview  *report.DetailedDataPreview `json:"preview,omitempty"`
+	Markdown string                      `json:"markdown,omitempty"`
+	Error    string                      `json:"error,omitempty"`
+}
+
+// GetDetailedData retrieves the detailed data (AI Bundle preview + markdown) for a report.
+func (b *ReportBinding) GetDetailedData(id string) DetailedDataResult {
+	ctx := context.Background()
+	result, err := b.uc.GetDetailedData(ctx, id)
+	if err != nil {
+		slog.Error("GetDetailedData failed", "id", id, "error", err)
+		return DetailedDataResult{Error: err.Error()}
+	}
+	return DetailedDataResult{
+		Preview:  result.Preview,
+		Markdown: result.Markdown,
+	}
+}
