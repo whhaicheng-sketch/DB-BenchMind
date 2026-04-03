@@ -7,26 +7,30 @@
       <span v-if="unit" class="chart-unit">{{ unit }}</span>
     </div>
 
-    <!-- Stats -->
-    <div v-if="showStats && hasData" class="chart-stats">
-      <span class="stat">平均值: {{ formatNumber(stats.avg) }}</span>
-      <span class="stat">最大值: {{ formatNumber(stats.max) }}</span>
-      <span class="stat">最小值: {{ formatNumber(stats.min) }}</span>
-      <span v-if="stats.isSinglePoint" class="stat stat-note">单点数据</span>
-    </div>
+    <!-- Has Data: show charts -->
+    <template v-if="hasData">
+      <!-- Stats -->
+      <div v-if="showStats" class="chart-stats">
+        <span class="stat">平均值: {{ formatNumber(stats.avg) }}</span>
+        <span class="stat">最大值: {{ formatNumber(stats.max) }}</span>
+        <span class="stat">最小值: {{ formatNumber(stats.min) }}</span>
+        <span v-if="stats.isSinglePoint" class="stat stat-note">单点数据</span>
+      </div>
 
-    <!-- Bar Chart -->
-    <div ref="chartRef" class="bar-chart"></div>
+      <!-- Bar Chart -->
+      <div ref="chartRef" class="bar-chart"></div>
 
-    <!-- Sparkline -->
-    <div v-if="showSparkline && hasTimeSeries" class="sparkline-section">
-      <span class="sparkline-label">时间序列趋势</span>
-      <div ref="sparklineRef" class="sparkline-chart"></div>
-    </div>
+      <!-- Sparkline -->
+      <div v-if="showSparkline && hasTimeSeries" class="sparkline-section">
+        <span class="sparkline-label">时间序列趋势</span>
+        <div ref="sparklineRef" class="sparkline-chart"></div>
+      </div>
+    </template>
 
     <!-- No Data State -->
-    <div v-if="!hasData" class="no-data-state">
+    <div v-else class="no-data-state">
       <span class="no-data-text">暂无数据</span>
+      <span class="no-data-hint">该指标在报告中未记录数值</span>
     </div>
   </div>
 </template>
@@ -110,7 +114,12 @@ const sparklineData = computed(() => {
   if (!hasTimeSeries.value) return []
   return props.dataPoints
     .slice(-60) // 最多显示 60 个点
-    .map(p => p.value || p.tpm || p.tps || p.latency_avg || 0)
+    .filter(p => {
+      const v = p.value ?? p.tpm ?? p.tps ?? p.latency_avg ?? null
+      return v !== null && v !== undefined
+    })
+    .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    .map(p => p.value ?? p.tpm ?? p.tps ?? p.latency_avg ?? 0)
 })
 
 const formatNumber = (value) => {
@@ -178,7 +187,8 @@ const updateCharts = () => {
       series: [{
         type: 'line',
         data: sparklineData.value,
-        smooth: 0.3,
+        smooth: true,
+        connectNulls: true,
         symbol: 'none',
         lineStyle: { color: props.color, width: 2 },
         areaStyle: { color: props.color, opacity: 0.2 }
@@ -305,16 +315,24 @@ onUnmounted(() => {
 /* No Data State */
 .no-data-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 16px;
   background-color: var(--bg-secondary);
   border-radius: var(--radius-sm);
+  gap: 4px;
 }
 
 .no-data-text {
   font-size: 12px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.no-data-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 </style>

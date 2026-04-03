@@ -307,7 +307,9 @@ export const useReportStore = defineStore('report', {
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
 
-        this.showNotice('JSON 导出成功', 'success')
+        const paths = await this.getExportFilePaths(id)
+        const diskPath = paths?.raw || paths?.metrics || ''
+        this.showNotice('JSON exported' + (diskPath ? `: ${diskPath}` : ''), 'success', diskPath)
         return true
       } catch (err) {
         this.error = err.message || '下载 JSON 失败'
@@ -332,7 +334,9 @@ export const useReportStore = defineStore('report', {
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
 
-        this.showNotice('HTML 导出成功', 'success')
+        const paths = await this.getExportFilePaths(id)
+        const diskPath = paths?.html || ''
+        this.showNotice('HTML exported' + (diskPath ? `: ${diskPath}` : ''), 'success', diskPath)
         return true
       } catch (err) {
         this.error = err.message || '下载 HTML 失败'
@@ -352,6 +356,33 @@ export const useReportStore = defineStore('report', {
         return true
       } catch (err) {
         this.error = err.message || '复制失败'
+        this.showNotice(this.error, 'warning')
+        return false
+      }
+    },
+
+    // Copy an export file path to the clipboard
+    async copyExportPath(id, format) {
+      const paths = await this.getExportFilePaths(id)
+      if (!paths) {
+        this.showNotice('Unable to retrieve export path', 'warning')
+        return false
+      }
+      const pathMap = {
+        json: paths.raw || paths.metrics || '',
+        html: paths.html || ''
+      }
+      const path = pathMap[format] || ''
+      if (!path) {
+        this.showNotice('No export path available for this format', 'warning')
+        return false
+      }
+      try {
+        await navigator.clipboard.writeText(path)
+        this.showNotice('Path copied to clipboard', 'success')
+        return true
+      } catch (err) {
+        this.error = err.message || 'Failed to copy path'
         this.showNotice(this.error, 'warning')
         return false
       }
@@ -497,8 +528,8 @@ export const useReportStore = defineStore('report', {
       }
     },
 
-    showNotice(message, tone = 'info') {
-      this.notice = { message, tone, timestamp: Date.now() }
+    showNotice(message, tone = 'info', copyText = '') {
+      this.notice = { message, tone, copyText, timestamp: Date.now() }
     }
   }
 })

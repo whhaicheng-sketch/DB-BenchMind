@@ -2,8 +2,46 @@
 package report
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
+
+// FlexibleTime is a time.Time that can unmarshal from both Unix timestamps (int64/float64)
+// and RFC 3339 strings. The write path is unchanged (produces RFC 3339 via time.Time).
+type FlexibleTime struct {
+	time.Time
+}
+
+// UnmarshalJSON implements json.Unmarshaler. It accepts:
+//   - JSON number (int64 or float64 Unix seconds)
+//   - JSON string (RFC 3339)
+func (ft *FlexibleTime) UnmarshalJSON(data []byte) error {
+	// Try string (RFC 3339) first — standard time.Time format.
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return fmt.Errorf("FlexibleTime: parse RFC3339 string: %w", err)
+		}
+		ft.Time = t
+		return nil
+	}
+
+	// Try numeric (Unix seconds — written by buildMetricsJSON as s.Timestamp.Unix()).
+	var n float64
+	if err := json.Unmarshal(data, &n); err == nil {
+		ft.Time = time.Unix(int64(n), 0)
+		return nil
+	}
+
+	return fmt.Errorf("FlexibleTime: unsupported JSON value: %s", string(data))
+}
+
+// MarshalJSON delegates to time.Time.MarshalJSON (RFC 3339).
+func (ft FlexibleTime) MarshalJSON() ([]byte, error) {
+	return ft.Time.MarshalJSON()
+}
 
 // ReportStatus represents the status of a report.
 type ReportStatus string
@@ -218,9 +256,9 @@ type MetricsSummaryData struct {
 
 // MetricsTimeSeriesItem represents a single time series data point.
 type MetricsTimeSeriesItem struct {
-	Timestamp  time.Time `json:"timestamp"`
-	TPS        float64   `json:"tps,omitempty"`
-	LatencyAvg float64   `json:"latency_avg,omitempty"`
+	Timestamp  FlexibleTime `json:"timestamp"`
+	TPS        float64      `json:"tps,omitempty"`
+	LatencyAvg float64      `json:"latency_avg,omitempty"`
 }
 
 // MonitoringData represents the monitoring metrics data.
@@ -262,9 +300,9 @@ type MonitoringNetworkData struct {
 
 // MonitoringTimeSeries represents a single monitoring time series data point.
 type MonitoringTimeSeries struct {
-	Timestamp    time.Time `json:"timestamp"`
-	CPUUsage     float64   `json:"cpu_usage,omitempty"`
-	MemoryUsedMB float64   `json:"memory_used_mb,omitempty"`
+	Timestamp    FlexibleTime `json:"timestamp"`
+	CPUUsage     float64      `json:"cpu_usage,omitempty"`
+	MemoryUsedMB float64      `json:"memory_used_mb,omitempty"`
 }
 
 // RawData represents the raw benchmark output data.

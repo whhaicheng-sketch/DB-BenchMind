@@ -38,6 +38,10 @@ export function ListReports(arg1) {
   return window['go']['bindings']['ReportBinding']['ListReports'](arg1);
 }
 
+export function GetDetailedData(arg1) {
+  return window['go']['bindings']['ReportBinding']['GetDetailedData'](arg1);
+}
+
 export function ListSuites(arg1) {
   return window['go']['bindings']['ReportBinding']['ListSuites'](arg1);
 }

@@ -127,8 +127,8 @@ func main() {
 	// Create application with options
 	err = wails.Run(&options.App{
 		Title:  "DB-BenchMind",
-		Width:  1200,
-		Height: 800,
+		Width:  1250,
+		Height: 900,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

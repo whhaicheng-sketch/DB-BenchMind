@@ -1,13 +1,13 @@
 <template>
-  <div class="report-detail-panel" v-if="report">
+  <div class="report-detail-modal" v-if="report">
     <!-- Header -->
-    <div class="detail-header">
+    <div class="modal-header">
       <div class="header-left">
-        <h2 class="detail-title">报告详情</h2>
-        <span class="report-id">{{ report.id }}</span>
+        <h2 class="modal-title">报告详情</h2>
+        <span class="report-id-badge">{{ report.id.slice(0, 8) }}</span>
+        <span class="status-badge" :class="getStatusClass(report.status)">{{ formatStatus(report.status) }}</span>
       </div>
       <div class="header-actions">
-        <!-- Export Buttons -->
         <div class="export-buttons">
           <button
             class="btn btn-export"
@@ -16,8 +16,7 @@
             title="导出 JSON"
           >
             <span v-if="reportStore.exporting" class="btn-spinner"></span>
-            <span v-else>📄</span>
-            JSON
+            <span v-else>JSON</span>
           </button>
           <button
             class="btn btn-export"
@@ -26,20 +25,19 @@
             title="导出 HTML"
           >
             <span v-if="reportStore.exporting" class="btn-spinner"></span>
-            <span v-else>🌐</span>
-            HTML
+            <span v-else>HTML</span>
           </button>
           <button
-            class="btn btn-export"
+            class="btn btn-copy"
             :disabled="reportStore.exporting"
             @click="handleCopyJSON"
             title="复制 JSON 到剪贴板"
           >
-            📋 复制
+            Copy
           </button>
         </div>
-        <button class="btn btn-secondary" @click="$emit('close')">
-          关闭
+        <button class="btn btn-close-action" @click="$emit('close')">
+          Close
         </button>
       </div>
     </div>
@@ -271,6 +269,11 @@
             <div class="spinner"></div>
             <span>加载详细数据...</span>
           </div>
+          <div v-else-if="errorDetailedData" class="error-state-inline">
+            <span class="error-icon-small">!</span>
+            <span class="error-message">{{ errorDetailedData }}</span>
+            <button class="btn btn-secondary btn-retry" @click="retryDetailedData">重试</button>
+          </div>
           <div v-else-if="detailedData" class="detailed-data-grid">
             <div class="info-item">
               <span class="info-label">Bundle 文件</span>
@@ -309,7 +312,18 @@
             </div>
           </div>
           <div v-else class="no-data-hint">
-            暂无详细数据。报告可能正在生成中。
+            <template v-if="report.status === 'running' || report.status === 'pending'">
+              <span class="hint-icon">&#9203;</span>
+              详细数据暂不可用，待任务完成后自动生成。
+            </template>
+            <template v-else-if="report.status === 'failed' || report.status === 'precheck_failed'">
+              <span class="hint-icon">&#9888;</span>
+              任务未成功完成，无法生成详细数据。
+            </template>
+            <template v-else>
+              <span class="hint-icon">&#9432;</span>
+              暂无详细数据。此报告类型可能不支持 AI Bundle 生成，或数据尚未生成。
+            </template>
           </div>
         </div>
       </section>
@@ -352,6 +366,7 @@ const showDetailedData = ref(false)
 const detailedData = ref(null)
 const reportMarkdown = ref('')
 const loadingDetailedData = ref(false)
+const errorDetailedData = ref(null)
 
 // Computed properties for chart data
 const hasPerformanceData = computed(() => {
@@ -427,19 +442,30 @@ const toggleRawMetrics = () => {
 const toggleDetailedData = async () => {
   showDetailedData.value = !showDetailedData.value
   if (showDetailedData.value && !detailedData.value && report.value) {
-    loadingDetailedData.value = true
-    try {
-      const result = await reportStore.getDetailedData(report.value.id)
-      if (result) {
-        detailedData.value = result.preview
-        reportMarkdown.value = result.markdown || ''
-      }
-    } catch (err) {
-      console.error('Failed to load detailed data:', err)
-    } finally {
-      loadingDetailedData.value = false
-    }
+    await loadDetailedData()
   }
+}
+
+const loadDetailedData = async () => {
+  if (!report.value) return
+  loadingDetailedData.value = true
+  errorDetailedData.value = null
+  try {
+    const result = await reportStore.getDetailedData(report.value.id)
+    if (result) {
+      detailedData.value = result.preview
+      reportMarkdown.value = result.markdown || ''
+    }
+  } catch (err) {
+    errorDetailedData.value = err.message || '加载详细数据失败'
+  } finally {
+    loadingDetailedData.value = false
+  }
+}
+
+const retryDetailedData = async () => {
+  detailedData.value = null
+  await loadDetailedData()
 }
 
 const formatSourceType = (source) => {
@@ -528,7 +554,7 @@ const formatBytes = (bytes) => {
 </script>
 
 <style scoped>
-.report-detail-panel {
+.report-detail-modal {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -536,56 +562,62 @@ const formatBytes = (bytes) => {
   overflow: hidden;
 }
 
-/* Header */
-.detail-header {
+/* Modal Header */
+.modal-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  padding: var(--spacing-lg);
+  align-items: center;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
-  flex-wrap: wrap;
-  gap: 8px;
-  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.detail-title {
-  font-size: var(--font-size-lg);
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-title {
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
-.report-id {
-  font-size: var(--font-size-xs);
+.report-id-badge {
+  font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-family-mono);
+  padding: 2px 8px;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-sm);
 }
 
 .header-actions {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: 8px;
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
 /* Buttons */
 .btn {
-  padding: 8px 16px;
+  padding: 6px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 
-.btn-secondary {
+.btn-close-action {
   background-color: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.btn-secondary:hover {
+.btn-close-action:hover {
   background-color: var(--bg-hover);
   border-color: var(--border-dark);
 }
@@ -596,7 +628,7 @@ const formatBytes = (bytes) => {
   border-color: var(--primary);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .btn-export:hover:not(:disabled) {
@@ -607,6 +639,16 @@ const formatBytes = (bytes) => {
 .btn-export:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.btn-copy {
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.btn-copy:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  border-color: var(--border-dark);
 }
 
 .btn-spinner {
@@ -620,7 +662,7 @@ const formatBytes = (bytes) => {
 
 .export-buttons {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: 6px;
 }
 
 /* Loading & Error States */
@@ -630,14 +672,14 @@ const formatBytes = (bytes) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px;
+  padding: 80px;
   color: var(--text-muted);
   gap: var(--spacing-md);
 }
 
 .spinner {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 3px solid var(--border-color);
   border-top-color: var(--primary);
   border-radius: 50%;
@@ -669,12 +711,12 @@ const formatBytes = (bytes) => {
 .detail-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: 24px;
 }
 
 /* Sections */
 .detail-section {
-  margin-bottom: var(--spacing-xl);
+  margin-bottom: 24px;
 }
 
 .section-title {
@@ -682,7 +724,7 @@ const formatBytes = (bytes) => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: var(--spacing-md);
-  padding-bottom: var(--spacing-xs);
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -715,8 +757,8 @@ const formatBytes = (bytes) => {
 /* Info Grid */
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
 }
 
 .info-item {
@@ -726,7 +768,7 @@ const formatBytes = (bytes) => {
 }
 
 .info-label {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -736,6 +778,11 @@ const formatBytes = (bytes) => {
   font-size: var(--font-size-base);
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.mono {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
 }
 
 .error-text {
@@ -750,12 +797,11 @@ const formatBytes = (bytes) => {
 /* Status Badge */
 .status-badge {
   display: inline-block;
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
 
 .status-success {
@@ -786,8 +832,8 @@ const formatBytes = (bytes) => {
 /* Charts Grid */
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
 }
 
 .chart-card {
@@ -800,8 +846,8 @@ const formatBytes = (bytes) => {
 /* Metrics Grid */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
 }
 
 .metric-card {
@@ -815,7 +861,7 @@ const formatBytes = (bytes) => {
 }
 
 .metric-label {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -823,14 +869,14 @@ const formatBytes = (bytes) => {
 }
 
 .metric-value {
-  font-size: var(--font-size-xl);
+  font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
   font-family: var(--font-family-mono);
 }
 
 .metric-unit {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -855,7 +901,7 @@ const formatBytes = (bytes) => {
 
 .percentiles-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: var(--spacing-sm);
 }
 
@@ -886,18 +932,11 @@ const formatBytes = (bytes) => {
 .detailed-data-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: 16px;
 }
 
 .detailed-subsection {
   margin-top: var(--spacing-sm);
-}
-
-.subsection-title {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-xs);
 }
 
 .window-chips {
@@ -908,7 +947,7 @@ const formatBytes = (bytes) => {
 
 .window-chip {
   display: inline-block;
-  padding: 2px 10px;
+  padding: 3px 12px;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
@@ -920,15 +959,20 @@ const formatBytes = (bytes) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
+  padding: 8px 0;
   font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.anomaly-item:last-child {
+  border-bottom: none;
 }
 
 .anomaly-severity {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -945,12 +989,63 @@ const formatBytes = (bytes) => {
 
 .anomaly-summary {
   color: var(--text-muted);
+  flex: 1;
 }
 
+/* No data hint with status-aware messaging */
 .no-data-hint {
-  color: var(--text-muted);
-  font-style: italic;
-  padding: var(--spacing-md) 0;
+  color: var(--text-secondary);
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-sm);
+}
+
+.hint-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* Error State Inline */
+.error-state-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 12px;
+  background-color: var(--danger-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--danger);
+}
+
+.error-icon-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--danger);
+  color: white;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.btn-retry {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: var(--font-size-xs);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-retry:hover {
+  background-color: var(--bg-hover);
 }
 
 /* Metrics Detail */
@@ -969,5 +1064,7 @@ const formatBytes = (bytes) => {
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
 }
 </style>

@@ -54,6 +54,7 @@ func WithAdapterType(adapterType string) ReportOption {
 type DefaultReportCollector struct {
 	reportsDir string
 	db         *sql.DB
+	bundleGen  *BundleGenerator
 }
 
 // ReportCollectorOption configures the collector.
@@ -77,6 +78,7 @@ func WithDB(db *sql.DB) ReportCollectorOption {
 func NewDefaultReportCollector(opts ...ReportCollectorOption) *DefaultReportCollector {
 	c := &DefaultReportCollector{
 		reportsDir: "./reports",
+		bundleGen:  NewBundleGenerator(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -166,6 +168,27 @@ func (c *DefaultReportCollector) CollectAndPersist(
 	rpt.RawJSONPath = paths.RawJSON
 	rpt.ReportHTMLPath = paths.ReportHTML
 	rpt.SummaryJSONPath = paths.SummaryJSON
+
+	// Generate AI Bundle (best-effort — failure does not affect report status).
+	if c.bundleGen != nil && rpt.Status == report.StatusCompleted {
+		bundleInput := &BundleInput{
+			Report:      rpt,
+			Run:         run,
+			Samples:     o.samples,
+			AdapterType: o.adapterType,
+		}
+		compressedBundle, _, err := c.bundleGen.GenerateAndCompress(bundleInput)
+		if err != nil {
+			slog.Warn("bundle auto-generation failed", "report_id", reportID, "error", err)
+		} else {
+			bundlePath := filepath.Join(reportDir, "report_bundle.json.gz")
+			if writeErr := os.WriteFile(bundlePath, compressedBundle, 0644); writeErr != nil {
+				slog.Warn("bundle auto-generation write failed", "report_id", reportID, "error", writeErr)
+			} else {
+				slog.Info("bundle auto-generated", "report_id", reportID, "path", bundlePath)
+			}
+		}
+	}
 
 	// Persist report record to database
 	result := &report.ReportResult{

@@ -18,6 +18,8 @@ export function GetReportMetrics(arg1:string):Promise<bindings.ReportMetricsResu
 
 export function GetSuite(arg1:string):Promise<bindings.SuiteResult>;
 
+export function GetDetailedData(arg1:string):Promise<bindings.DetailedDataResult>;
+
 export function ListReports(arg1:bindings.ListReportsOptionsDTO):Promise<bindings.ReportListResult>;
 
 export function ListSuites(arg1:bindings.ListSuitesOptionsDTO):Promise<bindings.SuiteListResult>;

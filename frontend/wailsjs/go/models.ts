@@ -823,6 +823,82 @@ export namespace bindings {
 		    return a;
 		}
 	}
+	export class AnomalyPreview {
+	    type?: string;
+	    severity?: string;
+	    summary?: string;
+	    value?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new AnomalyPreview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.severity = source["severity"];
+	        this.summary = source["summary"];
+	        this.value = source["value"];
+	    }
+	}
+	export class WindowPreview {
+	    name?: string;
+	    sample_count?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowPreview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.sample_count = source["sample_count"];
+	    }
+	}
+	export class DetailedDataPreview {
+	    bundle_filename?: string;
+	    compressed_size_bytes?: number;
+	    sampling_policy?: string;
+	    retained_windows?: WindowPreview[];
+	    anomaly_windows?: AnomalyPreview[];
+	    raw_sample_count?: number;
+	    schema_preview?: {[key: string]: any};
+
+	    static createFrom(source: any = {}) {
+	        return new DetailedDataPreview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bundle_filename = source["bundle_filename"];
+	        this.compressed_size_bytes = source["compressed_size_bytes"];
+	        this.sampling_policy = source["sampling_policy"];
+	        this.retained_windows = source["retained_windows"]?.map(function(element: any) {
+	            return WindowPreview.createFrom(element);
+	        });
+	        this.anomaly_windows = source["anomaly_windows"]?.map(function(element: any) {
+	            return AnomalyPreview.createFrom(element);
+	        });
+	        this.raw_sample_count = source["raw_sample_count"];
+	        this.schema_preview = source["schema_preview"];
+	    }
+	}
+	export class DetailedDataResult {
+	    preview?: DetailedDataPreview;
+	    markdown?: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DetailedDataResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.preview = source["preview"] && DetailedDataPreview.createFrom(source["preview"]);
+	        this.markdown = source["markdown"];
+	        this.error = source["error"];
+	    }
+	}
 	export class DeleteAllResult {
 	    count?: number;
 	    error?: string;

@@ -54,6 +54,11 @@ let lastCurrentValue = null
 let lastDataLength = 0
 let lastColor = null
 
+const hasData = computed(() => {
+  return (props.currentValue !== null && props.currentValue !== undefined && props.currentValue !== 0) ||
+         (props.dataPoints && props.dataPoints.length > 0)
+})
+
 const formattedValue = computed(() => {
   if (props.currentValue === null || props.currentValue === undefined) return 'N/A'
   return props.currentValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -72,8 +77,15 @@ const stats = computed(() => {
 // T27.3: Limit sparkline data to last 60 points
 const sparklineData = computed(() => {
   if (!props.dataPoints || props.dataPoints.length === 0) return []
-  // Only take last 60 points for sparkline
-  return props.dataPoints.slice(-60).map(p => p.value || p.tpm || p.tps || 0)
+  // Only take last 60 points for sparkline, filter nulls, and sort by timestamp
+  return props.dataPoints
+    .slice(-60)
+    .filter(p => {
+      const v = p.value ?? p.tpm ?? p.tps ?? null
+      return v !== null && v !== undefined
+    })
+    .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    .map(p => p.value ?? p.tpm ?? p.tps ?? 0)
 })
 
 const formatNumber = (value) => {
@@ -146,7 +158,8 @@ const updateChartsInternal = () => {
       series: [{
         type: 'line',
         data: sparklineData.value,
-        smooth: 0.3,
+        smooth: true,
+        connectNulls: true,
         symbol: 'none',
         lineStyle: { color: props.color, width: 2 },
         areaStyle: { color: props.color, opacity: 0.2 }
@@ -199,10 +212,14 @@ onUnmounted(() => {
       <span class="stat">Avg: {{ formatNumber(stats.avg) }}</span>
       <span class="stat">Max: {{ formatNumber(stats.max) }}</span>
     </div>
-    <div ref="chartRef" class="bar-chart"></div>
-    <div v-if="showSparkline" class="sparkline-section">
+    <div v-if="hasData" ref="chartRef" class="bar-chart"></div>
+    <div v-else class="bar-chart bar-chart-empty"></div>
+    <div v-if="showSparkline && hasData" class="sparkline-section">
       <span class="sparkline-label">Trend (60s)</span>
       <div ref="sparklineRef" class="sparkline-chart"></div>
+    </div>
+    <div v-if="!hasData" class="no-data-state">
+      <span class="no-data-text">Waiting for data...</span>
     </div>
   </div>
 </template>
@@ -252,6 +269,9 @@ onUnmounted(() => {
   background-color: var(--bg-secondary);
   border-radius: var(--radius-xs);
 }
+.bar-chart-empty {
+  opacity: 0.4;
+}
 .sparkline-section {
   display: flex;
   flex-direction: column;
@@ -267,5 +287,16 @@ onUnmounted(() => {
   height: 40px;
   background-color: var(--bg-secondary);
   border-radius: var(--radius-xs);
+}
+.no-data-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+.no-data-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 </style>

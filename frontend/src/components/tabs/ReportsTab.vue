@@ -136,19 +136,31 @@
         </div>
       </div>
 
-      <!-- Detail Panel -->
-      <div class="detail-section" v-if="selectedReportId">
-        <ReportDetailPanel
-          :report-id="selectedReportId"
-          @close="closeDetail"
-        />
-      </div>
     </div>
+
+    <!-- Report Detail Modal -->
+    <Teleport to="body">
+      <div v-if="selectedReportId" class="modal-overlay" @click.self="closeDetail">
+        <div class="modal-dialog">
+          <ReportDetailPanel
+            :key="selectedReportId"
+            :report-id="selectedReportId"
+            @close="closeDetail"
+          />
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Notice Toast -->
     <div v-if="reportStore.notice" class="notice-toast" :class="`notice-${reportStore.notice.tone}`">
-      {{ reportStore.notice.message }}
-      <button class="notice-close" @click="reportStore.clearNotice()">×</button>
+      <span class="notice-message">{{ reportStore.notice.message }}</span>
+      <button
+        v-if="reportStore.notice.copyText"
+        class="notice-copy-btn"
+        @click="handleCopyNoticePath"
+        title="Copy path to clipboard"
+      >Copy Path</button>
+      <button class="notice-close" @click="reportStore.clearNotice()">&times;</button>
     </div>
   </div>
 </template>
@@ -481,6 +493,17 @@ const handleClearAll = async () => {
   await reportStore.deleteAllReports()
   checkedIds.value = []
 }
+
+const handleCopyNoticePath = async () => {
+  const text = reportStore.notice?.copyText
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    reportStore.showNotice('Path copied to clipboard', 'success')
+  } catch {
+    reportStore.showNotice('Failed to copy path', 'warning')
+  }
+}
 </script>
 
 <style scoped>
@@ -601,7 +624,7 @@ const handleClearAll = async () => {
   to { transform: rotate(360deg); }
 }
 
-/* Reports List */
+/* Reports List - full width now that detail is modal */
 .reports-list {
   flex: 1;
   overflow-y: auto;
@@ -615,17 +638,19 @@ const handleClearAll = async () => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   overflow: hidden;
+  background-color: var(--bg-secondary);
 }
 
 .suite-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  background-color: var(--bg-secondary);
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, color-mix(in srgb, var(--bg-secondary) 95%, var(--primary)) 100%);
   cursor: pointer;
   overflow: hidden;
   min-width: 0;
+  border-left: 3px solid var(--primary);
 }
 
 .suite-row:hover {
@@ -633,33 +658,33 @@ const handleClearAll = async () => {
 }
 
 .expand-icon {
-  font-size: 12px;
-  color: var(--text-secondary);
-  width: 16px;
+  font-size: 14px;
+  color: var(--primary);
+  width: 18px;
   flex-shrink: 0;
+  font-weight: 700;
 }
 
 .suite-info {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 4px;
   overflow: hidden;
 }
 
 .suite-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-md, 15px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .suite-meta {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs, 12px);
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -667,6 +692,7 @@ const handleClearAll = async () => {
 /* Sub-items in expanded suite */
 .suite-items {
   border-top: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
 }
 
 .report-item {
@@ -696,10 +722,11 @@ const handleClearAll = async () => {
 }
 
 .report-item.sub-item {
-  padding: 8px 12px 8px 40px;
+  padding: 10px 16px 10px 52px;
   border: none;
   border-bottom: 1px solid var(--border-light);
   border-radius: 0;
+  background-color: var(--bg-primary);
 }
 
 .report-item.sub-item:last-child {
@@ -966,11 +993,26 @@ const handleClearAll = async () => {
   color: var(--text-muted);
 }
 
-/* Detail Section */
-.detail-section {
-  width: 400px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border-light);
+/* Report Detail Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-dialog {
+  width: min(1060px, calc(100vw - 40px));
+  max-height: min(820px, calc(100vh - 40px));
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -1016,6 +1058,32 @@ const handleClearAll = async () => {
   gap: var(--spacing-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
+  max-width: 600px;
+}
+
+.notice-message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-copy-btn {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.15);
+  color: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.notice-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .notice-info {
