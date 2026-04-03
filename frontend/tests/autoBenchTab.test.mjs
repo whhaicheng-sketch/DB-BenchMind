@@ -47,8 +47,9 @@ test('T12.2: autobench has status badge styling for success/error/running states
   assert.match(autoBenchSource, /status-warning/)
 })
 
-test('T12.3: autobench has goToReports function for navigation to reports tab', () => {
-  assert.match(autoBenchSource, /function goToReports/)
+test('T12.3: autobench has handleRerunFailed function for re-running failed items', () => {
+  assert.match(autoBenchSource, /handleRerunFailed/)
+  assert.match(autoBenchSource, /AutoBenchBinding\.RerunFailed/)
 })
 
 test('T12.3: autobench does NOT render View Report button in item rows (P16)', () => {
@@ -58,10 +59,10 @@ test('T12.3: autobench does NOT render View Report button in item rows (P16)', (
   assert.doesNotMatch(autoBenchSource, /link-button/)
 })
 
-test('T12.3: autobench renders View All Reports button when suite completes', () => {
-  assert.match(autoBenchSource, /suite-actions/)
-  assert.match(autoBenchSource, /View All Reports/)
-  assert.match(autoBenchSource, /@click="goToReports"/)
+test('T12.3: autobench renders Re-run Failed button when suite has failed items', () => {
+  assert.match(autoBenchSource, /Re-run Failed/)
+  assert.match(autoBenchSource, /hasFailedItems/)
+  assert.match(autoBenchSource, /@click="handleRerunFailed"/)
 })
 
 test('T12.1: autobench uses real connections from store', () => {

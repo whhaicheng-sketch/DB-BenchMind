@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -362,5 +363,574 @@ func generateTestSamples(count int, baseTPS, baseLatency float64) []execution.Me
 		}
 	}
 	return samples
+}
+
+// generateTestSamplesWithAnomalies generates samples with a TPS drop in the specified range.
+func generateTestSamplesWithAnomalies(count int, baseTPS, baseLatency float64, anomalyStart, anomalyEnd int, anomalyTPS float64) []execution.MetricSample {
+	samples := generateTestSamples(count, baseTPS, baseLatency)
+	for i := anomalyStart; i < anomalyEnd && i < count; i++ {
+		samples[i].TPS = anomalyTPS
+	}
+	return samples
+}
+
+// ---------------------------------------------------------------------------
+// 1. Regression tests (targeting recent simplify fixes)
+// ---------------------------------------------------------------------------
+
+func TestBuildPreviewFromBundle(t *testing.T) {
+	gen := NewBundleGenerator()
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-preview",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     60000,
+			TPS:            1000.0,
+			TPM:            60000.0,
+			LatencyAvgMs:   10.0,
+			LatencyP95Ms:   25.0,
+			LatencyP99Ms:   50.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     generateTestSamples(100, 1000.0, 10.0),
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	preview := BuildPreviewFromBundle(bundle, compressed, "rpt-preview")
+	if preview == nil {
+		t.Fatal("BuildPreviewFromBundle returned nil")
+	}
+
+	// BundleFilename
+	if want := "report_bundle_rpt-preview.json.gz"; preview.BundleFilename != want {
+		t.Errorf("BundleFilename = %q, want %q", preview.BundleFilename, want)
+	}
+
+	// CompressedSize
+	if preview.CompressedSize != int64(len(compressed)) {
+		t.Errorf("CompressedSize = %d, want %d", preview.CompressedSize, len(compressed))
+	}
+
+	// SamplingPolicy
+	if preview.SamplingPolicy != "front_middle_tail_anomaly" {
+		t.Errorf("SamplingPolicy = %q, want %q", preview.SamplingPolicy, "front_middle_tail_anomaly")
+	}
+
+	// RetainedWindows: expect 3 (front/middle/tail)
+	if len(preview.RetainedWindows) != 3 {
+		t.Fatalf("RetainedWindows count = %d, want 3", len(preview.RetainedWindows))
+	}
+	wantNames := []string{"front", "middle", "tail"}
+	for i, w := range preview.RetainedWindows {
+		if w.Name != wantNames[i] {
+			t.Errorf("RetainedWindows[%d].Name = %q, want %q", i, w.Name, wantNames[i])
+		}
+		if w.SampleCount <= 0 {
+			t.Errorf("RetainedWindows[%d].SampleCount = %d, want > 0", i, w.SampleCount)
+		}
+	}
+
+	// AnomalyWindows: stable metrics → empty
+	if len(preview.AnomalyWindows) != 0 {
+		t.Errorf("AnomalyWindows count = %d, want 0 for stable metrics", len(preview.AnomalyWindows))
+	}
+
+	// RawSampleCount
+	if preview.RawSampleCount <= 0 {
+		t.Errorf("RawSampleCount = %d, want > 0", preview.RawSampleCount)
+	}
+}
+
+func TestBuildPreviewFromBundle_WithAnomalies(t *testing.T) {
+	gen := NewBundleGenerator()
+	// Inject TPS drop to trigger anomaly detection
+	samples := generateTestSamplesWithAnomalies(100, 1000.0, 10.0, 40, 55, 100.0)
+
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-anomaly",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     60000,
+			TPS:            1000.0,
+			TPM:            60000.0,
+			LatencyAvgMs:   10.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     samples,
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	preview := BuildPreviewFromBundle(bundle, compressed, "rpt-anomaly")
+	if preview == nil {
+		t.Fatal("BuildPreviewFromBundle returned nil")
+	}
+
+	if len(preview.AnomalyWindows) == 0 {
+		t.Fatal("AnomalyWindows is empty, expected TPS drop anomalies")
+	}
+
+	for i, a := range preview.AnomalyWindows {
+		if a.Type == "" {
+			t.Errorf("AnomalyWindows[%d].Type is empty", i)
+		}
+		if a.Severity == "" {
+			t.Errorf("AnomalyWindows[%d].Severity is empty", i)
+		}
+		if a.Summary == "" {
+			t.Errorf("AnomalyWindows[%d].Summary is empty", i)
+		}
+		if a.Value == 0 {
+			t.Errorf("AnomalyWindows[%d].Value is zero", i)
+		}
+	}
+}
+
+func TestComputeWindowSummary_NoCPUValues(t *testing.T) {
+	samples := []execution.MetricSample{
+		{TPS: 100.0, LatencyAvg: 10.0, Timestamp: time.Now()},
+		{TPS: 200.0, LatencyAvg: 20.0, Timestamp: time.Now()},
+		{TPS: 150.0, LatencyAvg: 15.0, Timestamp: time.Now()},
+	}
+
+	summary := computeWindowSummary(samples)
+
+	// TPS stats
+	if summary.TPS.Avg != 150.0 {
+		t.Errorf("TPS.Avg = %v, want 150.0", summary.TPS.Avg)
+	}
+	if summary.TPS.Min != 100.0 {
+		t.Errorf("TPS.Min = %v, want 100.0", summary.TPS.Min)
+	}
+	if summary.TPS.Max != 200.0 {
+		t.Errorf("TPS.Max = %v, want 200.0", summary.TPS.Max)
+	}
+
+	// Latency stats
+	if summary.Latency.Avg != 15.0 {
+		t.Errorf("Latency.Avg = %v, want 15.0", summary.Latency.Avg)
+	}
+	if summary.Latency.Min != 10.0 {
+		t.Errorf("Latency.Min = %v, want 10.0", summary.Latency.Min)
+	}
+	if summary.Latency.Max != 20.0 {
+		t.Errorf("Latency.Max = %v, want 20.0", summary.Latency.Max)
+	}
+
+	// CPU fields should be zero-value (no CPU data in samples)
+	if summary.CPU.Avg != 0 {
+		t.Errorf("CPU.Avg = %v, want 0", summary.CPU.Avg)
+	}
+	if summary.CPU.Min != 0 {
+		t.Errorf("CPU.Min = %v, want 0", summary.CPU.Min)
+	}
+	if summary.CPU.Max != 0 {
+		t.Errorf("CPU.Max = %v, want 0", summary.CPU.Max)
+	}
+
+	// SampleCount
+	if summary.SampleCount != 3 {
+		t.Errorf("SampleCount = %d, want 3", summary.SampleCount)
+	}
+}
+
+func TestGetDetailedData_PackageLevelFunction(t *testing.T) {
+	// BuildPreviewFromBundle is a package-level function (not a method on BundleGenerator).
+	// Verify it works without creating a BundleGenerator instance.
+	gen := NewBundleGenerator()
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-pkg-fn",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     60000,
+			TPS:            500.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     generateTestSamples(50, 500.0, 10.0),
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	// Call as package-level function (not gen.BuildPreviewFromBundle)
+	preview := BuildPreviewFromBundle(bundle, compressed, "rpt-pkg-fn")
+	if preview == nil {
+		t.Fatal("BuildPreviewFromBundle returned nil")
+	}
+	if preview.BundleFilename != "report_bundle_rpt-pkg-fn.json.gz" {
+		t.Errorf("BundleFilename = %q, want %q", preview.BundleFilename, "report_bundle_rpt-pkg-fn.json.gz")
+	}
+	if preview.CompressedSize != int64(len(compressed)) {
+		t.Errorf("CompressedSize = %d, want %d", preview.CompressedSize, len(compressed))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 2. Bundle volume tests
+// ---------------------------------------------------------------------------
+
+func TestBundleGenerator_VolumeVerification(t *testing.T) {
+	gen := NewBundleGenerator()
+
+	tests := []struct {
+		name        string
+		sampleCount int
+	}{
+		{
+			name:        "10min benchmark 600 samples",
+			sampleCount: 600,
+		},
+		{
+			name:        "2h benchmark 7200 samples",
+			sampleCount: 7200,
+		},
+		{
+			name:        "6h benchmark 21600 samples",
+			sampleCount: 21600,
+		},
+		{
+			name:        "high frequency 10000 samples with anomalies",
+			sampleCount: 10000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// For the anomaly case, inject TPS drops
+			var samples []execution.MetricSample
+			if tt.name == "high frequency 10000 samples with anomalies" {
+				samples = generateTestSamplesWithAnomalies(tt.sampleCount, 1000.0, 10.0,
+					tt.sampleCount/5, tt.sampleCount/5+tt.sampleCount/5, 100.0)
+			} else {
+				samples = generateTestSamples(tt.sampleCount, 1000.0, 10.0)
+			}
+
+			input := &BundleInput{
+				Report: &report.Report{
+					ID:             "rpt-vol",
+					SuiteID:        "standalone",
+					ConnectionName: "test-conn",
+					TemplateName:   "oltp",
+					DatabaseType:   "mysql",
+					StartedAt:      time.Now(),
+					DurationMs:     int64(tt.sampleCount) * 1000,
+					TPS:            1000.0,
+					TPM:            60000.0,
+					LatencyAvgMs:   10.0,
+				},
+				AdapterType: "sysbench",
+				Samples:     samples,
+			}
+
+			compressed, bundle, err := gen.GenerateAndCompress(input)
+			if err != nil {
+				t.Fatalf("GenerateAndCompress() error = %v", err)
+			}
+
+			// 1. Size within limit
+			if len(compressed) > MaxBundleCompressedBytes {
+				t.Errorf("Compressed size %d exceeds limit %d", len(compressed), MaxBundleCompressedBytes)
+			}
+
+			// 2. DecompressBundle can restore
+			restored, decompressErr := DecompressBundle(compressed)
+			if decompressErr != nil {
+				t.Fatalf("DecompressBundle() error = %v", decompressErr)
+			}
+			if restored.RunMeta.RunID != "rpt-vol" {
+				t.Errorf("Restored RunID = %q, want %q", restored.RunMeta.RunID, "rpt-vol")
+			}
+
+			// 3. AIMeta.CompressedSizeBytes matches
+			if bundle.AIMeta.CompressedSizeBytes != int64(len(compressed)) {
+				t.Errorf("AIMeta.CompressedSizeBytes = %d, want %d",
+					bundle.AIMeta.CompressedSizeBytes, len(compressed))
+			}
+
+			// 4. Verify AIMeta.TruncationApplied is consistent
+			if bundle.AIMeta.TruncationApplied && bundle.AIMeta.TruncationReason == "" {
+				t.Error("TruncationApplied = true but TruncationReason is empty")
+			}
+
+			// 5. Anomaly windows preserved when anomalies present
+			if tt.name == "high frequency 10000 samples with anomalies" {
+				if len(bundle.AnomalyWindows) == 0 {
+					t.Error("Expected anomaly windows to be preserved but got none")
+				}
+			}
+		})
+	}
+}
+
+func TestBundleGenerator_TruncationLayers(t *testing.T) {
+	gen := NewBundleGenerator()
+
+	// Force truncation by inflating the bundle with a large Comparison
+	// (directly copied into the bundle without capping) and many samples.
+	// Each comparison delta has unique metric names and values, so gzip
+	// cannot compress them effectively.
+	const totalSamples = 10000
+	samples := generateTestSamples(totalSamples, 1000.0, 10.0)
+
+	// Build a Comparison with 40000 unique deltas using long metric names
+	// that resist gzip compression (~1.1MB compressed in Go). This exceeds
+	// the 1MB limit and triggers all 4 truncation layers.
+	// Note: because truncation layers cannot reduce Comparison data, the final
+	// size may still exceed 1MB. This test verifies truncation IS applied and
+	// structural invariants hold.
+	const deltaCount = 40000
+	deltas := make([]report.BundleComparisonDelta, deltaCount)
+	for i := 0; i < deltaCount; i++ {
+		deltas[i] = report.BundleComparisonDelta{
+			Metric:    fmt.Sprintf("performance_analysis_throughput_measurement_series_comprehensive_database_benchmark_stress_test_run_%06d", i),
+			Current:   float64(i) * 1.123456789,
+			Previous:  float64(i) * 0.876543210,
+			Delta:     float64(i) * 0.246913579,
+			PctChange: float64(i) * 0.135792468,
+		}
+	}
+
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-trunc",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     50000000,
+			TPS:            1000.0,
+			TPM:            60000.0,
+			LatencyAvgMs:   10.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     samples,
+		Comparison: &report.BundleComparison{
+			PreviousID: "rpt-prev",
+			BaselineID: "rpt-base",
+			Deltas:     deltas,
+		},
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	// Verify truncation applied
+	if !bundle.AIMeta.TruncationApplied {
+		t.Error("TruncationApplied = false, expected true for bundle exceeding 1MB")
+	}
+
+	// Verify truncation reason is non-empty
+	if bundle.AIMeta.TruncationReason == "" {
+		t.Error("TruncationReason is empty, expected non-empty")
+	}
+
+	// Verify compressed data can still be decompressed
+	_, decompressErr := DecompressBundle(compressed)
+	if decompressErr != nil {
+		t.Errorf("DecompressBundle() after truncation error = %v", decompressErr)
+	}
+
+	// RetainedWindows should still be 3 (truncation preserves structure)
+	if len(bundle.RetainedWindows) != 3 {
+		t.Errorf("RetainedWindows count = %d, want 3", len(bundle.RetainedWindows))
+	}
+
+	// AIMeta.CompressedSizeBytes should match actual size
+	if bundle.AIMeta.CompressedSizeBytes != int64(len(compressed)) {
+		t.Errorf("AIMeta.CompressedSizeBytes = %d, actual = %d",
+			bundle.AIMeta.CompressedSizeBytes, len(compressed))
+	}
+}
+
+func TestBundleGenerator_PreviewMatchesBundle(t *testing.T) {
+	gen := NewBundleGenerator()
+	samples := generateTestSamplesWithAnomalies(100, 1000.0, 10.0, 40, 55, 100.0)
+
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-match",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     60000,
+			TPS:            1000.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     samples,
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	preview := BuildPreviewFromBundle(bundle, compressed, "rpt-match")
+	if preview == nil {
+		t.Fatal("BuildPreviewFromBundle returned nil")
+	}
+
+	// RetainedWindows count and names match
+	if len(preview.RetainedWindows) != len(bundle.RetainedWindows) {
+		t.Errorf("Preview RetainedWindows count = %d, bundle count = %d",
+			len(preview.RetainedWindows), len(bundle.RetainedWindows))
+	}
+	for i, pw := range preview.RetainedWindows {
+		if pw.Name != bundle.RetainedWindows[i].Name {
+			t.Errorf("Preview.RetainedWindows[%d].Name = %q, bundle = %q",
+				i, pw.Name, bundle.RetainedWindows[i].Name)
+		}
+	}
+
+	// AnomalyWindows count matches
+	if len(preview.AnomalyWindows) != len(bundle.AnomalyWindows) {
+		t.Errorf("Preview AnomalyWindows count = %d, bundle count = %d",
+			len(preview.AnomalyWindows), len(bundle.AnomalyWindows))
+	}
+
+	// RawSampleCount matches
+	if preview.RawSampleCount != len(bundle.RawSamples) {
+		t.Errorf("Preview.RawSampleCount = %d, bundle has %d raw samples",
+			preview.RawSampleCount, len(bundle.RawSamples))
+	}
+
+	// SamplingPolicy matches
+	if preview.SamplingPolicy != bundle.AIMeta.SamplingPolicy {
+		t.Errorf("Preview.SamplingPolicy = %q, bundle = %q",
+			preview.SamplingPolicy, bundle.AIMeta.SamplingPolicy)
+	}
+
+	// CompressedSize matches
+	if preview.CompressedSize != int64(len(compressed)) {
+		t.Errorf("Preview.CompressedSize = %d, want %d",
+			preview.CompressedSize, len(compressed))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 3. Field consistency test
+// ---------------------------------------------------------------------------
+
+func TestDetailedDataPreview_FieldConsistency(t *testing.T) {
+	gen := NewBundleGenerator()
+	samples := generateTestSamplesWithAnomalies(200, 1000.0, 10.0, 80, 100, 80.0)
+
+	monitoring := &report.MonitoringData{
+		CPU: &report.MonitoringCPUData{
+			UsageAvg: 55.0,
+			UsageMax: 88.0,
+		},
+		Memory: &report.MonitoringMemoryData{
+			UsedAvgMB:   4096.0,
+			UsedMaxMB:   6144.0,
+			UsedPercent: 60.0,
+		},
+	}
+
+	input := &BundleInput{
+		Report: &report.Report{
+			ID:             "rpt-consist",
+			SuiteID:        "standalone",
+			ConnectionName: "test-conn",
+			TemplateName:   "oltp",
+			DatabaseType:   "mysql",
+			StartedAt:      time.Now(),
+			DurationMs:     120000,
+			TPS:            1000.0,
+			TPM:            60000.0,
+			LatencyAvgMs:   10.0,
+			LatencyP95Ms:   25.0,
+			LatencyP99Ms:   50.0,
+		},
+		AdapterType: "sysbench",
+		Samples:     samples,
+		Monitoring:  monitoring,
+	}
+
+	compressed, bundle, err := gen.GenerateAndCompress(input)
+	if err != nil {
+		t.Fatalf("GenerateAndCompress() error = %v", err)
+	}
+
+	preview := BuildPreviewFromBundle(bundle, compressed, "rpt-consist")
+	if preview == nil {
+		t.Fatal("BuildPreviewFromBundle returned nil")
+	}
+
+	// Verify retained_windows[i].name == bundle.RetainedWindows[i].Name
+	for i, pw := range preview.RetainedWindows {
+		if pw.Name != bundle.RetainedWindows[i].Name {
+			t.Errorf("retained_windows[%d].name: preview=%q, bundle=%q", i, pw.Name, bundle.RetainedWindows[i].Name)
+		}
+	}
+
+	// Verify retained_windows[i].sample_count == bundle.RetainedWindows[i].Summary.SampleCount
+	for i, pw := range preview.RetainedWindows {
+		if pw.SampleCount != bundle.RetainedWindows[i].Summary.SampleCount {
+			t.Errorf("retained_windows[%d].sample_count: preview=%d, bundle=%d",
+				i, pw.SampleCount, bundle.RetainedWindows[i].Summary.SampleCount)
+		}
+	}
+
+	// Verify anomaly_windows[i].type == bundle.AnomalyWindows[i].Type
+	for i, pa := range preview.AnomalyWindows {
+		if pa.Type != bundle.AnomalyWindows[i].Type {
+			t.Errorf("anomaly_windows[%d].type: preview=%q, bundle=%q", i, pa.Type, bundle.AnomalyWindows[i].Type)
+		}
+	}
+
+	// Verify anomaly_windows[i].severity == bundle.AnomalyWindows[i].Severity
+	for i, pa := range preview.AnomalyWindows {
+		if pa.Severity != bundle.AnomalyWindows[i].Severity {
+			t.Errorf("anomaly_windows[%d].severity: preview=%q, bundle=%q", i, pa.Severity, bundle.AnomalyWindows[i].Severity)
+		}
+	}
+
+	// Verify anomaly_windows[i].summary == bundle.AnomalyWindows[i].Summary
+	for i, pa := range preview.AnomalyWindows {
+		if pa.Summary != bundle.AnomalyWindows[i].Summary {
+			t.Errorf("anomaly_windows[%d].summary: preview=%q, bundle=%q", i, pa.Summary, bundle.AnomalyWindows[i].Summary)
+		}
+	}
+
+	// Verify raw_sample_count == len(bundle.RawSamples)
+	if preview.RawSampleCount != len(bundle.RawSamples) {
+		t.Errorf("raw_sample_count: preview=%d, bundle=%d", preview.RawSampleCount, len(bundle.RawSamples))
+	}
+
+	// Verify sampling_policy == bundle.AIMeta.SamplingPolicy
+	if preview.SamplingPolicy != bundle.AIMeta.SamplingPolicy {
+		t.Errorf("sampling_policy: preview=%q, bundle=%q", preview.SamplingPolicy, bundle.AIMeta.SamplingPolicy)
+	}
+
+	// Verify compressed_size_bytes == len(compressed)
+	if preview.CompressedSize != int64(len(compressed)) {
+		t.Errorf("compressed_size_bytes: preview=%d, actual=%d", preview.CompressedSize, len(compressed))
+	}
 }
 

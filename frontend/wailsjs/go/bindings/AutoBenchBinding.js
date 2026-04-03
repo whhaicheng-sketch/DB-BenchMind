@@ -45,3 +45,11 @@ export function ListProfiles() {
 export function ListSuites() {
   return window['go']['bindings']['AutoBenchBinding']['ListSuites']();
 }
+
+export function RerunFailed(arg1) {
+  return window['go']['bindings']['AutoBenchBinding']['RerunFailed'](arg1);
+}
+
+export function RerunSelected(arg1, arg2) {
+  return window['go']['bindings']['AutoBenchBinding']['RerunSelected'](arg1, arg2);
+}

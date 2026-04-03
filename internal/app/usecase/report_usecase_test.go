@@ -926,3 +926,93 @@ func TestReportUsecase_GetReportBySuiteItemID_ReturnsCorrectFields(t *testing.T)
 		t.Errorf("TPS = %v, want 789.01", rpt.TPS)
 	}
 }
+
+// =============================================================================
+// UpdateReportStatusBySuiteItemID Tests
+// =============================================================================
+
+func TestReportUsecase_UpdateReportStatusBySuiteItemID_Failed(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	// Insert a running report
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-sync-fail",
+		SuiteID:      "suite-sync",
+		SuiteItemID:  "item-sync-1",
+		SourceType:   report.SourceTypeAutoBench,
+		ConnectionID: "conn-1",
+		DatabaseType: "mysql",
+		Status:       report.StatusRunning,
+	})
+
+	err := uc.UpdateReportStatusBySuiteItemID(ctx, "item-sync-1", report.StatusFailed, "connection refused")
+	if err != nil {
+		t.Fatalf("UpdateReportStatusBySuiteItemID() error = %v", err)
+	}
+
+	rpt, err := uc.GetReportBySuiteItemID(ctx, "item-sync-1")
+	if err != nil {
+		t.Fatalf("GetReportBySuiteItemID() error = %v", err)
+	}
+	if rpt.Status != report.StatusFailed {
+		t.Errorf("Status = %q, want %q", rpt.Status, report.StatusFailed)
+	}
+	if rpt.ErrorMessage != "connection refused" {
+		t.Errorf("ErrorMessage = %q, want %q", rpt.ErrorMessage, "connection refused")
+	}
+	if rpt.EndedAt == nil {
+		t.Error("EndedAt should be set for terminal status")
+	}
+}
+
+func TestReportUsecase_UpdateReportStatusBySuiteItemID_Completed(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	insertTestReport(t, db, &report.Report{
+		ID:           "rpt-sync-ok",
+		SuiteID:      "suite-sync",
+		SuiteItemID:  "item-sync-2",
+		SourceType:   report.SourceTypeAutoBench,
+		ConnectionID: "conn-1",
+		DatabaseType: "mysql",
+		Status:       report.StatusRunning,
+	})
+
+	err := uc.UpdateReportStatusBySuiteItemID(ctx, "item-sync-2", report.StatusCompleted, "")
+	if err != nil {
+		t.Fatalf("UpdateReportStatusBySuiteItemID() error = %v", err)
+	}
+
+	rpt, err := uc.GetReportBySuiteItemID(ctx, "item-sync-2")
+	if err != nil {
+		t.Fatalf("GetReportBySuiteItemID() error = %v", err)
+	}
+	if rpt.Status != report.StatusCompleted {
+		t.Errorf("Status = %q, want %q", rpt.Status, report.StatusCompleted)
+	}
+	if rpt.ErrorMessage != "" {
+		t.Errorf("ErrorMessage = %q, want empty", rpt.ErrorMessage)
+	}
+}
+
+func TestReportUsecase_UpdateReportStatusBySuiteItemID_Nonexistent(t *testing.T) {
+	db := setupReportTestDB(t)
+	defer db.Close()
+
+	uc := NewReportUsecase(db)
+	ctx := context.Background()
+
+	// Should not error on nonexistent suite_item_id (no rows affected)
+	err := uc.UpdateReportStatusBySuiteItemID(ctx, "item-nonexistent", report.StatusFailed, "err")
+	if err != nil {
+		t.Fatalf("UpdateReportStatusBySuiteItemID() error = %v", err)
+	}
+}

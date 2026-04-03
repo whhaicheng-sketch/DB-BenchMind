@@ -419,3 +419,126 @@ func (b *AutoBenchBinding) ListProfiles() AutoBenchProfileListResult {
 	}
 	return AutoBenchProfileListResult{Profiles: result}
 }
+
+// AutoBenchRerunResult contains the result of a re-run operation.
+type AutoBenchRerunResult struct {
+	Success    bool   `json:"success"`
+	RerunCount int    `json:"rerun_count"`
+	Error      string `json:"error,omitempty"`
+}
+
+// RerunFailed re-runs all failed items in a suite.
+func (b *AutoBenchBinding) RerunFailed(suiteID string) AutoBenchRerunResult {
+	ctx := b.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("autobench", suiteID, "AutoBench Rerun"); err != nil {
+			return AutoBenchRerunResult{Error: err.Error()}
+		}
+	}
+
+	failedIDs, err := b.suites.GetFailedItemIDs(suiteID)
+	if err != nil {
+		if b.guard != nil {
+			b.guard.Release()
+		}
+		return AutoBenchRerunResult{Error: err.Error()}
+	}
+	if len(failedIDs) == 0 {
+		if b.guard != nil {
+			b.guard.Release()
+		}
+		return AutoBenchRerunResult{Error: "no failed items to re-run"}
+	}
+
+	if err := b.suites.ResetSuiteItemsForRerun(suiteID, failedIDs); err != nil {
+		if b.guard != nil {
+			b.guard.Release()
+		}
+		return AutoBenchRerunResult{Error: err.Error()}
+	}
+
+	b.mu.Lock()
+	b.activeSuite = suiteID
+	b.paused = false
+	b.mu.Unlock()
+
+	suiteCtx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	b.cancelFunc = cancel
+	b.mu.Unlock()
+
+	go func() {
+		defer func() {
+			b.mu.Lock()
+			b.activeSuite = ""
+			b.cancelFunc = nil
+			b.paused = false
+			b.mu.Unlock()
+			if b.guard != nil {
+				b.guard.Release()
+			}
+		}()
+		if b.runner != nil {
+			_ = b.runner.RunSuiteItems(suiteCtx, suiteID, failedIDs)
+		}
+	}()
+
+	return AutoBenchRerunResult{Success: true, RerunCount: len(failedIDs)}
+}
+
+// RerunSelected re-runs specific items in a suite.
+func (b *AutoBenchBinding) RerunSelected(suiteID string, itemIDs []string) AutoBenchRerunResult {
+	ctx := b.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if len(itemIDs) == 0 {
+		return AutoBenchRerunResult{Error: "no items selected for re-run"}
+	}
+
+	if b.guard != nil {
+		if err := b.guard.TryAcquire("autobench", suiteID, "AutoBench Rerun"); err != nil {
+			return AutoBenchRerunResult{Error: err.Error()}
+		}
+	}
+
+	if err := b.suites.ResetSuiteItemsForRerun(suiteID, itemIDs); err != nil {
+		if b.guard != nil {
+			b.guard.Release()
+		}
+		return AutoBenchRerunResult{Error: err.Error()}
+	}
+
+	b.mu.Lock()
+	b.activeSuite = suiteID
+	b.paused = false
+	b.mu.Unlock()
+
+	suiteCtx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	b.cancelFunc = cancel
+	b.mu.Unlock()
+
+	go func() {
+		defer func() {
+			b.mu.Lock()
+			b.activeSuite = ""
+			b.cancelFunc = nil
+			b.paused = false
+			b.mu.Unlock()
+			if b.guard != nil {
+				b.guard.Release()
+			}
+		}()
+		if b.runner != nil {
+			_ = b.runner.RunSuiteItems(suiteCtx, suiteID, itemIDs)
+		}
+	}()
+
+	return AutoBenchRerunResult{Success: true, RerunCount: len(itemIDs)}
+}

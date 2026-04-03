@@ -28,6 +28,10 @@ DB-BenchMind
 db-benchmind
 main
 test_simplified_report
+db-benchmind-cli
+e2e-test
+output_withFullCompileLog
+run
 frontend/dist/
 frontend/node_modules/
 frontend/data/*.db

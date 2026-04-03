@@ -953,6 +953,31 @@ type DetailedDataResult struct {
 	Markdown string                      `json:"markdown"`
 }
 
+// UpdateReportStatusBySuiteItemID updates the status of a report identified by suite_item_id.
+// This is used to keep report status in sync with suite item status.
+func (uc *ReportUsecase) UpdateReportStatusBySuiteItemID(
+	ctx context.Context, suiteItemID string, status report.ReportStatus, errMsg string,
+) error {
+	if uc.db == nil {
+		return nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	var endedAt *string
+	if status.IsTerminal() {
+		endedAt = &now
+	}
+
+	_, err := uc.db.ExecContext(ctx,
+		"UPDATE reports SET status = ?, error_message = ?, updated_at = ?, ended_at = COALESCE(?, ended_at) WHERE suite_item_id = ?",
+		string(status), nilIfEmpty(errMsg), now, endedAt, suiteItemID,
+	)
+	if err != nil {
+		return fmt.Errorf("update report status by suite_item_id: %w", err)
+	}
+	return nil
+}
+
 // GetDetailedData reads the persisted bundle and markdown for a report.
 func (uc *ReportUsecase) GetDetailedData(ctx context.Context, id string) (*DetailedDataResult, error) {
 	rpt, err := uc.GetReport(ctx, id)

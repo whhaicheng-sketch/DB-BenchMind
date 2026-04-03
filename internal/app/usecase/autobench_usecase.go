@@ -164,13 +164,64 @@ func (uc *AutoBenchSuiteUseCase) GetSuiteStatus(ctx context.Context, suiteID str
 		switch item.Status {
 		case domainautobench.SuiteItemStatusPending:
 			status.PendingItems++
-		case domainautobench.SuiteItemStatusRunning, domainautobench.SuiteItemStatusPreparing, domainautobench.SuiteItemStatusCleaning, domainautobench.SuiteItemStatusValidating:
+		case domainautobench.SuiteItemStatusRunning, domainautobench.SuiteItemStatusPreparing, domainautobench.SuiteItemStatusCleaning, domainautobench.SuiteItemStatusValidating, domainautobench.SuiteItemStatusPrechecking:
 			status.RunningItems++
-		case domainautobench.SuiteItemStatusSuccess, domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusSkipped:
+		case domainautobench.SuiteItemStatusSuccess, domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusPrecheckFailed, domainautobench.SuiteItemStatusSkipped:
 			status.CompletedItems++
 		}
 	}
 	return status, nil
+}
+
+// GetFailedItemIDs returns the IDs of all failed or precheck_failed items in a suite.
+func (uc *AutoBenchSuiteUseCase) GetFailedItemIDs(suiteID string) ([]string, error) {
+	suite, err := uc.getSuite(suiteID)
+	if err != nil {
+		return nil, err
+	}
+
+	var failedIDs []string
+	for _, item := range suite.Items {
+		if item.Status.IsFailed() {
+			failedIDs = append(failedIDs, item.ID)
+		}
+	}
+	return failedIDs, nil
+}
+
+// ResetSuiteItemsForRerun resets specified items to pending status for re-execution.
+// Only items in a terminal failure state (failed/precheck_failed) are reset.
+// The suite status is set back to ready.
+func (uc *AutoBenchSuiteUseCase) ResetSuiteItemsForRerun(suiteID string, itemIDs []string) error {
+	itemIDSet := make(map[string]struct{}, len(itemIDs))
+	for _, id := range itemIDs {
+		itemIDSet[id] = struct{}{}
+	}
+
+	return uc.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		for i := range suite.Items {
+			if _, ok := itemIDSet[suite.Items[i].ID]; !ok {
+				continue
+			}
+			// Only reset items that are in a failed state
+			if !suite.Items[i].Status.IsFailed() {
+				continue
+			}
+			suite.Items[i].Status = domainautobench.SuiteItemStatusPending
+			suite.Items[i].ErrorSummary = ""
+			suite.Items[i].PhaseStatus = ""
+			suite.Items[i].PhaseTimings = nil
+			suite.Items[i].MetricsSummary = nil
+			suite.Items[i].ReportID = ""
+			suite.Items[i].LinkedTaskID = ""
+			suite.Items[i].RunID = ""
+			suite.Items[i].StartedAt = nil
+			suite.Items[i].EndedAt = nil
+		}
+		suite.Status = domainautobench.SuiteStatusReady
+		suite.EndedAt = nil
+		return nil
+	})
 }
 
 func (uc *AutoBenchSuiteUseCase) BuildSuiteReport(ctx context.Context, suiteID string) (domainautobench.SuiteReport, error) {
@@ -209,7 +260,7 @@ func (uc *AutoBenchSuiteUseCase) BuildSuiteReport(ctx context.Context, suiteID s
 		case domainautobench.SuiteItemStatusSuccess:
 			report.Summary.SuccessItemCount++
 			report.Summary.CompletedItemCount++
-		case domainautobench.SuiteItemStatusFailed:
+		case domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusPrecheckFailed:
 			report.Summary.FailedItemCount++
 			report.Summary.CompletedItemCount++
 		case domainautobench.SuiteItemStatusSkipped:
@@ -230,7 +281,7 @@ func (uc *AutoBenchSuiteUseCase) BuildSuiteReport(ctx context.Context, suiteID s
 		}
 		acc.items = append(acc.items, item)
 
-		if item.Status == domainautobench.SuiteItemStatusFailed || item.Status == domainautobench.SuiteItemStatusSkipped {
+		if item.Status.IsFailed() || item.Status == domainautobench.SuiteItemStatusSkipped {
 			report.Failures = append(report.Failures, domainautobench.SuiteReportFailure{
 				SuiteItemID:  item.ID,
 				ConnectionID: item.ConnectionID,

@@ -29,15 +29,30 @@ const (
 type SuiteItemStatus string
 
 const (
-	SuiteItemStatusPending    SuiteItemStatus = "pending"
-	SuiteItemStatusValidating SuiteItemStatus = "validating"
-	SuiteItemStatusPreparing  SuiteItemStatus = "preparing"
-	SuiteItemStatusRunning    SuiteItemStatus = "running"
-	SuiteItemStatusCleaning   SuiteItemStatus = "cleaning"
-	SuiteItemStatusSuccess    SuiteItemStatus = "success"
-	SuiteItemStatusFailed     SuiteItemStatus = "failed"
-	SuiteItemStatusSkipped    SuiteItemStatus = "skipped"
+	SuiteItemStatusPending        SuiteItemStatus = "pending"
+	SuiteItemStatusValidating     SuiteItemStatus = "validating"
+	SuiteItemStatusPreparing      SuiteItemStatus = "preparing"
+	SuiteItemStatusPrechecking    SuiteItemStatus = "prechecking"
+	SuiteItemStatusPrecheckFailed SuiteItemStatus = "precheck_failed"
+	SuiteItemStatusRunning        SuiteItemStatus = "running"
+	SuiteItemStatusCleaning       SuiteItemStatus = "cleaning"
+	SuiteItemStatusSuccess        SuiteItemStatus = "success"
+	SuiteItemStatusFailed         SuiteItemStatus = "failed"
+	SuiteItemStatusSkipped        SuiteItemStatus = "skipped"
 )
+
+// IsTerminal returns true if the item status is terminal (no further transitions).
+func (s SuiteItemStatus) IsTerminal() bool {
+	return s == SuiteItemStatusSuccess ||
+		s == SuiteItemStatusFailed ||
+		s == SuiteItemStatusPrecheckFailed ||
+		s == SuiteItemStatusSkipped
+}
+
+// IsFailed returns true if the item ended in a failure state.
+func (s SuiteItemStatus) IsFailed() bool {
+	return s == SuiteItemStatusFailed || s == SuiteItemStatusPrecheckFailed
+}
 
 type ExecutionMode string
 
@@ -111,12 +126,13 @@ type SuiteManifestItem struct {
 
 // SuiteManifestStatistics contains aggregate statistics.
 type SuiteManifestStatistics struct {
-	TotalItems int `json:"total_items"`
-	Pending    int `json:"pending"`
-	Running    int `json:"running"`
-	Success    int `json:"success"`
-	Failed     int `json:"failed"`
-	Skipped    int `json:"skipped"`
+	TotalItems     int `json:"total_items"`
+	Pending        int `json:"pending"`
+	Running        int `json:"running"`
+	Success        int `json:"success"`
+	Failed         int `json:"failed"`
+	PrecheckFailed int `json:"precheck_failed"`
+	Skipped        int `json:"skipped"`
 }
 
 // PhaseTiming records the duration of a single execution phase for a suite item.
@@ -260,12 +276,14 @@ func calculateStatistics(items []SuiteItem) SuiteManifestStatistics {
 		switch item.Status {
 		case SuiteItemStatusPending:
 			stats.Pending++
-		case SuiteItemStatusRunning, SuiteItemStatusValidating, SuiteItemStatusPreparing, SuiteItemStatusCleaning:
+		case SuiteItemStatusRunning, SuiteItemStatusValidating, SuiteItemStatusPreparing, SuiteItemStatusPrechecking, SuiteItemStatusCleaning:
 			stats.Running++
 		case SuiteItemStatusSuccess:
 			stats.Success++
 		case SuiteItemStatusFailed:
 			stats.Failed++
+		case SuiteItemStatusPrecheckFailed:
+			stats.PrecheckFailed++
 		case SuiteItemStatusSkipped:
 			stats.Skipped++
 		}

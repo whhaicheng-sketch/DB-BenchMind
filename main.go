@@ -100,6 +100,7 @@ func main() {
 		benchmarkUC,
 		connUC,
 		templateUC,
+		usecase.WithConnectionTester(connUC),
 		usecase.WithManifestWriter(usecase.NewSuiteManifestWriter(dataDir)),
 		usecase.WithReportUsecase(reportUC),
 	)

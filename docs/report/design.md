@@ -252,3 +252,17 @@ Markdown 作为人类导出主格式，结构化压缩包作为 AI 分析主输�
 - `internal/app/usecase/report_usecase.go` — GetDetailedData、CompareReports
 - `internal/transportwails/bindings/report.go` — GetDetailedData 绑定
 - `frontend/src/components/report/ReportDetailPanel.vue` — 详细数据折叠区
+
+### 唯一构建入口
+`BuildPreviewFromBundle` 是 Detailed Data preview 的唯一构建入口（包级函数，不依赖 BundleGenerator 实例）。
+ReportAssembler 和 GetDetailedData 均通过此函数构建 preview，确保前后端展示内容与 bundle 实际内容一致。
+
+### 多轮压缩策略
+`GenerateAndCompress` 最多执行 5 次序列化+压缩（1 次初始 + 4 层截断），每层截断后重新压缩以验证体积。
+这是预期设计而非性能缺陷：截断是不可逆操作，必须在每层后验证体积是否达标。
+
+### 字段一致性
+前端 Detailed Data 折叠区的所有展示字段均来自 `BuildPreviewFromBundle` 的输出，
+该函数从 bundle 中直接映射字段（不做二次拼装），确保页面展示与 bundle 实际内容一致。
+新增的 `TestDetailedDataPreview_FieldConsistency` 和 `TestBundleGenerator_PreviewMatchesBundle` 测试
+持续保障这一一致性。

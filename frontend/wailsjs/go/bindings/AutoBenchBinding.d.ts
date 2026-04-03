@@ -88,6 +88,12 @@ export interface AutoBenchSuiteSummaryResult {
   status: string;
 }
 
+export interface AutoBenchRerunResult {
+  success: boolean;
+  rerun_count: number;
+  error?: string;
+}
+
 export function CreateSuite(arg1: AutoBenchCreateSuiteRequest): Promise<AutoBenchCreateSuiteResult>;
 export function StartSuite(arg1: string): Promise<AutoBenchStartSuiteResult>;
 export function PauseSuite(arg1: string): Promise<{success: boolean; error?: string}>;
@@ -99,3 +105,5 @@ export function GetSuiteStatus(arg1: string): Promise<AutoBenchSuiteStatusResult
 export function GetExecutionPlan(arg1: string): Promise<AutoBenchExecutionPlanResult>;
 export function ListProfiles(): Promise<AutoBenchProfileListResult>;
 export function ListSuites(): Promise<AutoBenchSuiteListResult>;
+export function RerunFailed(arg1: string): Promise<AutoBenchRerunResult>;
+export function RerunSelected(arg1: string, arg2: string[]): Promise<AutoBenchRerunResult>;

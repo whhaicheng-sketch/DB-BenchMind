@@ -12,13 +12,11 @@ import {
 } from './autobenchWizardDraft.mjs'
 import * as AutoBenchBinding from '../../../wailsjs/go/bindings/AutoBenchBinding'
 import { useConnectionStore } from '../../stores/connection'
-import { useAppStore } from '../../stores/app'
 import { useAutoBenchStore } from '../../stores/autobench'
 
 const TERMINAL_SUITE_STATUSES = ['success', 'partial_success', 'failed', 'cancelled']
 
 const connectionStore = useConnectionStore()
-const appStore = useAppStore()
 const autobenchStore = useAutoBenchStore()
 
 const draft = ref(createAutoBenchWizardDraft())
@@ -66,6 +64,8 @@ const canStartSuite = computed(() => {
 })
 
 const isSuitePaused = ref(false)
+const selectMode = ref(false)
+const selectedItemIDs = ref([])
 
 const isSuiteRunning = computed(() => {
   return suiteStatus.value?.status === 'running'
@@ -74,6 +74,13 @@ const isSuiteRunning = computed(() => {
 const isSuiteTerminal = computed(() => {
   if (!suiteStatus.value || !createdSuiteId.value) return false
   return TERMINAL_SUITE_STATUSES.includes(suiteStatus.value.status)
+})
+
+const hasFailedItems = computed(() => {
+  if (!suiteStatus.value?.items) return false
+  return suiteStatus.value.items.some(item =>
+    item.status === 'failed' || item.status === 'precheck_failed'
+  )
 })
 
 const connNameMap = computed(() => {
@@ -313,57 +320,69 @@ async function pollSuiteStatus() {
   }
 }
 
-function goToReports() {
-  appStore.setActiveTab('reports')
-}
-
-async function handleReRunSuite() {
-  if (!suiteStatus.value) return
-
-  // Extract the original configuration from the completed suite
-  const originalConnections = []
-  const originalProfiles = new Set()
-  for (const item of suiteStatus.value.items || []) {
-    if (item.connection_id && !originalConnections.includes(item.connection_id)) {
-      originalConnections.push(item.connection_id)
-    }
-    if (item.profile_type) originalProfiles.add(item.profile_type)
-  }
-
-  if (originalConnections.length === 0 || originalProfiles.size === 0) return
-
-  // Save suite name before resetSuite() clears suiteStatus to null
-  const suiteName = suiteStatus.value.name || 'Re-run Suite'
-
-  // Reset state
-  resetSuite()
-
-  // Create new suite with the same configuration
-  isCreating.value = true
-  createError.value = ''
+async function handleRerunFailed() {
+  if (!createdSuiteId.value) return
+  isStarting.value = true
+  startError.value = ''
 
   try {
-    const result = await AutoBenchBinding.CreateSuite({
-      name: suiteName,
-      connection_ids: originalConnections,
-      profile_types: [...originalProfiles],
-    })
-
+    const result = await AutoBenchBinding.RerunFailed(createdSuiteId.value)
     if (result.error) {
-      createError.value = result.error
-      return
+      startError.value = result.error
+    } else {
+      autobenchStore.setStartedAtTimestamp(Date.now())
+      elapsedSeconds.value = 0
+      selectMode.value = false
+      selectedItemIDs.value = []
+      startPolling()
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
     }
-
-    createdSuiteId.value = result.suite_id
-    autobenchStore.setSuiteId(result.suite_id)
-
-    // Immediately start the new suite (reuses handleStartSuite logic)
-    await startSuiteAndPoll(result.suite_id)
   } catch (err) {
-    createError.value = String(err)
+    startError.value = String(err)
   } finally {
-    isCreating.value = false
+    isStarting.value = false
   }
+}
+
+async function handleRerunSelected() {
+  if (!createdSuiteId.value || selectedItemIDs.value.length === 0) return
+  isStarting.value = true
+  startError.value = ''
+
+  try {
+    const result = await AutoBenchBinding.RerunSelected(createdSuiteId.value, selectedItemIDs.value)
+    if (result.error) {
+      startError.value = result.error
+    } else {
+      autobenchStore.setStartedAtTimestamp(Date.now())
+      elapsedSeconds.value = 0
+      selectMode.value = false
+      selectedItemIDs.value = []
+      startPolling()
+      if (elapsedInterval) clearInterval(elapsedInterval)
+      elapsedInterval = setInterval(() => {
+        elapsedSeconds.value++
+      }, 1000)
+    }
+  } catch (err) {
+    startError.value = String(err)
+  } finally {
+    isStarting.value = false
+  }
+}
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) {
+    selectedItemIDs.value = []
+  }
+}
+
+function isItemRerunnable(item) {
+  return item.status === 'failed' || item.status === 'precheck_failed' || item.status === 'skipped'
 }
 
 function resetSuite() {
@@ -373,6 +392,8 @@ function resetSuite() {
   startError.value = ''
   elapsedSeconds.value = 0
   isSuitePaused.value = false
+  selectMode.value = false
+  selectedItemIDs.value = []
   stopPolling()
   autobenchStore.resetSuite()
 }
@@ -434,9 +455,12 @@ function getStatusLabel(status) {
     draft: 'Draft',
     ready: 'Ready',
     running: 'Running',
+    prechecking: 'Prechecking',
     success: 'Success',
     partial_success: 'Partial Success',
     failed: 'Failed',
+    precheck_failed: 'Precheck Failed',
+    skipped: 'Skipped',
     cancelled: 'Cancelled'
   }
   return labels[status] || status
@@ -444,8 +468,8 @@ function getStatusLabel(status) {
 
 function getStatusClass(status) {
   if (['success'].includes(status)) return 'status-success'
-  if (['failed', 'cancelled'].includes(status)) return 'status-error'
-  if (['running'].includes(status)) return 'status-running'
+  if (['failed', 'precheck_failed', 'cancelled'].includes(status)) return 'status-error'
+  if (['running', 'prechecking'].includes(status)) return 'status-running'
   if (['partial_success'].includes(status)) return 'status-warning'
   return ''
 }
@@ -473,6 +497,9 @@ function formatItemDuration(item) {
 
 function formatPhaseInfo(item) {
   if (item.status === 'pending') return '-'
+  if (item.status === 'precheck_failed') {
+    return item.error_message ? item.error_message.slice(0, 60) : 'Precheck Failed'
+  }
   if (item.status === 'success' || item.status === 'failed' || item.status === 'skipped') {
     if (!item.phase_timings?.length) return item.status
     return item.phase_timings.map(p => `${p.phase}: ${formatDurationMs(p.duration_ms)}`).join(', ')
@@ -508,13 +535,21 @@ function formatPhaseInfo(item) {
           New Suite
         </button>
         <button
-          v-if="isSuiteTerminal"
+          v-if="isSuiteTerminal && hasFailedItems"
           class="primary-action start-action"
           type="button"
           :disabled="isCreating || isStarting"
-          @click="handleReRunSuite"
+          @click="handleRerunFailed"
         >
-          {{ isCreating || isStarting ? 'Re-running...' : 'Re-run' }}
+          {{ isCreating || isStarting ? 'Re-running...' : 'Re-run Failed' }}
+        </button>
+        <button
+          v-if="isSuiteTerminal"
+          class="secondary-action"
+          type="button"
+          @click="toggleSelectMode"
+        >
+          {{ selectMode ? 'Cancel Selection' : 'Select Items' }}
         </button>
       </div>
     </header>
@@ -570,6 +605,7 @@ function formatPhaseInfo(item) {
 
         <div v-if="suiteStatus.items && suiteStatus.items.length > 0" class="items-list">
           <div class="items-header">
+            <span v-if="selectMode" class="item-check-col"></span>
             <span>Connection</span>
             <span>Type</span>
             <span>Status</span>
@@ -578,27 +614,37 @@ function formatPhaseInfo(item) {
             <span>Flags</span>
           </div>
           <div v-for="item in suiteStatus.items" :key="item.id" class="item-row">
+            <label v-if="selectMode" class="item-check-col">
+              <input
+                type="checkbox"
+                :value="item.id"
+                v-model="selectedItemIDs"
+                :disabled="!isItemRerunnable(item)"
+              />
+            </label>
             <span class="item-connection">{{ connNameMap[item.connection_id] || item.connection_id }}</span>
             <span class="item-type">{{ item.profile_type }}</span>
-            <span :class="['item-status', getStatusClass(item.status)]">{{ item.status }}</span>
+            <span :class="['item-status', getStatusClass(item.status)]">{{ getStatusLabel(item.status) }}</span>
             <span class="item-duration">{{ formatItemDuration(item) }}</span>
-            <span class="item-phase" :title="formatPhaseInfo(item)">{{ formatPhaseInfo(item) }}</span>
+            <span class="item-phase" :title="item.error_message || formatPhaseInfo(item)">{{ formatPhaseInfo(item) }}</span>
             <span class="item-flags">
               <span v-for="cap in (connCapabilitiesMap[item.connection_id] || [])" :key="cap" :class="['cap-badge', 'cap-' + cap.toLowerCase()]">{{ cap }}</span>
               <span v-if="!(connCapabilitiesMap[item.connection_id] || []).length" class="muted">-</span>
             </span>
           </div>
+          <div v-if="selectMode && selectedItemIDs.length > 0" class="select-actions">
+            <button
+              class="primary-action start-action"
+              type="button"
+              :disabled="isStarting"
+              @click="handleRerunSelected"
+            >
+              {{ isStarting ? 'Re-running...' : `Re-run Selected (${selectedItemIDs.length})` }}
+            </button>
+          </div>
         </div>
       </div>
-
-      <div v-if="['success', 'partial_success', 'failed'].includes(suiteStatus.status)" class="suite-actions">
-        <button class="primary-action" @click="goToReports">
-          View All Reports
-        </button>
-      </div>
     </div>
-
-    <!-- Wizard Two-Column Layout -->
     <div v-if="!createdSuiteId" class="wizard-columns">
       <div class="wizard-col-left">
         <div class="section-header-row">
@@ -1020,6 +1066,22 @@ function formatPhaseInfo(item) {
 
 .error-text {
   color: var(--danger);
+}
+
+.item-check-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+}
+
+.select-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
 }
 
 .muted {

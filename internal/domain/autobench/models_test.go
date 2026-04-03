@@ -171,3 +171,84 @@ func TestSuiteReportToJSONUsesTypedReportShape(t *testing.T) {
 		t.Fatalf("failures = %#v, want len 1", decoded["failures"])
 	}
 }
+
+func TestSuiteItemStatusIsTerminal(t *testing.T) {
+	tests := []struct {
+		status   SuiteItemStatus
+		terminal bool
+	}{
+		{SuiteItemStatusPending, false},
+		{SuiteItemStatusValidating, false},
+		{SuiteItemStatusPreparing, false},
+		{SuiteItemStatusPrechecking, false},
+		{SuiteItemStatusRunning, false},
+		{SuiteItemStatusCleaning, false},
+		{SuiteItemStatusSuccess, true},
+		{SuiteItemStatusFailed, true},
+		{SuiteItemStatusPrecheckFailed, true},
+		{SuiteItemStatusSkipped, true},
+	}
+
+	for _, tc := range tests {
+		if got := tc.status.IsTerminal(); got != tc.terminal {
+			t.Errorf("SuiteItemStatus(%q).IsTerminal() = %v, want %v", tc.status, got, tc.terminal)
+		}
+	}
+}
+
+func TestSuiteItemStatusIsFailed(t *testing.T) {
+	tests := []struct {
+		status SuiteItemStatus
+		failed bool
+	}{
+		{SuiteItemStatusPending, false},
+		{SuiteItemStatusRunning, false},
+		{SuiteItemStatusPrechecking, false},
+		{SuiteItemStatusSuccess, false},
+		{SuiteItemStatusFailed, true},
+		{SuiteItemStatusPrecheckFailed, true},
+		{SuiteItemStatusSkipped, false},
+	}
+
+	for _, tc := range tests {
+		if got := tc.status.IsFailed(); got != tc.failed {
+			t.Errorf("SuiteItemStatus(%q).IsFailed() = %v, want %v", tc.status, got, tc.failed)
+		}
+	}
+}
+
+func TestCalculateStatisticsWithNewStatuses(t *testing.T) {
+	items := []SuiteItem{
+		{ID: "1", Status: SuiteItemStatusPending},
+		{ID: "2", Status: SuiteItemStatusPrechecking},
+		{ID: "3", Status: SuiteItemStatusRunning},
+		{ID: "4", Status: SuiteItemStatusSuccess},
+		{ID: "5", Status: SuiteItemStatusFailed},
+		{ID: "6", Status: SuiteItemStatusPrecheckFailed},
+		{ID: "7", Status: SuiteItemStatusSkipped},
+	}
+
+	stats := calculateStatistics(items)
+
+	if stats.TotalItems != 7 {
+		t.Errorf("TotalItems = %d, want 7", stats.TotalItems)
+	}
+	if stats.Pending != 1 {
+		t.Errorf("Pending = %d, want 1", stats.Pending)
+	}
+	if stats.Running != 2 {
+		t.Errorf("Running = %d, want 2 (prechecking + running)", stats.Running)
+	}
+	if stats.Success != 1 {
+		t.Errorf("Success = %d, want 1", stats.Success)
+	}
+	if stats.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", stats.Failed)
+	}
+	if stats.PrecheckFailed != 1 {
+		t.Errorf("PrecheckFailed = %d, want 1", stats.PrecheckFailed)
+	}
+	if stats.Skipped != 1 {
+		t.Errorf("Skipped = %d, want 1", stats.Skipped)
+	}
+}

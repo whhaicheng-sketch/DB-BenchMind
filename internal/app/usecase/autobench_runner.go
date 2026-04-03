@@ -36,11 +36,17 @@ type autoBenchTemplateProvider interface {
 	ListTemplates(ctx context.Context) ([]*domaintemplate.Template, error)
 }
 
+type autoBenchConnectionTester interface {
+	TestConnection(ctx context.Context, id string) (*connection.TestResult, error)
+}
+
+// AutoBenchSuiteRunner runs a suite of benchmark items.
 type AutoBenchSuiteRunner struct {
 	suites          *AutoBenchSuiteUseCase
 	benchmark       autoBenchBenchmarkRunner
 	connections     autoBenchConnectionProvider
 	templates       autoBenchTemplateProvider
+	connTester      autoBenchConnectionTester
 	manifestWriter  *SuiteManifestWriter
 	reportUsecase   *ReportUsecase
 	waitInterval    time.Duration
@@ -61,6 +67,13 @@ func WithManifestWriter(w *SuiteManifestWriter) AutoBenchSuiteRunnerOption {
 func WithReportUsecase(uc *ReportUsecase) AutoBenchSuiteRunnerOption {
 	return func(r *AutoBenchSuiteRunner) {
 		r.reportUsecase = uc
+	}
+}
+
+// WithConnectionTester sets the connection tester for preflight checks.
+func WithConnectionTester(t autoBenchConnectionTester) AutoBenchSuiteRunnerOption {
+	return func(r *AutoBenchSuiteRunner) {
+		r.connTester = t
 	}
 }
 
@@ -149,6 +162,57 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 				return err
 			}
 			continue
+		}
+
+		// Preflight connectivity check (if connTester is available)
+		if r.connTester != nil {
+			if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+				target, findErr := findSuiteItemByID(suite.Items, item.ID)
+				if findErr != nil {
+					return findErr
+				}
+				target.Status = domainautobench.SuiteItemStatusPrechecking
+				return nil
+			}); err != nil {
+				return err
+			}
+
+			testResult, testErr := r.connTester.TestConnection(ctx, item.ConnectionID)
+			if testErr != nil || (testResult != nil && !testResult.Success) {
+				errMsg := "connection test failed"
+				if testErr != nil {
+					errMsg = fmt.Sprintf("connection test error: %v", testErr)
+				} else if testResult != nil && testResult.Error != "" {
+					errMsg = fmt.Sprintf("connection test failed: %s", testResult.Error)
+				}
+				connectionFailure[item.ConnectionID] = true
+				if failErr := r.markSuiteItemPrecheckFailed(suiteID, item.ID, errMsg); failErr != nil {
+					return failErr
+				}
+				if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+					return fmt.Errorf("precheck failed for connection %s: %s", item.ConnectionID, errMsg)
+				}
+				continue
+			}
+
+			// Optional SSH connectivity check
+			if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
+				sshOK, _, sshErr := connection.TestSSHConnection(ctx, sshConfig)
+				if sshErr != nil || !sshOK {
+					errMsg := "SSH tunnel test failed"
+					if sshErr != nil {
+						errMsg = fmt.Sprintf("SSH tunnel test error: %v", sshErr)
+					}
+					connectionFailure[item.ConnectionID] = true
+					if failErr := r.markSuiteItemPrecheckFailed(suiteID, item.ID, errMsg); failErr != nil {
+						return failErr
+					}
+					if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+						return fmt.Errorf("precheck SSH failed for connection %s: %s", item.ConnectionID, errMsg)
+					}
+					continue
+				}
+			}
 		}
 
 		dbType := string(conn.GetType())
@@ -271,6 +335,7 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 					target.EndedAt = &now
 					return nil
 				})
+				r.finalizeReportForItem(context.Background(), item.ID, domainautobench.SuiteItemStatusFailed, "cancelled")
 				return err
 			}
 			connectionFailure[item.ConnectionID] = true
@@ -299,6 +364,8 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 			}
 			// Look up the report by suite_item_id and set ReportID on the suite item
 			r.setReportIDOnSuiteItem(ctx, suiteID, item.ID)
+			// Sync report status to completed
+			r.finalizeReportForItem(ctx, item.ID, domainautobench.SuiteItemStatusSuccess, "")
 			// Write manifest after item completes
 			r.writeManifestAsync(ctx, suiteID)
 			// Persist suite state to DB after each item
@@ -330,6 +397,316 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 	// Final manifest write
 	r.writeManifestAsync(ctx, suiteID)
 	// Final persist to DB
+	r.suites.PersistSuite(ctx, suiteID)
+	return nil
+}
+
+// RunSuiteItems executes only the specified items within a suite.
+// It is used for re-running failed items without creating a new suite.
+func (r *AutoBenchSuiteRunner) RunSuiteItems(ctx context.Context, suiteID string, itemIDs []string) error {
+	if r.benchmark == nil {
+		return ErrAutoBenchBenchmarkRunnerRequired
+	}
+	if r.connections == nil {
+		return ErrAutoBenchConnectionProviderRequired
+	}
+	if r.templates == nil {
+		return ErrAutoBenchTemplateProviderRequired
+	}
+
+	itemIDSet := make(map[string]struct{}, len(itemIDs))
+	for _, id := range itemIDs {
+		itemIDSet[id] = struct{}{}
+	}
+
+	suite, err := r.suites.getSuite(suiteID)
+	if err != nil {
+		return err
+	}
+	connectionFailure := map[string]bool{}
+
+	if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		suite.Status = domainautobench.SuiteStatusRunning
+		now := time.Now()
+		suite.StartedAt = &now
+		suite.EndedAt = nil
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	r.writeManifestAsync(ctx, suiteID)
+	r.suites.PersistSuite(ctx, suiteID)
+
+	for _, item := range suite.Items {
+		if _, ok := itemIDSet[item.ID]; !ok {
+			continue // skip items not in the target set
+		}
+		if err := ctx.Err(); err != nil {
+			_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+				suite.Status = domainautobench.SuiteStatusCancelled
+				return nil
+			})
+			return err
+		}
+		if connectionFailure[item.ConnectionID] {
+			if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+				target, findErr := findSuiteItemByID(suite.Items, item.ID)
+				if findErr != nil {
+					return findErr
+				}
+				target.Status = domainautobench.SuiteItemStatusSkipped
+				target.ErrorSummary = "skipped after earlier connection failure"
+				return nil
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		conn, err := r.connections.GetConnectionByID(ctx, item.ConnectionID)
+		if err != nil {
+			connectionFailure[item.ConnectionID] = true
+			if failErr := r.markSuiteItemFailed(suiteID, item.ID, fmt.Sprintf("get connection: %v", err)); failErr != nil {
+				return failErr
+			}
+			if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+				return err
+			}
+			continue
+		}
+
+		// Preflight connectivity check (if connTester is available)
+		if r.connTester != nil {
+			if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+				target, findErr := findSuiteItemByID(suite.Items, item.ID)
+				if findErr != nil {
+					return findErr
+				}
+				target.Status = domainautobench.SuiteItemStatusPrechecking
+				return nil
+			}); err != nil {
+				return err
+			}
+
+			testResult, testErr := r.connTester.TestConnection(ctx, item.ConnectionID)
+			if testErr != nil || (testResult != nil && !testResult.Success) {
+				errMsg := "connection test failed"
+				if testErr != nil {
+					errMsg = fmt.Sprintf("connection test error: %v", testErr)
+				} else if testResult != nil && testResult.Error != "" {
+					errMsg = fmt.Sprintf("connection test failed: %s", testResult.Error)
+				}
+				connectionFailure[item.ConnectionID] = true
+				if failErr := r.markSuiteItemPrecheckFailed(suiteID, item.ID, errMsg); failErr != nil {
+					return failErr
+				}
+				if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+					return fmt.Errorf("precheck failed for connection %s: %s", item.ConnectionID, errMsg)
+				}
+				continue
+			}
+
+			// Optional SSH connectivity check
+			if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
+				sshOK, _, sshErr := connection.TestSSHConnection(ctx, sshConfig)
+				if sshErr != nil || !sshOK {
+					errMsg := "SSH tunnel test failed"
+					if sshErr != nil {
+						errMsg = fmt.Sprintf("SSH tunnel test error: %v", sshErr)
+					}
+					connectionFailure[item.ConnectionID] = true
+					if failErr := r.markSuiteItemPrecheckFailed(suiteID, item.ID, errMsg); failErr != nil {
+						return failErr
+					}
+					if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+						return fmt.Errorf("precheck SSH failed for connection %s: %s", item.ConnectionID, errMsg)
+					}
+					continue
+				}
+			}
+		}
+
+		dbType := string(conn.GetType())
+		tmpl, err := r.selectTemplateForItem(ctx, dbType, item.ProfileType)
+		if err != nil {
+			connectionFailure[item.ConnectionID] = true
+			if failErr := r.markSuiteItemFailed(suiteID, item.ID, err.Error()); failErr != nil {
+				return failErr
+			}
+			if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+				return err
+			}
+			continue
+		}
+
+		// Create SSH metrics collector for system monitoring (best-effort)
+		var sshCollector *collector.SSHMetricsCollector
+		if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
+			sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
+			if startErr := sshCollector.Start(); startErr != nil {
+				sshCollector = nil
+			}
+		}
+
+		if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+			target, findErr := findSuiteItemByID(suite.Items, item.ID)
+			if findErr != nil {
+				return findErr
+			}
+			target.DatabaseType = dbType
+			target.TemplateID = tmpl.ID
+			target.Status = domainautobench.SuiteItemStatusRunning
+			target.PhaseStatus = execution.StatePending.String()
+			now := time.Now()
+			target.StartedAt = &now
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		// For rerun: check if a report already exists for this suite_item_id
+		if r.reportUsecase != nil {
+			existingID, _ := r.reportUsecase.GetReportIDBySuiteItemID(ctx, item.ID)
+			if existingID != "" {
+				// Reset existing report to running
+				_ = r.reportUsecase.UpdateReportStatusBySuiteItemID(ctx, item.ID, report.StatusRunning, "")
+			} else {
+				// Insert new running report
+				rpt := &report.Report{
+					ID:             uuid.New().String(),
+					SuiteID:        suiteID,
+					SuiteItemID:    item.ID,
+					SourceType:     report.SourceTypeAutoBench,
+					ConnectionID:   item.ConnectionID,
+					DatabaseType:   dbType,
+					Status:         report.StatusRunning,
+					StartedAt:      time.Now(),
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}
+				_ = r.reportUsecase.InsertRunningReport(ctx, rpt)
+			}
+		}
+
+		task := &execution.BenchmarkTask{
+			ID:           uuid.New().String(),
+			Name:         fmt.Sprintf("AutoBench %s %s %s", strings.TrimSpace(suite.Name), item.ConnectionID, item.ProfileType),
+			ConnectionID: item.ConnectionID,
+			TemplateID:   tmpl.ID,
+			Parameters:   resolveDefaultRunParams(tmpl),
+			Options: execution.TaskOptions{
+				SkipCleanup: !suite.ExecutionPolicy.CleanupEnabled,
+			},
+			Tags: []string{
+				"autobench",
+				fmt.Sprintf("suite:%s", suiteID),
+				fmt.Sprintf("item:%s", item.ID),
+				fmt.Sprintf("profile:%s", item.ProfileType),
+			},
+			CreatedAt:    time.Now(),
+			SuiteID:     suiteID,
+			SuiteItemID: item.ID,
+		}
+
+		run, err := r.benchmark.StartBenchmark(ctx, task)
+		if err != nil {
+			connectionFailure[item.ConnectionID] = true
+			if failErr := r.markSuiteItemFailed(suiteID, item.ID, fmt.Sprintf("start benchmark: %v", err)); failErr != nil {
+				return failErr
+			}
+			if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+				return err
+			}
+			continue
+		}
+
+		if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+			target, findErr := findSuiteItemByID(suite.Items, item.ID)
+			if findErr != nil {
+				return findErr
+			}
+			target.LinkedTaskID = task.ID
+			target.RunID = run.ID
+			target.PhaseStatus = run.State.String()
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		finalRun, err := r.waitForRunCompletionWithPhaseTracking(ctx, run.ID, suiteID, item.ID, sshCollector)
+
+		if sshCollector != nil {
+			sshCollector.Stop()
+		}
+
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				_ = r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+					target, findErr := findSuiteItemByID(suite.Items, item.ID)
+					if findErr != nil {
+						return findErr
+					}
+					target.PhaseStatus = "cancelled"
+					now := time.Now()
+					target.EndedAt = &now
+					return nil
+				})
+				r.finalizeReportForItem(context.Background(), item.ID, domainautobench.SuiteItemStatusFailed, "cancelled")
+				return err
+			}
+			connectionFailure[item.ConnectionID] = true
+			if failErr := r.markSuiteItemFailed(suiteID, item.ID, err.Error()); failErr != nil {
+				return failErr
+			}
+			if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+				return err
+			}
+			continue
+		}
+
+		if finalRun.State == execution.StateCompleted {
+			if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+				target, findErr := findSuiteItemByID(suite.Items, item.ID)
+				if findErr != nil {
+					return findErr
+				}
+				target.Status = domainautobench.SuiteItemStatusSuccess
+				target.PhaseStatus = finalRun.State.String()
+				now := time.Now()
+				target.EndedAt = &now
+				return nil
+			}); err != nil {
+				return err
+			}
+			r.setReportIDOnSuiteItem(ctx, suiteID, item.ID)
+			r.finalizeReportForItem(ctx, item.ID, domainautobench.SuiteItemStatusSuccess, "")
+			r.writeManifestAsync(ctx, suiteID)
+			r.suites.PersistSuite(ctx, suiteID)
+			continue
+		}
+
+		err = fmt.Errorf("benchmark run ended with state %s", finalRun.State)
+		connectionFailure[item.ConnectionID] = true
+		if failErr := r.markSuiteItemFailed(suiteID, item.ID, err.Error()); failErr != nil {
+			return failErr
+		}
+		r.setReportIDOnSuiteItem(ctx, suiteID, item.ID)
+		if suite.ExecutionPolicy.FailurePolicy != domainautobench.FailurePolicyContinueByConnection {
+			return err
+		}
+	}
+
+	// Final suite status update
+	if err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		suite.Status = summarizeSuiteStatus(suite.Items)
+		now := time.Now()
+		suite.EndedAt = &now
+		return nil
+	}); err != nil {
+		return err
+	}
+	r.writeManifestAsync(ctx, suiteID)
 	r.suites.PersistSuite(ctx, suiteID)
 	return nil
 }
@@ -733,9 +1110,53 @@ func (r *AutoBenchSuiteRunner) markSuiteItemFailed(suiteID, itemID, summary stri
 	if err != nil {
 		return err
 	}
+	// Sync report status with suite item status
+	r.finalizeReportForItem(context.Background(), itemID, domainautobench.SuiteItemStatusFailed, summary)
 	// Write manifest after item failure
 	r.writeManifestAsync(context.Background(), suiteID)
 	return nil
+}
+
+// markSuiteItemPrecheckFailed marks a suite item as precheck_failed with the given error summary.
+func (r *AutoBenchSuiteRunner) markSuiteItemPrecheckFailed(suiteID, itemID, summary string) error {
+	err := r.suites.mutateSuite(suiteID, func(suite *domainautobench.Suite) error {
+		target, findErr := findSuiteItemByID(suite.Items, itemID)
+		if findErr != nil {
+			return findErr
+		}
+		target.Status = domainautobench.SuiteItemStatusPrecheckFailed
+		target.ErrorSummary = summary
+		now := time.Now()
+		target.EndedAt = &now
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Sync report status with suite item status
+	r.finalizeReportForItem(context.Background(), itemID, domainautobench.SuiteItemStatusPrecheckFailed, summary)
+	// Write manifest after precheck failure
+	r.writeManifestAsync(context.Background(), suiteID)
+	return nil
+}
+
+// finalizeReportForItem maps suite item status to report status and updates the report row.
+func (r *AutoBenchSuiteRunner) finalizeReportForItem(
+	ctx context.Context, itemID string, itemStatus domainautobench.SuiteItemStatus, errMsg string,
+) {
+	if r.reportUsecase == nil {
+		return
+	}
+	var reportStatus report.ReportStatus
+	switch itemStatus {
+	case domainautobench.SuiteItemStatusSuccess:
+		reportStatus = report.StatusCompleted
+	case domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusPrecheckFailed:
+		reportStatus = report.StatusFailed
+	default:
+		reportStatus = report.StatusFailed
+	}
+	_ = r.reportUsecase.UpdateReportStatusBySuiteItemID(ctx, itemID, reportStatus, errMsg)
 }
 
 // setReportIDOnSuiteItem looks up the report by suite_item_id and sets
@@ -792,9 +1213,9 @@ func summarizeSuiteStatus(items []domainautobench.SuiteItem) domainautobench.Sui
 		switch item.Status {
 		case domainautobench.SuiteItemStatusSuccess:
 			hasSuccess = true
-		case domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusSkipped:
+		case domainautobench.SuiteItemStatusFailed, domainautobench.SuiteItemStatusSkipped, domainautobench.SuiteItemStatusPrecheckFailed:
 			hasFailedOrSkipped = true
-		case domainautobench.SuiteItemStatusPending, domainautobench.SuiteItemStatusRunning, domainautobench.SuiteItemStatusPreparing, domainautobench.SuiteItemStatusCleaning, domainautobench.SuiteItemStatusValidating:
+		case domainautobench.SuiteItemStatusPending, domainautobench.SuiteItemStatusRunning, domainautobench.SuiteItemStatusPreparing, domainautobench.SuiteItemStatusCleaning, domainautobench.SuiteItemStatusValidating, domainautobench.SuiteItemStatusPrechecking:
 			return domainautobench.SuiteStatusRunning
 		}
 	}
