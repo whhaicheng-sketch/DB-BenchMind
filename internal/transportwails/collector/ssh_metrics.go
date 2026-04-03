@@ -28,13 +28,15 @@ type SSHMetricsCollector struct {
 	config   *connection.SSHTunnelConfig
 	interval time.Duration
 
-	mu       sync.RWMutex
-	running  bool
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	history  []SSHMetricPoint
-	lastCPU  *cpuCounters
-	lastDisk *diskCounters
+	mu                sync.RWMutex
+	running           bool
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	history           []SSHMetricPoint
+	lastCPU           *cpuCounters
+	lastDisk          *diskCounters
+	lastReadLatencyMs  float64
+	lastWriteLatencyMs float64
 }
 
 type cpuCounters struct {
@@ -152,13 +154,23 @@ func (c *SSHMetricsCollector) collect() {
 		point.DiskWriteBps = float64(deltaWriteSectors*512) / seconds
 		if deltaReadsCompleted > 0 {
 			point.DiskReadLatencyMs = float64(deltaReadTimeMs) / float64(deltaReadsCompleted)
+		} else {
+			point.DiskReadLatencyMs = c.lastReadLatencyMs
 		}
 		if deltaWritesCompleted > 0 {
 			point.DiskWriteLatencyMs = float64(deltaWriteTimeMs) / float64(deltaWritesCompleted)
+		} else {
+			point.DiskWriteLatencyMs = c.lastWriteLatencyMs
 		}
 	}
 	c.lastCPU = &cpuNext
 	c.lastDisk = &diskNext
+	if point.DiskReadLatencyMs > 0 {
+		c.lastReadLatencyMs = point.DiskReadLatencyMs
+	}
+	if point.DiskWriteLatencyMs > 0 {
+		c.lastWriteLatencyMs = point.DiskWriteLatencyMs
+	}
 	c.history = append(c.history, point)
 	if len(c.history) > 300 {
 		c.history = append([]SSHMetricPoint(nil), c.history[len(c.history)-300:]...)

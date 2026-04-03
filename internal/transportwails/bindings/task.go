@@ -414,7 +414,7 @@ func (b *TaskBinding) executeTask(taskID string) {
 		if err == nil {
 			execCtx.connection = conn
 			if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
-				execCtx.sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
+				execCtx.sshCollector = collector.NewSSHMetricsCollector(sshConfig, 3*time.Second)
 				if err := execCtx.sshCollector.Start(); err != nil {
 					task.Readiness.SSHAvailable = false
 					task.Readiness.SSHMessage = fmt.Sprintf("SSH unavailable: %v", err)

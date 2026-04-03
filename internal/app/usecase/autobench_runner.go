@@ -231,7 +231,7 @@ func (r *AutoBenchSuiteRunner) RunSuite(ctx context.Context, suiteID string) err
 		// Create SSH metrics collector for system monitoring (best-effort)
 		var sshCollector *collector.SSHMetricsCollector
 		if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
-			sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
+			sshCollector = collector.NewSSHMetricsCollector(sshConfig, 3*time.Second)
 			if startErr := sshCollector.Start(); startErr != nil {
 				sshCollector = nil
 			}
@@ -543,7 +543,7 @@ func (r *AutoBenchSuiteRunner) RunSuiteItems(ctx context.Context, suiteID string
 		// Create SSH metrics collector for system monitoring (best-effort)
 		var sshCollector *collector.SSHMetricsCollector
 		if sshConfig := sshConfigFromConnection(conn); sshConfig != nil && sshConfig.Enabled {
-			sshCollector = collector.NewSSHMetricsCollector(sshConfig, time.Second)
+			sshCollector = collector.NewSSHMetricsCollector(sshConfig, 3*time.Second)
 			if startErr := sshCollector.Start(); startErr != nil {
 				sshCollector = nil
 			}
